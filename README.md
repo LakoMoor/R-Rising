@@ -2,6 +2,8 @@
 
 # R-Rising
 
+[Project site & progress](https://lakomoor.github.io/R-Rising/) · [Browser viewer](https://lakomoor.github.io/R-Rising/viewer/)
+
 An independent **Rust + wgpu** runtime targeting compatibility with **V Rising**,
 including native desktop and **WebAssembly / WebGPU**. Loads content from a local
 game installation. Original game files are not distributed.
