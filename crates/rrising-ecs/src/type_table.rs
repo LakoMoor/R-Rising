@@ -38,13 +38,10 @@
 //! `(Value & 0x6000000) == 0x6000000` (src: @ 0x8fcd9c0 and @ 0x8fcd9d0). `IsComponent` is
 //! `(Value & 0xc000000) == 0` — neither buffer nor shared (src: @ 0x8fcd9e0).
 //!
-//! `HasEntityReferences` and `IsChunkSerializable` are the two members whose *polarity* the corpus
-//! does not settle: their bodies decompile to `~(byte)(Value >> 17) & 1` and the same shape at
-//! `>> 18`, which is Ghidra's rendering of a compare-and-set-flag, and it reads as "the bit is
-//! clear". Every other classification in this build is a positive bit test, and a type that does
-//! not set bit 17 would then have entity references, which is backwards for most components. The
-//! port therefore treats both as positive bit tests and records the choice in `docs/PORT.md`
-//! instead of pretending the corpus was unambiguous.
+//! `HasEntityReferences` and `IsChunkSerializable` are inverted bit tests. The getter bodies
+//! at 0x8fcda80/0x8fcda90 return `~(Value >> bit) & 1`; BuildComponentType @ 0x905a560
+//! sets bit 17 when hasEntityRefs is false and bit 18 when serialization is invalid.
+//! An earlier port assumed positive polarity and incorrectly classified both properties.
 
 /// `Unity.Entities.TypeIndex` — one `int` (`Value; // 0x0`) holding the index and the flags.
 #[repr(C)]
@@ -60,7 +57,9 @@ impl TypeIndex {
     /// `TypeIndex.Flags` masks the flags out of `Value` (src: @ 0x8fcdab0, `Value & 0xffffc000`).
     pub const K_FLAGS_MASK: u32 = 0xffff_c000;
 
+    /// A set bit means the type has NO entity references.
     pub const K_HAS_ENTITY_REFERENCES_MASK: u32 = 1 << 17;
+    /// A set bit means the type is NOT serializable.
     pub const K_IS_CHUNK_SERIALIZABLE_MASK: u32 = 1 << 18;
     pub const K_HAS_NATIVE_CONTAINER_MASK: u32 = 1 << 19;
     pub const K_BAKING_ONLY_TYPE_MASK: u32 = 1 << 20;
@@ -214,17 +213,16 @@ impl TypeIndex {
         self.has(Self::K_TEMPORARY_BAKING_TYPE_MASK)
     }
 
-    /// `TypeIndex.HasEntityReferences` — src: @ 0x8fcda80, read as a positive test on bit 17; see
-    /// the module comment for why the polarity is a judgement call rather than a transcription.
+    /// `TypeIndex.HasEntityReferences` — src: @ 0x8fcda80, bit 17 must be clear.
     #[inline]
     pub const fn has_entity_references(self) -> bool {
-        self.has(Self::K_HAS_ENTITY_REFERENCES_MASK)
+        !self.has(Self::K_HAS_ENTITY_REFERENCES_MASK)
     }
 
-    /// `TypeIndex.IsChunkSerializable` — src: @ 0x8fcda90, same polarity note.
+    /// `TypeIndex.IsChunkSerializable` — src: @ 0x8fcda90, bit 18 must be clear.
     #[inline]
     pub const fn is_chunk_serializable(self) -> bool {
-        self.has(Self::K_IS_CHUNK_SERIALIZABLE_MASK)
+        !self.has(Self::K_IS_CHUNK_SERIALIZABLE_MASK)
     }
 
     /// `TypeIndex.IsSystemStateComponent` — the obsolete spelling of `IsCleanupComponent`, which

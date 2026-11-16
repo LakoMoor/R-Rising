@@ -27,9 +27,12 @@ pub const K_BUFFER_OFFSET: usize = 64;
 /// header. `Archetype.Create` fits every type's block inside this.
 pub const K_BUFFER_SIZE: usize = 32704;
 
-/// `Chunk.kSerializedHeaderSize = 40` — how much of the header an entity-scene file writes. The
-/// remaining 24 bytes up to `kBufferOffset` are padding.
+/// `Chunk.kSerializedHeaderSize = 40` — the build's named prefix size.
+/// This does not include SequenceNumber at +0x28. WriteChunks copies the full 32 KiB block.
 pub const K_SERIALIZED_HEADER_SIZE: usize = 40;
+
+/// Bytes required to access every field, including SequenceNumber (+0x28..+0x30).
+pub const K_HEADER_FIELDS_SIZE: usize = 48;
 
 /// `Chunk.kMaximumEntitiesPerChunk = 4088` — the ceiling `Archetype.Create` asserts against
 /// (`Assert__IsTrue_2(iVar20 < 0xff9)` @ 0x8fb173f). 4088 is `32704 / 8`, the smallest per-entity
@@ -111,7 +114,7 @@ impl ChunkIndex {
     }
 }
 
-/// The 40 bytes of chunk header an entity-scene file writes, `Chunk.kSerializedHeaderSize`.
+/// Fields read from a chunk image; the last field ends at byte 48.
 ///
 /// src: `dump.cs`, `Chunk`'s fields in declaration order:
 /// `int ArchetypeIndexForSerialization; // 0x0`, `Entity metaChunkEntity; // 0x8`,
@@ -216,22 +219,27 @@ impl Chunk {
         chunk_capacity - self.count
     }
 
-    /// Write the 40-byte serialized header of this chunk into `out`, in the order the entity-scene
-    /// writer uses. src: `Chunk.kSerializedHeaderSize = 40` and the field offsets above.
-    pub fn write_serialized_header(&self, out: &mut [u8]) {
-        debug_assert!(out.len() >= K_SERIALIZED_HEADER_SIZE);
+    /// Write header fields into a chunk image, preserving padding bytes.
+    /// src: ArchetypeChunk.get_SequenceNumber @ 0x8ed6720 reads a u64 at +0x28.
+    /// A short destination is refused before writing any bytes.
+    pub fn write_serialized_header(&self, out: &mut [u8]) -> Option<()> {
+        if out.len() < K_HEADER_FIELDS_SIZE {
+            return None;
+        }
         out[0..4].copy_from_slice(&self.archetype_index.to_le_bytes());
         out[8..12].copy_from_slice(&self.meta_chunk_entity.index.to_le_bytes());
         out[12..16].copy_from_slice(&self.meta_chunk_entity.version.to_le_bytes());
         out[16..20].copy_from_slice(&self.count.to_le_bytes());
         out[28..32].copy_from_slice(&self.list_with_empty_slots_index.to_le_bytes());
         out[32..36].copy_from_slice(&self.flags.to_le_bytes());
-        out[36..44].copy_from_slice(&self.sequence_number.to_le_bytes());
+        out[40..48].copy_from_slice(&self.sequence_number.to_le_bytes());
+        Some(())
     }
 
-    /// Read a 40-byte serialized header. src: the same field order.
+    /// Read all header fields from a chunk image. The named 40-byte prefix alone
+    /// cannot contain the sequence number, so at least 48 bytes are required.
     pub fn read_serialized_header(bytes: &[u8]) -> Option<ChunkHeader> {
-        if bytes.len() < K_SERIALIZED_HEADER_SIZE {
+        if bytes.len() < K_HEADER_FIELDS_SIZE {
             return None;
         }
         let g = |r: std::ops::Range<usize>| -> u64 {
@@ -247,7 +255,7 @@ impl Chunk {
             count: g(16..20) as i32,
             list_with_empty_slots_index: g(28..32) as i32,
             flags: g(32..36) as u32,
-            sequence_number: g(36..44),
+            sequence_number: g(40..48),
         })
     }
 }

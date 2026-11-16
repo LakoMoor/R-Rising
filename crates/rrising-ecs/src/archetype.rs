@@ -558,7 +558,7 @@ pub fn create_archetype_data(
             flags = flags.with(ArchetypeFlags::HAS_COMPANION_COMPONENTS);
         }
         // `(packed & 0x38000000) == 0x10000000 && ((value >> 0x11) & 1) == 0`
-        if t.is_managed_component() && !t.has_entity_references() {
+        if t.is_managed_component() && t.has_entity_references() {
             flags = flags.with(ArchetypeFlags::HAS_MANAGED_COMPONENTS);
         }
         if info.has_weak_asset_refs() {

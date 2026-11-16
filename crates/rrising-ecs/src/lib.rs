@@ -28,6 +28,7 @@
 pub mod archetype;
 pub mod buffer;
 pub mod chunk;
+pub mod chunk_data;
 pub mod entity;
 pub mod hash128;
 pub mod type_table;
@@ -40,11 +41,13 @@ pub use archetype::{
 pub use buffer::{BufferHeader, TrashMode, ELEMENT_OFFSET, K_MINIMUM_CAPACITY};
 pub use chunk::{
     Chunk, ChunkFlags, ChunkHeader, ChunkIndex, K_BUFFER_OFFSET, K_BUFFER_SIZE, K_CHUNK_SIZE,
-    K_SERIALIZED_HEADER_SIZE,
+    K_HEADER_FIELDS_SIZE, K_SERIALIZED_HEADER_SIZE,
 };
 pub use entity::Entity;
 pub use hash128::{Hash128, K_GUID_STRING_LENGTH};
 pub use type_table::{
-    AccessMode, ComponentType, ComponentTypeInArchetype, TypeCategory, TypeInfo, TypeIndex, TypeManager,
-    TypeSpec, K_MAX_TYPE_COUNT,
+    AccessMode, ComponentType, ComponentTypeInArchetype, TypeCategory, TypeIndex, TypeInfo,
+    TypeManager, TypeSpec, K_MAX_TYPE_COUNT,
 };
+
+pub use chunk_data::{ArchetypeChunkData, ChunkRemoval};

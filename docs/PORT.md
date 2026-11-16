@@ -524,3 +524,22 @@ Both the synthetic JSON-transfer GPU regression and the real-scene PNG compariso
 passed. Whole-workspace WASM compatibility is not claimed: only rrising-web's
 dependency graph is browser-ready. Strict Clippy's existing math-generator lints
 remain open. Detailed commands and known gaps are in COMPATIBILITY.md.
+
+## Goal continuation: chunk correctness and runtime metadata
+
+The full port remains the active goal. Two original native leaf functions now
+have an executable oracle: [original_leaf_oracles.md](../evidence/original_leaf_oracles.md).
+1,024 inputs per function execute the original x86-64 bytes under Rosetta and
+match Rust outputs. This is narrower than running the original game.
+
+Fixed two existing errors: TypeIndex's reference/serialization bits are inverted;
+Chunk.SequenceNumber is at bytes 40..48, not 36..44, and short header buffers are
+refused without writes. The archetype managed-reference branch keeps its original
+raw bit condition after the getter correction.
+
+Ported ArchetypeChunkData's type-major change/shared arrays, chunk-major masks
+and disabled counts, exact Grow capacity, order-version exclusion in
+SetAllChangeVersion, Add, RemoveAtSwapBack and Dispose. Native allocation is
+replaced by safe vectors; unused capacity is zeroed, not uninitialized. Pointer
+identity, MoveChunks and cached-list operations are not claimed. This metadata
+is not a full EntityComponentStore or world scheduler.

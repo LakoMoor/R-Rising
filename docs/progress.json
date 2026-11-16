@@ -3,9 +3,9 @@
   "metric": "heuristic_member_name_match",
   "behavioral_parity_percent": null,
   "warning": "Name matches can over-count; these numbers do not measure playable game completion or performance.",
-  "matched": 5035,
+  "matched": 5067,
   "total": 187377,
-  "percent": 2.6871,
+  "percent": 2.7042,
   "groups": [
     {
       "name": "BCL (no crate assigned yet)",
@@ -15,9 +15,9 @@
     },
     {
       "name": "Unity.Entities* (ported by rrising-ecs)",
-      "matched": 184,
+      "matched": 216,
       "total": 8486,
-      "percent": 2.1683
+      "percent": 2.5454
     },
     {
       "name": "Unity.Mathematics* (ported by rrising-math)",
