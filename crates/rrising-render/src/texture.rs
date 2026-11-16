@@ -106,11 +106,18 @@ impl TextureData {
             let ph = (self.height >> mip).max(1).next_multiple_of(bh);
             let row_bytes = pw / bw * block;
             let rows = ph / bh;
-            // Preserve the native uploader's orientation, including its known BC-block limitation.
+            // Flip block rows, then texel rows inside each block (BC1/3/4/5; BC6H/BC7 cannot
+            // be flipped without re-encoding and keep the block-row-only flip).
             let mut flipped = Vec::with_capacity(data.len());
             for row in (0..rows as usize).rev() {
                 let start = row * row_bytes as usize;
                 flipped.extend_from_slice(&data[start..start + row_bytes as usize]);
+            }
+            let valid_rows = ((self.height >> mip).max(1) as usize).min(bh as usize);
+            if bh == 4 {
+                for b in flipped.chunks_exact_mut(block as usize) {
+                    flip_block_rows(self.format, b, valid_rows);
+                }
             }
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -138,5 +145,80 @@ impl TextureData {
             height: self.height,
             view: texture.create_view(&Default::default()),
         })
+    }
+}
+
+/// Reverse the first `rows` texel rows of one BC1/BC3/BC4/BC5 block in place.
+/// Other formats are left untouched (their blocks are not row-separable).
+fn flip_block_rows(format: wgpu::TextureFormat, b: &mut [u8], rows: usize) {
+    use wgpu::TextureFormat as F;
+    match format {
+        F::Bc1RgbaUnorm | F::Bc1RgbaUnormSrgb => flip_bc1_color(b, rows),
+        F::Bc3RgbaUnorm | F::Bc3RgbaUnormSrgb => {
+            flip_bc4(&mut b[..8], rows);
+            flip_bc1_color(&mut b[8..], rows);
+        }
+        F::Bc4RUnorm => flip_bc4(b, rows),
+        F::Bc5RgUnorm => {
+            flip_bc4(&mut b[..8], rows);
+            flip_bc4(&mut b[8..], rows);
+        }
+        _ => {}
+    }
+}
+
+/// BC1 color block: bytes 4..8 hold one index byte per texel row.
+fn flip_bc1_color(b: &mut [u8], rows: usize) {
+    b[4..4 + rows].reverse();
+}
+
+/// BC4 block: 48 index bits (little endian) after two endpoints, 12 bits per texel row.
+fn flip_bc4(b: &mut [u8], rows: usize) {
+    let mut bits = 0u64;
+    for (i, v) in b[2..8].iter().enumerate() {
+        bits |= (*v as u64) << (8 * i);
+    }
+    let mut out = bits;
+    for r in 0..rows {
+        let src = (bits >> (12 * (rows - 1 - r))) & 0xfff;
+        out = (out & !(0xfffu64 << (12 * r))) | (src << (12 * r));
+    }
+    for (i, v) in b[2..8].iter_mut().enumerate() {
+        *v = (out >> (8 * i)) as u8;
+    }
+}
+
+#[cfg(test)]
+mod flip_tests {
+    use super::*;
+
+    #[test]
+    fn bc1_rows_reverse() {
+        let mut b = [0, 0, 0, 0, 1, 2, 3, 4];
+        flip_block_rows(wgpu::TextureFormat::Bc1RgbaUnorm, &mut b, 4);
+        assert_eq!(b, [0, 0, 0, 0, 4, 3, 2, 1]);
+        let mut b = [0, 0, 0, 0, 1, 2, 3, 4];
+        flip_block_rows(wgpu::TextureFormat::Bc1RgbaUnorm, &mut b, 1);
+        assert_eq!(b, [0, 0, 0, 0, 1, 2, 3, 4]);
+        let mut b = [0, 0, 0, 0, 1, 2, 3, 4];
+        flip_block_rows(wgpu::TextureFormat::Bc1RgbaUnorm, &mut b, 2);
+        assert_eq!(b, [0, 0, 0, 0, 2, 1, 3, 4]);
+    }
+
+    #[test]
+    fn bc4_rows_reverse() {
+        // rows 0..3 = 0x111, 0x222, 0x333, 0x444 (12 bits each)
+        let bits: u64 = 0x111 | (0x222 << 12) | (0x333 << 24) | (0x444 << 36);
+        let mut b = [9u8, 8, 0, 0, 0, 0, 0, 0];
+        for i in 0..6 {
+            b[2 + i] = (bits >> (8 * i)) as u8;
+        }
+        flip_block_rows(wgpu::TextureFormat::Bc4RUnorm, &mut b, 4);
+        let mut out = 0u64;
+        for i in 0..6 {
+            out |= (b[2 + i] as u64) << (8 * i);
+        }
+        assert_eq!(out, 0x444 | (0x333 << 12) | (0x222 << 24) | (0x111 << 36));
+        assert_eq!(&b[..2], &[9, 8]);
     }
 }

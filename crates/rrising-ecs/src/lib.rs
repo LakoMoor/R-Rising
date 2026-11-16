@@ -17,7 +17,8 @@
 //! - `ArchetypeChunkData` (the per-archetype parallel arrays of change versions, shared component
 //!   values and component-enabled bits). The corpus has 40-odd bodies for it; they are the next
 //!   module.
-//! - `EntityComponentStore` itself, `EntityQueryData`, `MatchingArchetype`, `SystemState` and the
+//! - `EntityComponentStore` is partly ported in `store.rs` (entity table, create/destroy, minimal
+//!   query; limits listed there). Still absent: `EntityQueryData`, `MatchingArchetype`, `SystemState` and the
 //!   world update loop.
 //!
 //! One corpus fact worth knowing when reading the `// src:` comments: IL2CPP merges identical
@@ -31,6 +32,7 @@ pub mod chunk;
 pub mod chunk_data;
 pub mod entity;
 pub mod hash128;
+pub mod store;
 pub mod type_table;
 
 pub use archetype::{
@@ -54,3 +56,7 @@ pub use chunk_data::{ArchetypeChunkData, ChunkRemoval};
 
 pub mod render_mesh;
 pub use render_mesh::MaterialMeshInfo;
+
+pub use store::{
+    EntityComponentStore, EntityInChunk, EntityQuery, StoredArchetype, K_MAX_ENTITIES_PER_WORLD,
+};

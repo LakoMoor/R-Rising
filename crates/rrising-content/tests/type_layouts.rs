@@ -31,12 +31,15 @@ fn recovered_layouts_validate_real_chunk_headers_and_buffers() {
         mut patches,
         mut transforms,
     ) = (0, 0, 0, 0, 0, 0, 0);
+    let (mut unresolved_archetypes, mut unresolved_chunks) = (0, 0);
     for path in paths {
         let scene = SceneFile::open(&path).expect("read original scene");
         let resolved = layouts
             .resolve_scene(&scene)
             .unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
         scenes += 1;
+        unresolved_archetypes += resolved.summary.unresolved_archetypes.len();
+        unresolved_chunks += resolved.summary.unresolved_chunks;
         archetypes += resolved.summary.resolved_archetypes;
         chunks += resolved.summary.resolved_chunks;
         entities += resolved.summary.resolved_entities;
@@ -82,12 +85,14 @@ fn recovered_layouts_validate_real_chunk_headers_and_buffers() {
             }
         }
     }
-    println!("recovered scene layouts: scenes={scenes} archetypes={archetypes} chunks={chunks} entities={entities} buffer_headers={headers} external_patches={patches} transform_chunks={transforms}");
+    println!("recovered scene layouts: scenes={scenes} archetypes={archetypes} chunks={chunks} entities={entities} buffer_headers={headers} external_patches={patches} transform_chunks={transforms} unresolved_archetypes={unresolved_archetypes} unresolved_chunks={unresolved_chunks}");
     println!("MaterialMeshInfo records read: {material_mesh_records}");
     assert_eq!(scenes, 1183);
+    // Remaining gaps need 64 identity-only hashes (61 managed classes, MountModelStreaming, 2 generics).
+    assert_eq!((unresolved_archetypes, unresolved_chunks), (7539, 7895));
     assert_eq!(
         (archetypes, chunks, entities, headers, patches, transforms),
-        (3615, 6542, 422447, 34750, 5362, 6252),
+        (10040, 23828, 1337840, 58788, 15995, 27597),
         "pinned scene-layout acceptance set changed; investigate first divergence"
     );
 }

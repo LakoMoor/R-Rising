@@ -10,7 +10,7 @@ original assets, executables or decompiled sources should be distributed.
 | Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Catalog read and wired into native startup; request scheduling remains |
 | Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | Reader tests only | 9 scene tests passed against local install | Build runtime world and resolve components |
 | Math | Broad API coverage | Showcase transforms | 58 regression/unit tests passed | Original-runtime differential oracle; rounding deviations in PORT.md |
-| ECS | Primitive types and layout | Readers; no running game world | 9 primitive tests passed | Entity allocation, queries, system scheduling |
+| ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query | Unit tests only; not wired into a running game world | Port-side unit tests derived from decompiled bodies (`store.rs`); no native-replay oracle (functions are not pure leaves) | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, system scheduling |
 | Rendering | Basic lit meshes | Native showcase | GPU triangle test; screenshots/native-content.png | Original scenes, animation, HDRP and visual comparisons |
 | Gameplay / HUD / physics / sound / networking / saves | Not implemented | None | No end-to-end parity cases | First original-scene playable slice |
 | Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, mobile texture fallback, game world |
@@ -69,9 +69,11 @@ not direct archive loading or game simulation.
 - Browser surface uses an sRGB view to match native shader output conversion.
 - Full native workspace test run passed (83 tests). Additional scene-transfer
   regression compares GPU output after JSON round-trip with direct GPU upload.
-- Known inherited orientation limitation: compressed texture upload reverses
-  block rows but not texel rows inside each BC block. This is not image parity
-  with the original and remains to be fixed with reference pixel evidence.
+- Compressed texture upload now reverses block rows and texel rows inside
+  BC1/BC3/BC4/BC5 blocks (synthetic-block unit tests). BC6H/BC7 blocks are not
+  row-separable and still reverse block rows only; no reference-pixel comparison
+  against the original has been done. native-content.png re-rendered after the
+  change (the earlier byte-identity statement above applies to the prior build).
 
 All-device compatibility and performance improvement remain goals, not results.
 
@@ -106,8 +108,9 @@ All-device compatibility and performance improvement remain goals, not results.
 ## Offline type layout and component access
 
 `python3 tools/probe_type_registry.py --check --output /private/tmp/rrising-type-layouts.json`
-reads the pinned IL2CPP metadata v31 and native registration. It derives 1,493 of
-1,772 stable hashes observed in scenes, matching type names and managed field
+reads the pinned IL2CPP metadata v31 and native registration. It derives storage
+shapes for 1,708 of 1,772 stable hashes observed in scenes (the remaining 64 are
+identified by name but carry no storage shape, see below), matching type names and managed field
 sizes/offsets. `native_size` is a marshalled size, not the ECS managed size (a
 bool-backed structure can marshal to four bytes but occupy one byte in ECS).
 
@@ -159,3 +162,24 @@ reader admits their zero-byte shared slots but does not deserialize managed
 arrays or treat their fields as host pointers. The admitted chunk/transform set
 remains unchanged: this is added identity evidence, not new mesh binding coverage.
 `--check` now pins both identities and their shared/managed classifications.
+
+## Generic, explicit-layout and managed-class identities
+
+All **1,772 / 1,772** scene type hashes are now identified by name
+(`tools/probe_generic_identities.py`, shared with `tools/probe_type_registry.py`).
+The 279 formerly unresolved hashes split into: explicit-layout structs, whose
+`FieldOffset` is hashed from IL2CPP's own field-offset table (the metadata carries
+no attribute for it), and fields typed as constructed generics (native kind 0x15).
+Of these, 1,708 have a recovered storage shape; 64 are identity-only: 61 managed
+`IComponentData` classes, `ProjectM.MountModelStreaming` (a struct whose generic
+field hides an `Entity` offset that is not recovered) and two
+`Rukhanka.NewBlobAssetDatabaseRecord<T>` instantiations.
+
+With the 1,708 shapes, **all 1,183 scene files** resolve and validate (original
+algorithm, entity uniqueness, buffer headers, external patches): 10,040 of 17,579
+archetypes and 23,828 of 31,723 chunks (1,337,840 entities, 58,788 buffer headers,
+15,995 external patches), up from 3,615 archetypes / 6,542 chunks. The other 7,539
+archetypes / 7,895 chunks contain one of the 64 identity-only types and stay
+refused. An experiment storing managed components as a 4-byte chunk slot passed
+until one archetype's buffer offsets diverged (also tried 0, 1, 2, 8, 16), so it
+was not adopted: managed per-entity storage remains unrecovered.

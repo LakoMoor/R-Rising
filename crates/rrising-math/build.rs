@@ -75,9 +75,7 @@ fn swizzles(letters: &[&str], len: usize) -> Vec<String> {
             pos -= 1;
             if cur[pos] + 1 < letters.len() {
                 cur[pos] += 1;
-                for j in pos + 1..len {
-                    cur[j] = 0;
-                }
+                cur[pos + 1..].fill(0);
                 break;
             }
         }
@@ -339,7 +337,7 @@ fn main() {
     }
     for (ty, (rows, cols)) in &mats {
         let family = FAMILIES.iter().find(|f| ty.starts_with(f.name)).expect("listed family");
-        emitted.insert(ty.clone(), gen_matrix(&mut out, family, *rows, *cols, &listed, &mats, ledger.get(ty), &conv, &fmts));
+        emitted.insert(ty.clone(), gen_matrix(&mut out, family, *rows, *cols, &mats, ledger.get(ty), (&conv, &fmts)));
     }
 
     // Cross-check against the dump: the property surface must be exactly what `dump.cs` declares,
@@ -719,12 +717,11 @@ fn gen_matrix(
     f: &Family,
     rows: usize,
     cols: usize,
-    _listed: &BTreeMap<String, usize>,
     mats: &BTreeMap<String, (usize, usize)>,
     members: Option<&BTreeSet<String>>,
-    conv: &ConversionLedger,
-    fmts: &FormatLedger,
+    ledgers: (&ConversionLedger, &FormatLedger),
 ) -> BTreeSet<String> {
+    let (conv, fmts) = ledgers;
     let ty = format!("{}{}x{}", f.name, rows, cols);
     let col_ty = format!("{}{}", f.name, rows);
     let bool_ty = format!("bool{}x{}", rows, cols);

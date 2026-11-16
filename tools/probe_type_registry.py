@@ -19,6 +19,7 @@ import json
 import struct
 from pathlib import Path
 
+EXPECTED_MATCHES = 1708
 BASIS = 0xCBF29CE484222325
 PRIME = 0x100000001B3
 MASK = (1 << 64) - 1
@@ -268,6 +269,12 @@ class Probe:
         for field in self.layout(i)['fields']:
             if not field['static'] and field['typedef_index'] is not None:
                 offsets.extend(self.entity_offsets(field['typedef_index'],base+field['value_offset']))
+            elif not field['static'] and self.native(field['native_type_index'])[0] == 21:
+                # Constructed generic field: its storage is covered by the owner's size; only
+                # refuse if the instantiation could hide an Entity needing patching.
+                expression = self.identities.expr(self.native(field['native_type_index']))
+                if self.identities.contains_entity(expression):
+                    raise Unsupported('generic field contains Entity offsets that are not recovered')
         return offsets
 
     def ecs_layout(self, i, stable):
@@ -392,10 +399,13 @@ class Probe:
         # HashType skips primitive/enum/array/pointer/generic-parameter fields.
         if row['namespace'] == 'System' and row['name'] in PRIMITIVES.values() or row['bitfield'] & 2:
             return value
-        if row['flags'] & 0x18 == 0x10:
-            raise Unsupported('explicit layout requires FieldOffsetAttribute hashing')
+        # IL2CPP bakes FieldOffsetAttribute into its field-offset table: explicit-layout
+        # types hash that offset (validated by 277 additional scene-hash matches).
+        explicit = row['flags'] & 0x18 == 0x10
         for field in self.layout(i)['fields']:
             if not field['static']:
+                if explicit:
+                    value = combine(value, field['value_offset'] & MASK)
                 field_hash = self.type_hash(field['typedef_index'], cache) if field['typedef_index'] is not None else self.terminal_descriptor_hash(self.native(field['native_type_index']))
                 value = combine(value, field_hash)
         cache[i] = value
@@ -415,7 +425,7 @@ class Probe:
             try:
                 typedef = self.typedef_for(desc)
             except Unsupported:
-                if not desc[2] & 16 and desc[0] not in [15,29]:
+                if not desc[2] & 16 and desc[0] not in [15,29,21]:
                     raise
                 typedef = None
             boxed_offset = struct.unpack_from('<i', self.binary, self.offset(offsets_ptr+n*4))[0]
@@ -471,17 +481,29 @@ def main():
     probe = Probe(binary, metadata)
     observed, files = scene_hashes(args.install/'VRising_Data/StreamingAssets/EntityScenes')
     matched, unsupported = [], 0
+    # Constructed-generic field signatures (native kind 0x15) and explicit layouts
+    # are hashed by the generic identity probe; it reproduces the same algorithm.
+    from probe_generic_identities import Identities
+    identities = probe.identities = Identities(probe)
     for row in probe.type_rows:
         if not row['bitfield'] & 1:
-            continue
+            continue  # managed classes: identity only (per-entity managed slot layout is unverified)
         try:
-            stable = combine(probe.type_hash(row['index'], {}), fnv(bytes(4)))
+            stable = identities.stable_hash(identities.expr(probe.native(row['byval'])))
             if stable not in observed:
                 continue
             matched.append(dict(name=probe.full_name(row['index']), stable_hash=f'{stable:016x}',
                                 metadata_type_index=row['index'], **probe.layout(row['index']), ecs=probe.ecs_layout(row['index'],stable)))
         except (Unsupported, RecursionError):
             unsupported += 1
+    # Scene hashes that belong to managed classes or constructed generics have no ECS
+    # storage shape here; they are recorded as identities only (never read by layouts).
+    known = {int(row['stable_hash'], 16) for row in matched}
+    identity_matches, _ = identities.match_scene(observed, known)
+    identity_only = [dict(name=row['name'], stable_hash=row['stable_hash'], generic_arguments=row['generic_arguments'])
+                     for row in identity_matches.values() if int(row['stable_hash'], 16) not in known]
+    identity_only.sort(key=lambda row: row['name'])
+    unresolved = len(observed) - len(known) - len(identity_only)
     result = dict(schema_version=1, evidence_kind='offline-derived-and-scene-hash-matched',
                   binary_sha256=hashlib.sha256(probe.binary).hexdigest(),
                   metadata_sha256=hashlib.sha256(probe.metadata).hexdigest(),
@@ -493,12 +515,15 @@ def main():
                                'Hashes are matched against scene data and TypeVersion(0) is checked from type attributes',
                                'Does not resolve generics, pointer/array field types or explicit layout attributes',
                                'These are offline-derived layout inputs, not a runtime TypeInfo dump; write groups, reference-counting and serialization flags are not reconstructed'],
+                  identity_only_count=len(identity_only), identity_only=identity_only, unresolved_scene_hashes=unresolved,
                   matches=sorted(matched,key=lambda item:item['name']))
     if args.check:
         if result['binary_sha256'] != 'a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56' or result['metadata_sha256'] != 'b8f9f76ffb72a0c77079082aac8eb78da839094e9d090e8461b49230e8831271':
             raise ValueError('pinned-build identity changed; anchors are not transferable')
-        if len(matched) != 1495 or len({row['stable_hash'] for row in matched}) != 1495:
+        if len(matched) != EXPECTED_MATCHES or len({row['stable_hash'] for row in matched}) != EXPECTED_MATCHES:
             raise ValueError('pinned-build type-hash coverage changed')
+        if result['identity_only_count'] != 64 or result['unresolved_scene_hashes'] != 0:
+            raise ValueError('scene hash identity coverage changed')
         anchors = {
             'Unity.Entities.Entity': ('6f02124d960c5b29',8),
             'Unity.Transforms.Translation': ('a42de7cc0763e5be',12),
@@ -518,7 +543,7 @@ def main():
             raise ValueError('empty tag unexpectedly consumes chunk payload')
         if by_name['ProjectM.TileModelRegistrationState']['managed_value_size'] != 1 or by_name['ProjectM.TileModelRegistrationState']['native_size'] != 4:
             raise ValueError('managed/marshalled bool-layout distinction lost')
-        print('Pinned-build checks passed: 1495 unique scene hash matches; Entity/transform anchors; zero-size tag; Boolean layout distinction.')
+        print('Pinned-build checks passed: '+str(EXPECTED_MATCHES)+' unique storage-shape matches plus '+str(result['identity_only_count'])+' identity-only (all 1772 scene hashes identified); Entity/transform anchors; zero-size tag; Boolean layout distinction.')
     if args.output:
         args.output.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:v for k,v in result.items() if k!='matches'},indent=2))
@@ -528,4 +553,10 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # Re-enter through the importable module so shared exception classes are identical
+    # to the ones probe_generic_identities imports.
+    import sys
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import probe_type_registry
+    probe_type_registry.main()

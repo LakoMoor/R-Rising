@@ -382,8 +382,9 @@ impl TypeLayouts {
                 let at = usize::try_from(patch.chunk_offset)?;
                 let (capacity, size, _) = expected_buffer_offsets.get(&at).with_context(|| {
                     format!(
-                        "chunk {}: buffer patch at {at} misses reconstructed buffer headers",
-                        chunk.index
+                        "chunk {} archetype {arch_index}: buffer patch at {at} misses reconstructed buffer headers; slots {:?}",
+                        chunk.index,
+                        arch.types.iter().enumerate().map(|(slot, t)| (slot, registry.infos()[t.index() as usize].name.clone(), arch.data.layout.offsets[slot], arch.data.layout.sizeofs[slot])).collect::<Vec<_>>()
                     )
                 })?;
                 ensure!(capacity.checked_mul(*size) == Some(patch.alloc_size_bytes), "chunk {}: patch at {at} is {} bytes, reconstructed capacity {capacity} × element size {size}",chunk.index,patch.alloc_size_bytes);
