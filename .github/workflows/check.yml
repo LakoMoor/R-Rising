@@ -11,6 +11,7 @@ jobs:
       - run: cargo check --workspace --locked
       - run: cargo test --locked -p rrising-math -p rrising-ecs -p rrising-render
       - run: cargo test --locked -p rrising-content --test entity_scenes a_foreign_header_is_refused
+      - run: cargo test --locked -p rrising-content --test catalog --test type_layouts
       - run: python3 tools/port_coverage.py --json > /tmp/progress.json
       - run: diff -u docs/progress.json /tmp/progress.json
   wasm:

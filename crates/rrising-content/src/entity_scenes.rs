@@ -615,7 +615,7 @@ impl SceneFile {
     /// Those lists were filled by `SerializeUtility.FillBufferPatchRecordsAndClearBufferPointer`
     /// @ 0x8fee550: for every entity of every buffer component of the archetype it appends
     /// `ChunkOffset` as the component's byte offset inside the chunk buffer, `AllocSizeBytes` as
-    /// the element size times the buffer's element count, appends the live buffer pointer, and
+    /// the element size times the buffer's capacity, appends the live buffer pointer, and
     /// zeroes the pointer in the chunk — which is why the chunk blocks hold nothing at these
     /// offsets and why this stream has to exist at all.
     ///
@@ -1167,8 +1167,8 @@ pub struct BufferPatch<'a> {
     /// inside the chunk block, of the `DynamicBuffer` whose contents follow. The chunk holds a
     /// null pointer there; the bytes are the buffer's elements.
     pub chunk_offset: i32,
-    /// `BufferPatchRecord.AllocSizeBytes` @ 0x4: the element size times the buffer's element
-    /// count, which is how many bytes of `data` follow.
+    /// `BufferPatchRecord.AllocSizeBytes` @ 0x4: the element size times the buffer's
+    /// capacity, which is how many bytes of `data` follow.
     pub alloc_size_bytes: i32,
     /// The `alloc_size_bytes` bytes that follow the record in the stream.
     pub data: &'a [u8],

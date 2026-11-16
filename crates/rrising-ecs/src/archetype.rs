@@ -175,28 +175,11 @@ const fn align64(x: i32) -> i32 {
 /// hash at 0x8fb2077: `uVar26 = (uVar26 ^ TypeInfo[i].StableTypeHash) * 0x100000001b3`.
 const FNV_PRIME_64: u64 = 0x100000001b3;
 
-/// The type-list ordering CreateArchetype's boundary walk assumes, as a sort key.
-///
-/// The body walks the finished list *backwards from the end*: chunk types (`0x20000000`), then
-/// shared (`0x8000000`), then zero-sized (`0x40000000`), then managed-only
-/// (`& 0x38000000 == 0x10000000`), then buffers (`0x4000000`). So the list runs
-/// `[native][buffer][managed][tag][shared][chunk]`, and this rank reproduces exactly that grouping.
-/// Ties break on `TypeInfo.MemoryOrdering`, the second key the body's insertion sort compares.
-fn category_rank(value: i32) -> u32 {
-    let flags = (value as u32) & TypeIndex::K_FLAGS_MASK;
-    if flags & 0x20000000 != 0 {
-        5 // chunk components: last
-    } else if flags & 0x8000000 != 0 {
-        4 // shared components
-    } else if flags & 0x40000000 != 0 {
-        3 // zero-sized / tags
-    } else if flags & 0x38000000 == 0x10000000 {
-        2 // managed components
-    } else if flags & 0x4000000 != 0 {
-        1 // buffers
-    } else {
-        0 // plain component data
-    }
+/// CreateArchetype @ 0x8fb18c8 stores `TypeIndex.Value & 0xffffc000`
+/// as the first memory-order sort key. Every flag participates; reducing it to
+/// component categories loses the reference/enableable/other ordering bits.
+fn memory_order_flags(value: i32) -> i32 {
+    (value as u32 & TypeIndex::K_FLAGS_MASK) as i32
 }
 
 /// The per-archetype layout numbers CreateArchetype computes: where each type's block sits inside a
@@ -356,7 +339,7 @@ impl ArchetypeLayout {
 /// 2. walk the end of the list backwards to find the category boundaries;
 /// 3. copy `SizeInChunk` / `BufferCapacity` per type and take the minimum `MaximumChunkCapacity`;
 /// 4. `ChunkCapacity = 32704 / sum(SizeOfs)`, decremented until
-///    `sum(align64(SizeOfs[i] * capacity)) < 32704`, then capped by that minimum;
+///    `sum(align64(SizeOfs[i] * capacity)) <= 32704`, then capped by that minimum;
 /// 5. `InstanceSize = sum(SizeOfs[0 .. NonZeroSized])`,
 ///    `InstanceSizeWithOverhead = sum(align64(SizeOfs[i]))`;
 /// 6. `Offsets[indexInArchetype] = running; running += align64(SizeOfs * capacity)` in memory order;
@@ -403,8 +386,8 @@ pub fn create_archetype_data(
     // 1. memory order.
     let mut memory_order: Vec<i32> = (0..count as i32).collect();
     memory_order.sort_by(|&a, &b| {
-        let ka = category_rank(types[a as usize].value);
-        let kb = category_rank(types[b as usize].value);
+        let ka = memory_order_flags(types[a as usize].value);
+        let kb = memory_order_flags(types[b as usize].value);
         ka.cmp(&kb).then_with(|| {
             let ia = infos[types[a as usize].index() as usize].memory_ordering;
             let ib = infos[types[b as usize].index() as usize].memory_ordering;
@@ -478,7 +461,7 @@ pub fn create_archetype_data(
         for &s in &sizeofs[..first_tag as usize] {
             used += align64(s as i32 * capacity);
         }
-        if used < K_CHUNK_BUFFER_SIZE || capacity <= 0 {
+        if used <= K_CHUNK_BUFFER_SIZE || capacity <= 0 {
             break;
         }
         capacity -= 1;

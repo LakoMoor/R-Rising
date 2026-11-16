@@ -12,3 +12,6 @@
 *.rrscene.json
 /web/pkg/
 /web/branding/
+
+__pycache__/
+*.pyc

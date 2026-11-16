@@ -543,3 +543,21 @@ SetAllChangeVersion, Add, RemoveAtSwapBack and Dispose. Native allocation is
 replaced by safe vectors; unused capacity is zeroed, not uninitialized. Pointer
 identity, MoveChunks and cached-list operations are not claimed. This metadata
 is not a full EntityComponentStore or world scheduler.
+
+
+## Storage layouts from the pinned binary
+
+Offline IL2CPP inspection now resolves 1,493 / 1,772 stable type hashes observed
+in scenes. `tools/probe_type_registry.py --check` regenerates a local JSON report;
+no original game payload or raw type dump is committed. The read-only layout
+bridge validates Entity and buffer storage before exposing component slices.
+Exact current counts and limitations are in COMPATIBILITY.md.
+
+Two original layout details repaired: full TypeIndex flags sort before stable
+hashes; 32,704 aligned bytes fit a chunk exactly. With these corrections, all
+admitted layouts across 1,183 files pass Entity uniqueness, buffer capacity and
+external-allocation checks (6,542 chunks). The other archetypes stay unresolved.
+
+`rrising-app --inspect-scene file.entities --type-layouts report.json` wires this
+path into the executable and reports counts plus up to eight original transform
+samples. It is explicitly read-only and has no simulation/world claim.

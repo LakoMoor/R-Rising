@@ -116,6 +116,18 @@ installation is counted as a successful original-game compatibility test.
 | `rrising-app` | Native window, offscreen capture and local scene export |
 | `rrising-web` | Async WebGPU initialization and browser host |
 
+Read original component storage without starting a window:
+
+```sh
+python3 tools/probe_type_registry.py --check --output /tmp/rrising-layouts.json
+cargo run --locked -p rrising-app -- --inspect-scene /path/to/file.entities \
+  --type-layouts /tmp/rrising-layouts.json
+```
+
+The report is derived from your pinned local install and remains local. Unknown
+archetypes are reported, never assigned guessed layouts. This command restores
+chunk metadata and reads component bytes; it does not run gameplay.
+
 Next: original scene-to-world wiring and a measured playable vertical slice;
 portable texture fallback; original-runtime golden scenarios and comparable
 release performance measurements.

@@ -36,7 +36,7 @@ regression tests must not be presented as proof of 1:1 compatibility.
   610,085 non-background pixels. This is a showcase grid, not original scene placement.
 - `cargo check --workspace --target wasm32-unknown-unknown --locked`: failed in
   transitive `primase-foundations` Oodle backend (`libloading::Library` unavailable).
-- Windows, Linux, Android, iOS and browser execution have not been verified.
+- Windows, Linux, Android and iOS execution have not been verified. Browser execution is covered by the subsequent browser milestone.
 
 ## Publication
 
@@ -101,3 +101,38 @@ All-device compatibility and performance improvement remain goals, not results.
 - Corrected historical descriptions: implicit archetype slot 0 is Entity, not
   SharedComponentData. Buffer external allocations use Capacity × ElementSize;
   the old text calling that Length was inaccurate.
+
+
+## Offline type layout and component access
+
+`python3 tools/probe_type_registry.py --check --output /private/tmp/rrising-type-layouts.json`
+reads the pinned IL2CPP metadata v31 and native registration. It derives 1,493 of
+1,772 stable hashes observed in scenes, matching type names and managed field
+sizes/offsets. `native_size` is a marshalled size, not the ECS managed size (a
+bool-backed structure can marshal to four bytes but occupy one byte in ECS).
+
+Read-only access through `type_layouts::TypeLayouts` uses recovered storage
+inputs and the original archetype allocation algorithm. It refuses unknown
+hashes and checks entity uniqueness, ranges, buffer headers and external patches
+without ever dereferencing serialized pointers. Remaining TypeInfo flags,
+write groups, managed objects and generic types are not reconstructed. Successful
+boundary checks do not establish arbitrary component semantics or runtime parity.
+
+Acceptance against all 1,183 scene files:
+
+```sh
+RRISING_LAYOUT_REPORT=/private/tmp/rrising-type-layouts.json \
+VRISING_DATA=/path/to/VRising_Data \
+cargo test --locked -p rrising-content --test type_layouts -- --include-ignored --nocapture
+```
+
+Result: 3,615 admitted archetypes, 6,542 chunks, 422,447 entities, 34,750 buffer
+headers, 5,362 external buffer patches and 6,252 chunk transform-component reads.
+Unresolved archetypes are counted separately; they are never assigned fallback
+layouts. No transform has yet been wired to the game's rendering references.
+
+This check exposed and fixed two further archetype bugs against the shipped
+CreateArchetype body: all TypeIndex flag bits participate in memory ordering
+(RVA 0x8fb18c8, mask `0xffffc000`); an aligned payload of exactly 32,704 bytes is
+valid (branch at 0x8fb15db..0x8fb1641 checks `< 0x7fc1`, not `< 0x7fc0`). Both
+have focused regression tests in `rrising-ecs/tests/archetype_storage.rs`.
