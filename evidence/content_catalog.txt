@@ -1,0 +1,37 @@
+# RuntimeContentCatalogData — V Rising v1.1.13.0-r99712-b17
+# Original: GameAssembly.dll SHA256 a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56
+# RuntimeContentCatalog.LoadCatalogData RVA0x900ffe0 loads BlobAssetReference version1.
+# Root (file+36): five BlobArray descriptors at offsets0/8/16/24/32.
+# Saved Ghidra bodies: AddArchiveLocations RVA0x9010ae0 (16-byte IDs),
+# AddFileLocations RVA0x9010f50 (24-byte records),
+# AddObjectLocations RVA0x9011a20 (64-byte records),
+# AddSceneLocations RVA0x9011460 (184-byte records),
+# AddFileDependencies RVA0x9010690 (nested arrays of int file indices).
+# Fresh LLVM 23.1.4 disassembly of original file, without a fresh Ghidra auto-analysis:
+# VA0x189011c04 reads signed int record+0x30 as file index.
+# VA0x189011d0c advances the object record pointer by0x40.
+# VA0x189011ce6 selects high64 bits of record+0x30..0x3f as local identifier.
+# These are static observations, not original-runtime execution.
+# Envelope:4 version bytes +32-byte BlobAssetHeader; payload486628 bytes.
+# Array regions: archive IDs63252..133812; files133812..239652;
+# objects239652..313316; dependency descriptors84..15316.
+# Dependency payload allocations appear both before and after top-level arrays.
+# Every byte belongs to a parsed region or one of28 verified-zero alignment bytes.
+# The final archive entry is Hash128.NULL and has no physical archive file.
+# Repeated serialized object IDs occur in the source array and must not be rejected.
+# Unknown/unverified: blob hash algorithm, original runtime load scheduling,
+# nonempty scene records (the reference catalog has none), original async behavior.
+# Reproduce:
+# cargo test --locked -p rrising-content --test catalog -- --include-ignored --nocapture
+file_bytes=486664
+blob_bytes=486628
+archive_entries=4410
+physical_archives_resolved=4409
+file_records=4410
+object_records=1151
+scene_records=0
+dependency_sets=1904
+dependency_file_indices=55316
+verified_zero_alignment_bytes=28
+largest_dependency_set=662
+largest_set_file_dependency_closure=804

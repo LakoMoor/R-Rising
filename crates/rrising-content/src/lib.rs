@@ -10,7 +10,11 @@
 
 pub mod content;
 pub mod entity_scenes;
+pub mod scene_runtime;
 pub mod localization;
 pub mod settings;
 
-pub use content::{ContentEntry, GameContent, TRACKED_CLASSES, list_archives};
+pub use content::{list_archives, ContentEntry, GameContent, TRACKED_CLASSES};
+
+pub mod catalog;
+

@@ -7,7 +7,7 @@ original assets, executables or decompiled sources should be distributed.
 
 | Boundary | Implementation | Runtime connection | Evidence | Remaining acceptance |
 | --- | --- | --- | --- | --- |
-| Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Follow catalog dependency order |
+| Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Catalog read and wired into native startup; request scheduling remains |
 | Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | Reader tests only | 9 scene tests passed against local install | Build runtime world and resolve components |
 | Math | Broad API coverage | Showcase transforms | 58 regression/unit tests passed | Original-runtime differential oracle; rounding deviations in PORT.md |
 | ECS | Primitive types and layout | Readers; no running game world | 9 primitive tests passed | Entity allocation, queries, system scheduling |
@@ -22,7 +22,7 @@ original assets, executables or decompiled sources should be distributed.
 It measures heuristic **member name matches** only. It can credit unrelated
 identifiers and does not prove overload coverage, correctness, or runtime wiring.
 Behavioral parity and overall game completion are unknown, not 2.7%.
-There are currently no original-runtime golden scenarios. Reader tests and GPU
+There are no full-game original-runtime golden scenarios. Two original native leaf functions now have 1,024 executed input/output cases each (see evidence/original_leaf_oracles.md). Reader tests and GPU
 regression tests must not be presented as proof of 1:1 compatibility.
 
 ## Validation in this session
@@ -83,3 +83,21 @@ All-device compatibility and performance improvement remain goals, not results.
 - Strict Clippy remains blocked by pre-existing math generator lints:
   `needless_range_loop` at build.rs:78 and `too_many_arguments` at build.rs:717.
   The check was attempted and is not reported as passing.
+
+
+## Catalog and chunk metadata milestone
+
+- `cargo test --locked -p rrising-content --test catalog --test scene_runtime -- --include-ignored --nocapture`: 4 tests passed, including explicit local-install checks.
+- Catalog: 4,410 archive records including a NULL sentinel, 4,409 physical archives,
+  4,410 file records, 1,151 object locations, 1,904 dependency sets / 55,316 indices.
+  All paths and cross references validated. Hash integrity and original request
+  scheduling are not verified.
+- Native open_content now reads archive order from the original catalog; malformed
+  or missing referenced archives are errors. Installations lacking a catalog retain
+  explicit logged scan fallback. Full archive indexing still yields 188,063 objects.
+- All 1,183 EntityScenes loaded chunk metadata into ArchetypeChunkData: 31,723
+  chunks, 1,385,671 entities, 648,652 enable masks. Growth and swap-back preserve
+  original masks and disabled counts. This is metadata restoration, not gameplay.
+- Corrected historical descriptions: implicit archetype slot 0 is Entity, not
+  SharedComponentData. Buffer external allocations use Capacity × ElementSize;
+  the old text calling that Length was inaccurate.

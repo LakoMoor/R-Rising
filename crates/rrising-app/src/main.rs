@@ -369,7 +369,20 @@ impl ApplicationHandler for App {
 
 fn open_content(opt: &Options) -> Result<GameContent> {
     let dir = opt.data.join("StreamingAssets/ContentArchives");
-    let all = list_archives(&dir).with_context(|| format!("listing {}", dir.display()))?;
+    let catalog_path = dir.join("archive_dependencies.bin");
+    let all = if catalog_path.is_file() {
+        let catalog = rrising_content::catalog::RuntimeContentCatalog::open(&catalog_path)?;
+        let paths = catalog.archive_paths(&dir);
+        for path in &paths {
+            anyhow::ensure!(path.is_file(), "catalog archive is absent: {}", path.display());
+        }
+        println!("catalog: {} physical archives, {} files, {} object locations, {} dependency sets",
+            paths.len(), catalog.files.len(), catalog.objects.len(), catalog.dependency_sets.len());
+        paths
+    } else {
+        log::warn!("no catalog at {}; scanning archives", catalog_path.display());
+        list_archives(&dir).with_context(|| format!("listing {}", dir.display()))?
+    };
     let take = opt.archives.min(all.len());
     println!(
         "opening {} of {} content archives from {}",

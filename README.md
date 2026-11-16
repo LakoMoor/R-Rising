@@ -21,6 +21,7 @@ performance improvement has been demonstrated.
 | `Unity.Entities` member name matches | 216 / 8,486 | **2.5% heuristic coverage** |
 | Game-authored member name matches | 1 / 79,642 | **0.0013%**, not gameplay coverage |
 | Content archives indexed | 4,409 / 4,409 | **100% of this installation** |
+| RuntimeContentCatalog | 1 / 1 | Parsed and used by native startup; 1,904 dependency sets |
 | Entity scene containers and streams decoded | 1,183 / 1,183 | **100% parsing; not world execution** |
 | Native showcase | 48 objects, 26 bound textures | Verified on macOS / Metal |
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |

@@ -532,7 +532,7 @@ impl SceneFile {
     /// `int UniqueTypesCount`, then `UniqueTypesCount × ulong` of `TypeInfo.Hash` (`+0x18`, the
     /// stable type hash), then `int ArchetypeCount`, then per archetype
     /// `int Archetype.EntityCount` (`+0xbc`), `int Archetype.TypesCount - 1` (`+0xc4`) — the
-    /// `-1` skips the `SharedComponentData` entry every live archetype keeps at `Types[0]` — and
+    /// `-1` skips the `Entity` entry every live archetype keeps at `Types[0]` — and
     /// that many `int`s of `uniqueIndex | 0x20000000` for a chunk component.
     /// `SerializeUtility.ReadArchetypes` @ 0x8fe0fa0 reads the same shape back: it maps each
     /// stored int through the type table as `types[raw & 0x3fff]`, ORs `0x60000000`
@@ -705,7 +705,7 @@ impl SceneFile {
     /// why the writer reads the counts at `+0xc` and `+0x14`.
     ///
     /// `ComponentCount` is the archetype's full `TypesCount`, one more than the component slots the
-    /// `Archetypes` stream lists, because that stream leaves out the `SharedComponentData` entry
+    /// `Archetypes` stream lists, because that stream leaves out the `Entity` entry
     /// `CreateArchetype` puts at `Types[0]` while the chunk data still counts it.
     ///
     /// Measured on the install: 1183 files, 648652 (chunk, component) units, 10378432 bytes of
@@ -1100,7 +1100,7 @@ impl SceneArchetypes {
 pub struct SceneArchetype {
     /// `Archetype.EntityCount` @ 0xbc as the writer saw it.
     pub entity_count: i32,
-    /// The component slots, `Archetype.TypesCount @ 0xc4` minus the `SharedComponentData` entry
+    /// The component slots, `Archetype.TypesCount @ 0xc4` minus the `Entity` entry
     /// the live archetype keeps first and the stream leaves out.
     pub types: Vec<SerializedArchetypeType>,
 }
@@ -1202,7 +1202,7 @@ impl SceneEnabledBits {
 
     /// The mask for one component slot of one chunk of one archetype.
     ///
-    /// `slot` counts the archetype's `TypesCount` slots, so slot 0 is the `SharedComponentData`
+    /// `slot` counts the archetype's `TypesCount` slots, so slot 0 is the `Entity`
     /// entry the `Archetypes` stream leaves out and `slot - 1` indexes its `types` list.
     pub fn mask_for(&self, archetype: usize, chunk_ordinal: usize, slot: usize) -> Option<ChunkEnabledMask> {
         let chunks = *self.chunk_counts.get(archetype)?;
