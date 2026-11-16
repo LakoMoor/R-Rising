@@ -569,6 +569,27 @@ fn inspect_scene(opt: &Options, path: &Path) -> Result<()> {
             break;
         }
     }
+    let mut material_mesh_samples = Vec::new();
+    for (index, chunk) in resolved.chunks.iter().enumerate() {
+        for entity in 0..chunk.header.count as usize {
+            if material_mesh_samples.len() >= 8 {
+                break;
+            }
+            if let Some(bytes) = resolved.component_bytes(index, entity, 0x3ae3_a524_8a68_9306)? {
+                let info = rrising_ecs::MaterialMeshInfo::from_bytes(bytes)?;
+                material_mesh_samples.push(serde_json::json!({
+                    "chunk": index, "entity_in_chunk": entity,
+                    "material_raw": info.material, "mesh_raw": info.mesh,
+                    "submesh": info.sub_mesh(), "range": info.material_mesh_index_range(),
+                    "runtime_material": info.is_runtime_material(), "runtime_mesh": info.is_runtime_mesh(),
+                    "material_array_index": info.material_array_index(), "mesh_array_index": info.mesh_array_index()
+                }));
+            }
+        }
+        if material_mesh_samples.len() >= 8 {
+            break;
+        }
+    }
     let metadata = rrising_content::scene_runtime::load_chunk_metadata(&scene, 1)?;
     let result = serde_json::json!({
         "mode": "read_only_original_scene", "scene": path, "simulation": false,
@@ -582,6 +603,7 @@ fn inspect_scene(opt: &Options, path: &Path) -> Result<()> {
         "external_buffer_patches_checked": resolved.summary.external_buffer_patches,
         "runtime_metadata_chunks": metadata.iter().map(|m|m.count()).sum::<usize>(),
         "component_samples": samples,
+        "material_mesh_samples": material_mesh_samples,
         "limitation": "Recovered storage with chunk-boundary checks; not a full TypeInfo oracle or game world"
     });
     println!("{}", serde_json::to_string_pretty(&result)?);

@@ -51,3 +51,6 @@ pub use type_table::{
 };
 
 pub use chunk_data::{ArchetypeChunkData, ChunkRemoval};
+
+pub mod render_mesh;
+pub use render_mesh::MaterialMeshInfo;

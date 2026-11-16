@@ -136,3 +136,13 @@ CreateArchetype body: all TypeIndex flag bits participate in memory ordering
 (RVA 0x8fb18c8, mask `0xffffc000`); an aligned payload of exactly 32,704 bytes is
 valid (branch at 0x8fb15db..0x8fb1641 checks `< 0x7fc1`, not `< 0x7fc0`). Both
 have focused regression tests in `rrising-ecs/tests/archetype_storage.rs`.
+
+## Render component indexing
+
+Ported the 12-byte Unity.Rendering.MaterialMeshInfo component's static-index
+conversions, submesh word, range marker and runtime-vs-array classification.
+Five native leaf functions match 1,024 original byte replays each (seven leaf
+functions now have replay evidence in total). Range construction is statically
+recovered, not replay-verified. The inspector reports material/mesh records when
+admitted; the present admitted scene-layout subset has none, because rendering
+archetypes still include unresolved shared/managed types. This gap remains open.

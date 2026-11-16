@@ -21,6 +21,7 @@ fn recovered_layouts_validate_real_chunk_headers_and_buffers() {
         .filter(|p| p.extension().is_some_and(|e| e == "entities"))
         .collect();
     paths.sort();
+    let mut material_mesh_records = 0;
     let (
         mut scenes,
         mut archetypes,
@@ -44,6 +45,19 @@ fn recovered_layouts_validate_real_chunk_headers_and_buffers() {
         for (index, chunk) in resolved.chunks.iter().enumerate() {
             if chunk.header.count == 0 {
                 continue;
+            }
+            for entity in 0..chunk.header.count as usize {
+                if let Some(bytes) = resolved
+                    .component_bytes(index, entity, 0x3ae3_a524_8a68_9306)
+                    .expect("MaterialMeshInfo range")
+                {
+                    let info =
+                        rrising_ecs::MaterialMeshInfo::from_bytes(bytes).expect("MaterialMeshInfo");
+                    if !info.is_runtime_mesh() && !info.has_material_mesh_index_range() {
+                        assert!(info.mesh_array_index() >= 0);
+                    }
+                    material_mesh_records += 1;
+                }
             }
             if resolved
                 .component_f32s::<3>(index, 0, TRANSLATION_HASH)
@@ -69,6 +83,7 @@ fn recovered_layouts_validate_real_chunk_headers_and_buffers() {
         }
     }
     println!("recovered scene layouts: scenes={scenes} archetypes={archetypes} chunks={chunks} entities={entities} buffer_headers={headers} external_patches={patches} transform_chunks={transforms}");
+    println!("MaterialMeshInfo records read: {material_mesh_records}");
     assert_eq!(scenes, 1183);
     assert_eq!(
         (archetypes, chunks, entities, headers, patches, transforms),

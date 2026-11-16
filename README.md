@@ -16,16 +16,16 @@ performance improvement has been demonstrated.
 
 | Metric | Measured | Share / status |
 | --- | --- | --- |
-| Managed API member name matches | 5,067 / 187,377 | **2.7% heuristic coverage** |
+| Managed API member name matches | 5,084 / 187,377 | **2.7% heuristic coverage** |
 | `Unity.Mathematics` member name matches | 4,850 / 4,961 | **97.8% heuristic coverage** |
-| `Unity.Entities` member name matches | 216 / 8,486 | **2.5% heuristic coverage** |
+| `Unity.Entities` member name matches | 233 / 8,486 | **2.7% heuristic coverage** |
 | Game-authored member name matches | 1 / 79,642 | **0.0013%**, not gameplay coverage |
 | Content archives indexed | 4,409 / 4,409 | **100% of this installation** |
 | RuntimeContentCatalog | 1 / 1 | Parsed and used by native startup; 1,904 dependency sets |
 | Entity scene containers and streams decoded | 1,183 / 1,183 | **100% parsing; not world execution** |
 | Native showcase | 48 objects, 26 bound textures | Verified on macOS / Metal |
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |
-| Original-game scenarios | 0 | Game parity **unmeasured**; 2 native leaf functions match 1,024 original inputs each |
+| Original-game scenarios | 0 | Game parity **unmeasured**; 7 native leaf functions match 1,024 original inputs each |
 | Gameplay, HUD, animation, physics, audio, networking, saves | Not implemented | Not playable |
 | Performance against original | No comparison | Unmeasured |
 

@@ -46,3 +46,26 @@ Windows engine is not running here. Fresh whole-binary Ghidra auto-analysis via
 REA timed out after 300 seconds; saved decompilation and focused LLVM reads were
 used instead of repeatedly restarting full analysis. Static decompilation is
 not recorded as execution evidence.
+
+## MaterialMeshInfo leaf oracle
+
+`tools/capture_material_mesh.py` executes five additional original functions:
+ArrayIndexToStaticIndex (RVA 0x8f46ef0), StaticIndexToArrayIndex (0x8f46f00),
+get_SubMesh (0x8f46e70), get_HasMaterialMeshIndexRange (0x8f46ed0), and
+set_SubMesh (0x8f46e80). The same temporary Mach-O / Windows-ms_abi / Rosetta
+harness captures 1,024 inputs including signed minima, maxima, negative indices
+and random packed words. REA controlled-process evidence:
+`ev_e55d039db7d52de5a325d4a8ce71a07ecf04114fe78e319ebf7c8abc4548b5a5`, exit 0.
+
+The Rust comparison passes all cases. Important retained behavior: the getter
+reads only eight submesh bits, while the ushort setter replaces the full packed
+word; negative static indices pass through encoding; INT_MIN decoding wraps to
+INT_MAX. Range construction comes from static inspection of SubMeshIndexInfo32
+at RVA 0x8f577b0 (16-bit start, 7-bit length, high-bit range marker). It has not
+been replayed as an original function. Invalid lengths produce Rust errors,
+rather than reproducing Unity assertion infrastructure.
+
+The component is decoded by the read-only scene inspector when available.
+Current admitted archetypes contain **zero** MaterialMeshInfo records: their
+rendering archetypes still include unresolved types/shared objects. No real
+mesh/material binding or original world rendering is claimed from these leaf tests.
