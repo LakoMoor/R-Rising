@@ -1,0 +1,74 @@
+# BlobAssets stream — the regression guard for rrisings-content's blob asset batch decoder.
+#
+# Recipe (implemented by crates/rrising-content/tests/entity_scenes.rs,
+# `blob_assets_stream_decodes_from_every_scene_file`):
+#   list VRising_Data/StreamingAssets/EntityScenes, keep *.entities, sort by path;
+#   parse each as a DotsSerialization v77 container, take the node whose Id is
+#   SerializeUtility.BlobAssetsNodeType (GUID 9A26954F-F1ED-4CC5-A64E-8AAD4F64773A), and decode it
+#   as WriteBlobAssetNode @ 0x8fe7ad0 writes it:
+#     BlobAssetBatch { int TotalDataSize; int BlobAssetHeaderCount; int RefCount; int Padding },
+#     then BlobAssetHeaderCount times:
+#       BlobAssetHeader { void* ValidationPtr; int Length; AllocatorHandle Allocator; ulong Hash;
+#                         ulong Padding },
+#       Length bytes of blob (Length is already a multiple of 16),
+#       then zero padding up to a multiple of 16, which is nothing in practice;
+#   for every file emit
+#     "<name>\tbs=<DataSize>\tblobs=<count>\tpayload=<n>\thash=<fnv1a64 of the node blob>"
+#   join with '\n' and hash the UTF-8 bytes with FNV-1a-64.
+#
+# Authority for the two headers is the writer and the loader agreeing, in four places:
+#
+#   * BlobAssetBatch.CreateForSerialize @ 0x9070490 stores TotalDataSize, BlobAssetHeaderCount and
+#     then the eight bytes `1, 0` — RefCount = 1, Padding = 0.
+#   * BlobAssetHeader.CreateForSerialize @ 0x90709c0 stores ValidationPtr = 0, the length,
+#     Allocator = 1, the hash and Padding = 0.
+#   * CalculateBlobAssetBatchTotalSize @ 0x8fe81f0 sizes the batch as 16 + sum(32 + align16(Length))
+#     and records each blob's payload at 48 + sum(32 + align16(Length)) over the earlier blobs —
+#     the offsets WriteBlobAssetNode hands back and the values a serialized BlobAssetReferenceData
+#     holds.
+#   * BlobAssetBatch.CreateFromMemory @ 0x90704b0, which EndDeserializeWorld @ 0x8fe34f0 calls on
+#     the node's whole data blob, throws unless TotalDataSize equals the buffer size and RefCount is
+#     1, then walks the headers by 32 + Length, patching each ValidationPtr to the bytes after its
+#     own header and throwing on any Allocator that is not 1. The batch is used in place: nothing is
+#     copied and no index is built, so this layout *is* the runtime layout.
+#
+# The offsets are not incidental. ReadUnmanagedSharedComponents @ 0x8febba0 keeps
+# WorldDeserializationStatus.BlobAssetBuffer @ 0x28 — the base of this very buffer — and for each of
+# a shared component type's blob reference slots (TypeInfo.BlobAssetRefCount @ 0x3c, offsets from
+# TypeManager.GetBlobAssetRefOffsetsPointer) reads the int the stream left in the value and writes
+# back base + value, or a null pointer when that int is -1. So a shared component names a blob by
+# its payload offset in this stream, and `lookup_roundtrip_ok` checks that every blob is reachable
+# that way.
+#
+# `size_fields_ok` counts the batches whose TotalDataSize equals the node's DataSize, which is the
+# first thing the runtime validator requires; `offset_recurrence_ok` counts those that tile exactly
+# as CalculateBlobAssetBatchTotalSize sizes them, which is the walk CreateFromMemory does. All
+# 1183 land in both.
+#
+# 762 files carry the 16-byte header with no blob: a scene with no shared component that references
+# a blob still writes the node, because WriteBlobAssetNode opens it before it knows. The other 421
+# carry 85442 blobs. `payload_bytes` is the blob bytes alone; batch_bytes - 16 * files - 32 * blobs
+# = payload_bytes, which the test asserts, so no blob carries hidden framing beyond its header.
+#
+# `distinct_hashes` counts the BlobAssetHeader.Hash values over the install and
+# `hashes_seen_more_than_once` those that occur more than once, so the same blob is written into
+# several scenes — 21227 of 50768. The hash is the key the persistence path and BlobAssetStore
+# match blobs by; nothing in the scene names a blob by type, only by offset.
+#
+# Reproduce:
+#   rustup run 1.99.0 cargo test -p rrising-content --test entity_scenes -- --nocapture
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1).
+files=1183
+empty_batches=762
+blobs=85442
+batch_bytes=899199248
+payload_bytes=896446176
+distinct_hashes=50768
+hashes_seen_more_than_once=21227
+max_blobs_in_a_batch=16955
+largest_blob_bytes=4915216
+size_fields_ok=1183
+offset_recurrence_ok=1183
+lookup_roundtrip_ok=1183
+fnv1a64_lines=d3b5325023514ebb

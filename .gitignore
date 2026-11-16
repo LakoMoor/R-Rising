@@ -1,0 +1,14 @@
+/target/
+/crates/probe/
+/evidence/decompiled/
+.DS_Store
+*.dll
+*.exe
+*.pdb
+*.entities
+*.entityheader
+/VRising_Data/
+/VRising_Server/
+*.rrscene.json
+/web/pkg/
+/web/branding/

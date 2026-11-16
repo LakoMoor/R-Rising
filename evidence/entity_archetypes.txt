@@ -1,0 +1,38 @@
+# Archetypes stream — the regression guard for rrisings-content's archetype decoder.
+#
+# Recipe (implemented by crates/rrising-content/tests/entity_scenes.rs):
+#   list VRising_Data/StreamingAssets/EntityScenes, keep *.entities, sort by path;
+#   parse each as a DotsSerialization v77 container, take the node whose Id is
+#   SerializeUtility.ArchetypesNodeType (GUID F5364E1C-CB62-466A-9883-F6F9554D4F0C),
+#   decode it as WriteArchetypesNode @ 0x8fe9ba0 writes it:
+#     int UniqueTypesCount, UniqueTypesCount × ulong stable type hash,
+#     int ArchetypeCount, then per archetype
+#     int EntityCount, int TypesCount-1, (TypesCount-1) × int uniqueIndex|0x20000000;
+#   for every file emit
+#     "<name>\ttypes=\tarch=\tents=\tchunk_ents=\ten=\tmaxtc=\thash=<fnv1a64 of the node blob>"
+#   join with '\n' and hash the UTF-8 bytes with FNV-1a-64; separately hash the sorted,
+#   comma-joined set of distinct stable type hashes.
+#
+# `0x20000000` is TypeManager.ChunkComponentTypeFlag, not the enableable flag
+# (EnableableComponentFlag is 0x1000000): WriteArchetypes @ 0x8feeed0 copies that one bit out of the
+# live TypeIndex, and ReadArchetypes @ 0x8fe0fa0 turns it back into
+# ChunkComponentTypeFlag | ZeroSizeInChunkTypeFlag = 0x60000000. `chunk_component_slots` therefore
+# counts the chunk-component slots of the install's archetypes.
+#
+# `chunk_ents` is the `CountForSerialization` sum of the same file's own Chunks stream. It equals
+# `ents` in every file, which is what pins the first per-archetype int to Archetype.EntityCount
+# @ 0xbc rather than to an archetype index.
+#
+# Reproduce:
+#   rustup run 1.99.0 cargo test -p rrising-content --test entity_scenes -- --nocapture
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1).
+files=1183
+archetypes=17579
+unique_type_entries=32974
+distinct_stable_hashes=1772
+chunk_component_slots=7946
+entities=1385671
+chunk_entities=1385671
+fnv1a64_lines=0604e16655897859
+fnv1a64_hashes=63df31df8b6a3f6c

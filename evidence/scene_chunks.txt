@@ -1,0 +1,30 @@
+# The Chunks stream of V Rising's entity scenes — what the shipped files actually contain.
+#
+# Recipe (implemented by crates/rrising-content/tests/entity_scenes.rs,
+# `the_chunks_stream_is_a_flat_array_of_chunk_blocks`):
+#   for every VRising_Data/StreamingAssets/EntityScenes/*.entities file,
+#   take the node whose Id is SerializeUtility.ChunksNodeType (2EA7CE3325F04D7A84CEAB46790C628A),
+#   split its data blob into Chunk.kChunkSize-byte blocks,
+#   read each block's Chunk header (ArchetypeIndexForSerialization 0x0, metaChunkEntity 0x8,
+#   CountForSerialization 0x10, ListWithEmptySlotsIndex 0x1c, Flags 0x20, SequenceNumber 0x28),
+#   and sum the block counts and the entity counts.
+#
+# Authority for the layout: SerializeUtility.WriteChunks @ 0x8fe65e0. Per chunk it does
+#   UnsafeUtility.MemCpy(tempChunk, ChunkIndex.GetPtr(chunkIndex), 0x8000)
+#   tempChunk[0x10] = PerChunkArray.GetChunkData(chunkIndex).EntityCount
+#   *(Entity*)(tempChunk + 0x8) = EntityRemapUtility.RemapEntity(*(Entity*)(tempChunk + 0x8))
+#   BufferHeader.PatchAfterCloningChunk(archetype, tempChunk + 0x40, count)
+#   ... managed-component index patch, blob-asset patch, weak-asset-ref patch ...
+#   BinaryWriter.Write(tempChunk, 0x8000)
+# so a block is the whole chunk allocation — header region and 32704-byte buffer — and the stream
+# carries no count and no framing beyond that.
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1):
+files=1183
+files_with_chunks_stream=1183
+chunk_blocks=31723
+blocks_size_multiple_of_32768=31723
+counts_within_0_to_4088=31723
+flags_in_chunkflags=31723
+entities_described=1385671
+distinct_archetype_indices=2607

@@ -1,0 +1,44 @@
+# BufferData stream — the regression guard for rrisings-content's buffer patch decoder.
+#
+# Recipe (implemented by crates/rrising-content/tests/entity_scenes.rs,
+# `buffer_data_stream_decodes_from_every_scene_file`):
+#   list VRising_Data/StreamingAssets/EntityScenes, keep *.entities, sort by path;
+#   parse each as a DotsSerialization v77 container, take the node whose Id is
+#   SerializeUtility.BufferDataNodeType (GUID E33124BF-AC26-49D7-92DE-36E4611DDD70) and the
+#   ChunksNodeType blocks of the same file, then decode the stream as
+#   WriteBufferDataElements @ 0x8fe6080 writes it:
+#     int totalChunkCount,
+#     then per chunk block, in stream order, int patchCount, and per patch
+#     int BufferPatchRecord.ChunkOffset, int BufferPatchRecord.AllocSizeBytes,
+#     then AllocSizeBytes bytes of DynamicBuffer contents;
+#   for every file emit
+#     "<name>\tbd=<DataSize>\tchunks=<totalChunkCount>\tpatches=<n>\tbytes=<n>\thash=<fnv1a64 of the node blob>"
+#   join with '\n' and hash the UTF-8 bytes with FNV-1a-64.
+#
+# Authority for the shape is the method signature in dump.cs —
+#   WriteBufferDataElements(DotsSerializationWriter, int totalChunkCount,
+#     UnsafePtrList<Archetype> archetypeArray, NativeList<int> bufferPatchesCountPerChunk,
+#     NativeList<SerializeUtility.BufferPatchRecord> bufferPatches, NativeList<IntPtr> bufferDataList)
+# — plus the body, which writes the count, then one count per chunk of each archetype
+# (Archetype.Chunks.Count, the ArchetypeChunkData.Count field at 0xc), then per patch the 8-byte
+# record followed straight away by the bytes taken from the matching bufferDataList entry.
+#
+# `cleared_pointer_slots_verified` is the check that ties the records to the blocks:
+# FillBufferPatchRecordsAndClearBufferPointer @ 0x8fee550 records the offset of a DynamicBuffer's
+# pointer slot and then zeroes that slot, so every ChunkOffset has to land on eight zero bytes at
+# block + Chunk.kBufferOffset (64) + ChunkOffset. It does, for all 89120 patches, and the offsets
+# strictly increase within a chunk. `patches` is also the number of DynamicBuffers in the install's
+# scenes, and `buffer_bytes` the bytes of their contents, which the chunk blocks alone would drop.
+#
+# Reproduce:
+#   rustup run 1.99.0 cargo test -p rrising-content --test entity_scenes -- --nocapture
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1).
+files=1183
+files_with_buffer_data=384
+chunk_groups=31723
+patches=89120
+buffer_bytes=339707598
+cleared_pointer_slots_verified=89120
+max_chunk_offset=32512
+fnv1a64_lines=35ded0c827f26c7d

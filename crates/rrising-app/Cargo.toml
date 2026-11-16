@@ -1,0 +1,26 @@
+[package]
+name = "rrising-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "R-Rising executable: window, input, fixed-timestep loop over the ported core"
+
+[[bin]]
+name = "r-rising"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+rrising-content.workspace = true
+rrising-core.workspace = true
+rrising-ecs.workspace = true
+rrising-math.workspace = true
+rrising-render.workspace = true
+anyhow.workspace = true
+env_logger.workspace = true
+image.workspace = true
+log.workspace = true
+pollster.workspace = true
+wgpu.workspace = true
+winit.workspace = true

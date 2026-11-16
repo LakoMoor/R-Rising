@@ -1,0 +1,72 @@
+# SharedAndManagedComponents stream — the regression guard for rrisings-content's shared component decoder.
+#
+# Recipe (implemented by crates/rrising-content/tests/entity_scenes.rs,
+# `shared_and_managed_components_stream_decodes_from_every_scene_file`):
+#   list VRising_Data/StreamingAssets/EntityScenes, keep *.entities, sort by path;
+#   parse each as a DotsSerialization v77 container, take the node whose Id is
+#   SerializeUtility.SharedAndManagedComponentsNodeType (GUID
+#   D565355C-5CF3-4C0D-BBD4-A06ADDA948B1) and the ArchetypesNodeType node of the same file,
+#   then decode the stream as WriteSharedAndManagedComponents @ 0x8fe6d80 writes it:
+#     int sharedComponentArrays.Length, then that many int (the shared component remap table),
+#     int unmanagedCount, then unmanagedCount x SharedComponentRecord
+#       { ulong StableTypeHash @ 0x0, int ComponentSize @ 0x8, 4 pad bytes },
+#     int unmanagedValueBytes, then that many bytes — the values back to back, one ComponentSize
+#       at a time, which is how ReadUnmanagedSharedComponents @ 0x8febba0 walks them;
+#     int managedCount, then managedCount x SharedComponentRecord with ComponentSize = -1,
+#     int managedBlobBytes, int managedComponentCount, then managedBlobBytes bytes;
+#   for every file emit
+#     "<name>\t<remap len>\t<unmanaged n>\t<unmanaged bytes>\t<managed shared n>\t<blob bytes>\t<managed components>\t<DataSize>"
+#   join with '\n' and hash the UTF-8 bytes with FNV-1a-64; also hash the sorted set of distinct
+#   stable type hashes the records name.
+#
+# Authority for the shape is the writer and reader bodies in Unity.Entities.dll:
+#   WriteSharedAndManagedComponents @ 0x8fe6d80 writes the count and the raw int array, then calls
+#   WriteUnmanagedSharedComponents @ 0x8feb380 and the managed half @ 0x8fea7c0;
+#   WriteUnmanagedSharedComponent @ 0x8feb900 returns one 16-byte SharedComponentRecord per value
+#   and appends the value bytes to an UnsafeAppendBuffer, and @ 0x8feb380 writes count, count*16,
+#   buffer.Length, buffer;
+#   @ 0x8fea7c0 writes each managed shared object with ManagedObjectBinaryWriter, stores the record
+#   size as the dwords 0xffffffff, 0 (so ComponentSize reads back -1), then appends ulong TypeInfo.Hash
+#   (@ 0x18) plus each per-entity managed component object, and writes count, count*16,
+#   buffer.Length, managedComponentCount, buffer;
+#   ReadSharedComponentMetadata @ 0x8fecd10 reads int count then count*16 bytes,
+#   ReadManagedSharedComponents @ 0x8febfd0 reads the blob size and the object count and has
+#   ReadSharedComponents @ 0x8fec610 pull one object per record off the front of the blob;
+#   EndDeserializeWorld @ 0x8fe34f0 reads the leading count and raw ints into the
+#   NativeList<int> sharedComponentRemap it hands to both readers.
+#   SharedComponentRecord is `internal struct { public ulong StableTypeHash; // 0x0
+#   public int ComponentSize; // 0x8 }` (dump.cs, TypeDefIndex 24384).
+#
+# `remap_surjective` is the check that ties the table to the regions: in every file the set of
+# non-zero remap values is exactly 1..=unmanaged+managed, so every serialized shared component is
+# referenced and no entry points past the list. `record_hashes_in_archetype_table` is the check that
+# the records belong to the file: every one of the 4269 stable type hashes also appears in that same
+# file's Archetypes unique type list, which comes from a different node.
+# `first_component_hash_checked` covers the 771 files whose managed blob opens directly at a managed
+# component: the ulong at its front is a type hash that file's archetype table also lists, which is
+# what ReadManagedSharedComponents expects there.
+#
+# The stream carries only 15 distinct shared component types across the whole install; V Rising
+# serializes shared components with ManagedObjectBinaryWriter, whose framing this port does not
+# implement yet, so the managed blob is exposed as bytes rather than as objects.
+#
+# Reproduce:
+#   rustup run 1.99.0 cargo test -p rrising-content --test entity_scenes -- --nocapture
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1).
+files=1183
+node_bytes=9414749
+remap_entries=82485
+remap_nonzero=72547
+remap_max=39
+remap_surjective=1183
+unmanaged_shared_components=3366
+unmanaged_value_bytes=67054
+managed_shared_components=903
+managed_blob_bytes=8921059
+managed_components=57578
+record_hashes_in_archetype_table=4269
+first_component_hash_checked=771
+distinct_shared_component_hashes=15
+fnv1a64_lines=1e31be98a42f6c0e
+fnv1a64_hashes=2a7fd0225c7e7961

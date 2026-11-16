@@ -1,0 +1,68 @@
+# EnabledBits stream — the regression guard for rrisings-content's enable-mask decoder.
+#
+# Recipe (implemented by crates/rrising-content/tests/entity_scenes.rs,
+# `enabled_bits_stream_decodes_from_every_scene_file`):
+#   list VRising_Data/StreamingAssets/EntityScenes, keep *.entities, sort by path;
+#   parse each as a DotsSerialization v77 container, take the node whose Id is
+#   SerializeUtility.EnabledBitsNodeType (GUID 5846E500-EA61-4C1D-A94A-FB85AFD8F4F4), and decode
+#   it as WriteEnabledBits @ 0x8fe7230 writes it:
+#     int totalEnabledBitsSize,
+#     then per archetype, in Archetypes-stream order, per chunk of that archetype, in Chunks-stream
+#     order, per component slot: 16 bytes of enable bitmask,
+#     int totalHierarchicalDataSize,
+#     then the same walk again with 4 bytes per slot;
+#   for every file emit
+#     "<name>\ted=<DataSize>\tunits=<slots>\tmask_bytes=<n>\thier_bytes=<n>\thash=<fnv1a64 of the node blob>"
+#   join with '\n' and hash the UTF-8 bytes with FNV-1a-64.
+#
+# `units` is the (chunk, component-slot) count the two sizes have to agree with:
+# sum over archetypes of Chunks.Count * TypesCount, where TypesCount is one more than the component
+# slots the Archetypes stream lists for that archetype, because those leave out the
+# SharedComponentData entry CreateArchetype puts at Types[0]. That identity — DataSize ==
+# 8 + 20 * units — holds for all 1183 files, which is what pins the +1.
+#
+# Authority for the two regions: the sizing pass in WriteEnabledBits @ 0x8fe7230 accumulates
+# Archetype.Chunks.ComponentCount * Archetype.Chunks.Count * 16 and * 4 over the archetype array
+# (ArchetypeChunkData keeps Capacity at +0x8, Count at +0xc, SharedComponentCount at +0x10 and
+# ComponentCount at +0x14), writes the first total as an int, emits that many bytes per archetype,
+# writes the second total as an int, and emits those. The 16-byte unit is
+# ArchetypeChunkData.ComponentEnabledBits, which GetComponentEnabledMaskArrayForChunk @ 0x911d5e0
+# indexes as chunkIndex * ComponentEnabledBitsSizeTotalPerChunk.
+#
+# `masks_within_entity_count` is the semantic check: no mask sets a bit at or above its chunk's
+# CountForSerialization, so the 128 bits really are one bit per entity of that chunk.
+# `max_entities_in_a_chunk` is 128 across the whole install, which is exactly the width of the
+# mask, and `masks_all_enabled` counts the chunks where every entity is enabled.
+#
+# The second region is the per-(chunk, component) *disabled* count, not a count of enabled entities:
+# GetChunkDisabledCountForType @ 0x911db10 reads one int out of ComponentEnabledBitsHierarchicalData,
+# and SerializeUtilityInterop.AddExistingChunk @ 0x8fdebc0 hands the whole region to
+# SetEnabledBitsAndHierarchicalData @ 0x911d920 as `perComponentDisabledBitCount` when a scene is
+# imported (after InitializeDisabledCountForChunk @ 0x911d830 zeroes it). So `disabled + popcount
+# (mask) <= CountForSerialization` for every unit, and where a count is nonzero it equals the
+# entities the mask leaves disabled — true of all 162 nonzero counts in the install.
+#
+# The store only keeps these two arrays live for enableable component types, which is what the
+# split says: of the 621658 units that are not chunk components, 45360 have every entity bit set
+# with a zero count, 162 have an empty mask with a count equal to the chunk's entity count (the
+# component is disabled for the whole chunk), and the rest have both empty because the type is not
+# enableable. No unit is partially set. `chunk_component_units` counts the units of the component
+# type that lives in the chunk header instead of per entity; all 26994 of them are zero in both
+# arrays, and the decoder asserts it.
+#
+# Reproduce:
+#   rustup run 1.99.0 cargo test -p rrising-content --test entity_scenes -- --nocapture
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1).
+files=1183
+units=648652
+mask_bytes=10378432
+hierarchical_bytes=2594608
+masks_within_entity_count=648652
+masks_all_enabled=45360
+masks_and_counts_both_empty=603130
+disabled_counts_nonzero=162
+disabled_counts_match_masks=162
+chunk_component_units=26994
+max_entities_in_a_chunk=128
+fnv1a64_lines=db14024a71be30b0

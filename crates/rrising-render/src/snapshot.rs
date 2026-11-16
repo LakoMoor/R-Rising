@@ -1,0 +1,110 @@
+//! A local content transfer, not a save game or an original scene format.
+use crate::{
+    mesh, texture::TextureData, DrawCall, FrameUniforms, GpuMesh, GpuTexture, Instance, Renderer,
+    Vertex,
+};
+use anyhow::{ensure, Result};
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct SnapshotItem {
+    pub name: String,
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
+    pub transform: Instance,
+    pub texture: Option<TextureData>,
+}
+#[derive(Serialize, Deserialize)]
+pub struct Snapshot {
+    pub version: u32,
+    pub description: String,
+    pub uniforms: FrameUniforms,
+    pub items: Vec<SnapshotItem>,
+}
+pub struct LoadedSnapshot {
+    meshes: Vec<GpuMesh>,
+    textures: Vec<Option<GpuTexture>>,
+    instances: Vec<[Instance; 1]>,
+    pub uniforms: FrameUniforms,
+}
+impl Snapshot {
+    pub fn upload(self, renderer: &Renderer) -> Result<LoadedSnapshot> {
+        ensure!(
+            self.version == 1,
+            "unsupported scene transfer version {}",
+            self.version
+        );
+        ensure!(
+            !self.items.is_empty() && self.items.len() <= 4096,
+            "invalid scene item count"
+        );
+        let mut loaded = LoadedSnapshot {
+            meshes: vec![],
+            textures: vec![],
+            instances: vec![],
+            uniforms: self.uniforms,
+        };
+        for item in self.items {
+            loaded.meshes.push(mesh::upload_vertices(
+                renderer.device(),
+                &item.name,
+                &item.vertices,
+                &item.indices,
+                1,
+                false,
+            )?);
+            loaded.textures.push(
+                item.texture
+                    .map(|t| {
+                        t.upload(
+                            renderer.device(),
+                            renderer.queue(),
+                            renderer.device().features(),
+                        )
+                    })
+                    .transpose()?,
+            );
+            loaded.instances.push([item.transform]);
+        }
+        Ok(loaded)
+    }
+}
+impl LoadedSnapshot {
+    pub fn render(&self, renderer: &mut Renderer) -> Result<()> {
+        let neutral = renderer.neutral_view();
+        let draws: Vec<_> = self
+            .meshes
+            .iter()
+            .enumerate()
+            .map(|(i, mesh)| DrawCall {
+                mesh,
+                instances: &self.instances[i],
+                texture: self.textures[i]
+                    .as_ref()
+                    .map(|t| &t.view)
+                    .unwrap_or(&neutral),
+            })
+            .collect();
+        renderer.render_surface(&self.uniforms, &draws)
+    }
+    pub fn render_to_image(&self, renderer: &mut Renderer) -> Result<(u32, u32, Vec<u8>)> {
+        let neutral = renderer.neutral_view();
+        let draws: Vec<_> = self
+            .meshes
+            .iter()
+            .enumerate()
+            .map(|(i, mesh)| DrawCall {
+                mesh,
+                instances: &self.instances[i],
+                texture: self.textures[i]
+                    .as_ref()
+                    .map(|t| &t.view)
+                    .unwrap_or(&neutral),
+            })
+            .collect();
+        renderer.render_to_image(&self.uniforms, &draws)
+    }
+    pub fn item_count(&self) -> usize {
+        self.meshes.len()
+    }
+}

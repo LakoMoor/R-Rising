@@ -1,0 +1,11 @@
+[package]
+name = "rrising-math"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Port of Unity.Mathematics (vector, quaternion, matrix and scalar math) for R-Rising"
+
+[dependencies]
+
+[dev-dependencies]

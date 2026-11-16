@@ -1,0 +1,32 @@
+[package]
+name = "rrising-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "wgpu renderer that draws the original's meshes, textures and materials"
+
+[features]
+default = ["unity"]
+unity = ["dep:unity-formats"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+rrising-math.workspace = true
+anyhow.workspace = true
+bytemuck.workspace = true
+image.workspace = true
+log.workspace = true
+wgpu = { workspace = true, features = ["serde"] }
+winit.workspace = true
+unity-formats = { workspace = true, optional = true }
+
+[dev-dependencies]
+anyhow.workspace = true
+bytemuck.workspace = true
+pollster.workspace = true
+wgpu = { workspace = true, features = ["serde"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "=0.3.107", features = ["HtmlCanvasElement"] }

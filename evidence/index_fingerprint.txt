@@ -1,0 +1,14 @@
+# Content index fingerprint — the regression guard for rrisings-content's readers.
+#
+# Recipe (implemented by crates/rrising-content/tests/index_fingerprint.rs):
+#   open every archive in VRising_Data/StreamingAssets/ContentArchives with assets/typetrees.tpk,
+#   take each indexed object, format it as "<ObjRef debug>\t<class_id>\t<class>\t<m_Name>",
+#   sort the lines, join with '\n', and hash the UTF-8 bytes with FNV-1a-64.
+#
+# Reproduce:
+#   rustup run 1.99.0 cargo test -p rrising-content --test index_fingerprint -- --nocapture
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1).
+objects=188063
+bytes=21283110
+fnv1a64=1a2e1c33727b7688

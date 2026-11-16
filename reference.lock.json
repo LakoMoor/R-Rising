@@ -1,0 +1,27 @@
+{
+  "build": "VRising: v1.1.13.0-r99712-b17 (202605251526)",
+  "platform": "Windows x64 IL2CPP",
+  "engine": "Unity 2022.3.58f1",
+  "files": [
+    {
+      "path": "VERSION",
+      "size": 46,
+      "sha256": "ff956cd2dff0df48a36258d7666ebf536ff9f10a0208e38fecc97022120840b6"
+    },
+    {
+      "path": "GameAssembly.dll",
+      "size": 247473480,
+      "sha256": "a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56"
+    },
+    {
+      "path": "VRising.exe",
+      "size": 140616,
+      "sha256": "3de8b0d2df0aee1669b04cb149f7183cbcea25266208d3dbdbc06b613a300e53"
+    },
+    {
+      "path": "VRising_Data/il2cpp_data/Metadata/global-metadata.dat",
+      "size": 36381944,
+      "sha256": "b8f9f76ffb72a0c77079082aac8eb78da839094e9d090e8461b49230e8831271"
+    }
+  ]
+}

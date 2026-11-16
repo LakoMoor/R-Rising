@@ -1,0 +1,13 @@
+[package]
+name = "rrising-ecs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Port of the Unity Entities runtime (archetypes, chunks, component stores, systems) that ProjectM is built on"
+
+[dependencies]
+rrising-math.workspace = true
+anyhow.workspace = true
+log.workspace = true
+rustc-hash.workspace = true

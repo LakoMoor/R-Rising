@@ -1,0 +1,21 @@
+# EntityScenes fingerprint — the regression guard for rrisings-content's scene reader.
+#
+# Recipe (implemented by crates/rrising-content/tests/entity_scenes.rs):
+#   list VRising_Data/StreamingAssets/EntityScenes, keep *.entities, sort by path;
+#   parse each as a DotsSerialization v77 container (FileHeader + node tree);
+#   for every file emit
+#     "<name>\tnodes=\troots=\tblobs=\tblob_sizes=[sorted i64]\tcovered=\tdata=\tfnv=<fnv1a64 of the data section>"
+#   join the lines with '\n' and hash the UTF-8 bytes with FNV-1a-64.
+#
+# `covered` is the sum of the node data sizes, so it also records how much of each data section
+# the node tree actually accounts for; the residue is the part of the format this reader has not
+# attributed to a node yet.
+#
+# Reproduce:
+#   rustup run 1.99.0 cargo test -p rrising-content --test entity_scenes -- --nocapture
+#
+# Measured on the install at /Users/lakomoor/ported/VRising/VRising_Data (V Rising 1.x, Unity 2022.3.58f1).
+files=1183
+parsed=1183
+node_blobs_bytes=2303710267
+fnv1a64=e2b9d375b335b807

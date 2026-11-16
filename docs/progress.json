@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "metric": "heuristic_member_name_match",
+  "behavioral_parity_percent": null,
+  "warning": "Name matches can over-count; these numbers do not measure playable game completion or performance.",
+  "matched": 5035,
+  "total": 187377,
+  "percent": 2.6871,
+  "groups": [
+    {
+      "name": "BCL (no crate assigned yet)",
+      "matched": 0,
+      "total": 29220,
+      "percent": 0.0
+    },
+    {
+      "name": "Unity.Entities* (ported by rrising-ecs)",
+      "matched": 184,
+      "total": 8486,
+      "percent": 2.1683
+    },
+    {
+      "name": "Unity.Mathematics* (ported by rrising-math)",
+      "matched": 4850,
+      "total": 4961,
+      "percent": 97.7625
+    },
+    {
+      "name": "engine assemblies (no crate assigned yet)",
+      "matched": 0,
+      "total": 40839,
+      "percent": 0.0
+    },
+    {
+      "name": "game-authored (ProjectM*, Stunlock*)",
+      "matched": 1,
+      "total": 79642,
+      "percent": 0.0013
+    },
+    {
+      "name": "middleware / other (no crate assigned yet)",
+      "matched": 0,
+      "total": 24229,
+      "percent": 0.0
+    }
+  ]
+}

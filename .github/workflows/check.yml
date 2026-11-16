@@ -1,0 +1,24 @@
+name: Check Rust and WebAssembly
+on: [push, pull_request]
+jobs:
+  native:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+      - run: cargo check --workspace --locked
+      - run: cargo test --locked -p rrising-math -p rrising-ecs -p rrising-render
+      - run: cargo test --locked -p rrising-content --test entity_scenes a_foreign_header_is_refused
+      - run: python3 tools/port_coverage.py --json > /tmp/progress.json
+      - run: diff -u docs/progress.json /tmp/progress.json
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          targets: wasm32-unknown-unknown
+      - run: cargo build --locked --release -p rrising-web --target wasm32-unknown-unknown
