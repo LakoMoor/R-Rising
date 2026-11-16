@@ -146,3 +146,16 @@ functions now have replay evidence in total). Range construction is statically
 recovered, not replay-verified. The inspector reports material/mesh records when
 admitted; the present admitted scene-layout subset has none, because rendering
 archetypes still include unresolved shared/managed types. This gap remains open.
+
+
+## Managed shared-array type identities
+
+Extended TypeHash's terminal pointer/array name handling and retained unknown
+field types explicitly. The pinned probe now matches **1,495 / 1,772** scene type
+hashes, including `Unity.Rendering.ManagedRenderMeshArray` (`f423fa42b77d7330`)
+and `ProjectM.Terrain.PerChunkFluffDataComponent` (`a26e40a1d5cc937c`). Both are
+managed shared components: their arrays live outside chunk payloads. The layout
+reader admits their zero-byte shared slots but does not deserialize managed
+arrays or treat their fields as host pointers. The admitted chunk/transform set
+remains unchanged: this is added identity evidence, not new mesh binding coverage.
+`--check` now pins both identities and their shared/managed classifications.

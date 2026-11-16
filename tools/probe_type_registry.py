@@ -256,7 +256,7 @@ class Probe:
         row = self.type_rows[i]
         if not row['bitfield'] & 1 or row['namespace']=='System' and row['name'] in PRIMITIVES.values():
             return False
-        return all(self.is_zero_size(f['typedef_index']) for f in self.layout(i)['fields'] if not f['static'])
+        return all(f['typedef_index'] is not None and self.is_zero_size(f['typedef_index']) for f in self.layout(i)['fields'] if not f['static'])
 
     def entity_offsets(self, i, base=0):
         if self.full_name(i) == 'Unity.Entities.Entity':
@@ -266,7 +266,7 @@ class Probe:
             return []
         offsets=[]
         for field in self.layout(i)['fields']:
-            if not field['static']:
+            if not field['static'] and field['typedef_index'] is not None:
                 offsets.extend(self.entity_offsets(field['typedef_index'],base+field['value_offset']))
         return offsets
 
@@ -307,7 +307,7 @@ class Probe:
                     type_version=0 if version is None else version,
                     interfaces=sorted(interfaces), attribute_types=attrs,
                     attribute_payload_issue=self.attributes[i]['unsupported'],
-                    category=category, managed=False, zero_sized=size_in_chunk == 0, zero_size_struct=zero,
+                    category=category, managed=any(not f['static'] and self.native(f['native_type_index'])[0] in [14,18,28,29] for f in self.layout(i)['fields']), zero_sized=size_in_chunk == 0, zero_size_struct=zero,
                     enableable=has('IEnableableComponent'),
                     cleanup=has('ICleanupComponentData') or has('ICleanupBufferElementData') or has('ICleanupSharedComponentData'),
                     size_in_chunk=size_in_chunk, element_size=size if category == 'buffer' else size_in_chunk,
@@ -349,6 +349,25 @@ class Probe:
             return data
         raise Unsupported(f'native type kind {kind:#x} is not resolved by this probe')
 
+    def descriptor_name(self, desc):
+        if desc[0] in [15,29]:
+            return self.descriptor_name(self.native_ptr(desc[1])) + ('*' if desc[0] == 15 else '[]')
+        return self.type_rows[self.typedef_for(desc)]['name']
+
+    def descriptor_namespace(self, desc):
+        if desc[0] in [15,29]:
+            return self.descriptor_namespace(self.native_ptr(desc[1]))
+        return self.type_rows[self.typedef_for(desc)]['namespace']
+
+    def terminal_descriptor_hash(self, desc):
+        # HashType @0x8fcc0a0 skips fields of pointers/arrays; their Type.Name
+        # includes the suffix and Type.Namespace is the element namespace.
+        if desc[0] not in [15,29]:
+            raise Unsupported('nonterminal descriptor requires field hash')
+        namespace = self.descriptor_namespace(desc)
+        ns = combine(BASIS,strhash(namespace)) if namespace else BASIS
+        return combine(ns,strhash(self.descriptor_name(desc)))
+
     @functools.lru_cache(None)
     def namespace_hash(self, i):
         row = self.type_rows[i]
@@ -377,7 +396,8 @@ class Probe:
             raise Unsupported('explicit layout requires FieldOffsetAttribute hashing')
         for field in self.layout(i)['fields']:
             if not field['static']:
-                value = combine(value, self.type_hash(field['typedef_index'], cache))
+                field_hash = self.type_hash(field['typedef_index'], cache) if field['typedef_index'] is not None else self.terminal_descriptor_hash(self.native(field['native_type_index']))
+                value = combine(value, field_hash)
         cache[i] = value
         return value
 
@@ -395,7 +415,7 @@ class Probe:
             try:
                 typedef = self.typedef_for(desc)
             except Unsupported:
-                if not desc[2] & 16:
+                if not desc[2] & 16 and desc[0] not in [15,29]:
                     raise
                 typedef = None
             boxed_offset = struct.unpack_from('<i', self.binary, self.offset(offsets_ptr+n*4))[0]
@@ -477,7 +497,7 @@ def main():
     if args.check:
         if result['binary_sha256'] != 'a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56' or result['metadata_sha256'] != 'b8f9f76ffb72a0c77079082aac8eb78da839094e9d090e8461b49230e8831271':
             raise ValueError('pinned-build identity changed; anchors are not transferable')
-        if len(matched) != 1493 or len({row['stable_hash'] for row in matched}) != 1493:
+        if len(matched) != 1495 or len({row['stable_hash'] for row in matched}) != 1495:
             raise ValueError('pinned-build type-hash coverage changed')
         anchors = {
             'Unity.Entities.Entity': ('6f02124d960c5b29',8),
@@ -491,11 +511,14 @@ def main():
             record = by_name[name]
             if (record['stable_hash'],record['ecs']['size_in_chunk']) != (stable,size):
                 raise ValueError('layout anchor changed: '+name)
+        for name, stable in [('Unity.Rendering.ManagedRenderMeshArray','f423fa42b77d7330'),('ProjectM.Terrain.PerChunkFluffDataComponent','a26e40a1d5cc937c')]:
+            if by_name[name]['stable_hash'] != stable or by_name[name]['ecs']['category'] != 'shared' or not by_name[name]['ecs']['managed']:
+                raise ValueError('managed shared-array identity changed: '+name)
         if by_name['ProjectM.VampireTag']['ecs']['size_in_chunk'] != 0:
             raise ValueError('empty tag unexpectedly consumes chunk payload')
         if by_name['ProjectM.TileModelRegistrationState']['managed_value_size'] != 1 or by_name['ProjectM.TileModelRegistrationState']['native_size'] != 4:
             raise ValueError('managed/marshalled bool-layout distinction lost')
-        print('Pinned-build checks passed: 1493 unique scene hash matches; Entity/transform anchors; zero-size tag; Boolean layout distinction.')
+        print('Pinned-build checks passed: 1495 unique scene hash matches; Entity/transform anchors; zero-size tag; Boolean layout distinction.')
     if args.output:
         args.output.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:v for k,v in result.items() if k!='matches'},indent=2))

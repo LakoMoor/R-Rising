@@ -94,10 +94,7 @@ impl TypeLayouts {
             let name = string(row, "name")?;
             let stable_hash = hex(row, "stable_hash")?;
             let ecs = row.get("ecs").context("missing recovered storage shape")?;
-            ensure!(
-                !boolean(ecs, "managed")?,
-                "managed storage unsupported: {name}"
-            );
+            let managed = boolean(ecs, "managed")?;
             let category = match string(ecs, "category")? {
                 "component" => TypeCategory::ComponentData,
                 "buffer" => TypeCategory::BufferData,
@@ -105,6 +102,10 @@ impl TypeLayouts {
                 "entity" => TypeCategory::EntityData,
                 other => return Err(anyhow!("unsupported category {other:?} for {name}")),
             };
+            ensure!(
+                !managed || category == TypeCategory::ISharedComponentData,
+                "per-entity managed storage remains unsupported: {name}"
+            );
             let size = integer(ecs, "size_in_chunk")?;
             let element_size = integer(ecs, "element_size")?;
             let capacity = if category == TypeCategory::BufferData {
@@ -168,7 +169,11 @@ impl TypeLayouts {
                     Ok(n)
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let mut flags = 0;
+            let mut flags = if managed {
+                TypeIndex::K_MANAGED_MASK
+            } else {
+                0
+            };
             if size == 0 {
                 flags |= TypeIndex::K_ZERO_SIZED_MASK;
             }
