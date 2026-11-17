@@ -14,6 +14,7 @@ fn fixture() -> Snapshot {
     ];
     Snapshot {
         version: 1,
+        textures: vec![],
         description: "synthetic triangle, no game assets".into(),
         uniforms: FrameUniforms {
             view_proj: identity,
@@ -25,6 +26,8 @@ fn fixture() -> Snapshot {
             name: "triangle".into(),
             indices: vec![0, 1, 2],
             transform: Instance { model: identity },
+            instances: vec![],
+            texture_index: None,
             texture: None,
             vertices: [[-0.9, -0.9, 0.5], [0.9, -0.9, 0.5], [0., 0.9, 0.5]]
                 .map(|position| Vertex {

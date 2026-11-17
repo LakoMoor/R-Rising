@@ -38,8 +38,8 @@ completion” percentage yet. Regenerate [progress.json](docs/progress.json) wit
 
 ## Screenshots
 
-The original models and textures are arranged in a demonstration grid. These
-images do not show original world placement or gameplay.
+The first pair arranges original models and textures in a demonstration grid; it
+shows no original world placement.
 
 **Native Rust / Metal — 1600 × 900**
 
@@ -48,6 +48,26 @@ images do not show original world placement or gameplay.
 **The shared Rust renderer in Chrome / WebGPU**
 
 ![Browser content showcase](docs/screenshots/browser-webgpu.png)
+
+**Original scene placement** (`--scene`): the entities of one shipped scene
+(`Silver_Mountain01`, 9,898 entities with a serialized `LocalToWorld`) drawn at
+their **original placements** with the original meshes and base-map textures,
+framed by an automatic camera. Placement comes from original scene data. This is
+**not gameplay and not lighting parity**: one directional light, opaque drawing of
+alpha-blended/fog meshes (the dark cylinder at the bottom), no sub-mesh or shader
+state, white patches where a base map was not uploaded.
+9,492 mesh instances resolved (226 unique meshes), 3 unresolved drawn as marker boxes.
+
+![Native original scene placement](docs/screenshots/native-original-scene.png)
+
+![Browser original scene placement](docs/screenshots/browser-original-scene.png)
+
+```sh
+r-rising --scene .../EntityScenes/c6d34432693f24046ae5916650cc70ef.0.entities \
+  --type-layouts /tmp/rrising-type-layouts.json --archives 100000 --offscreen scene.png
+r-rising --scene ... --export-web scene.rrscene.json   # same scene for the browser viewer
+```
+Without `--offscreen` the window has a fly camera (WASD, Q/E, arrow keys, Shift).
 
 ## Native build
 

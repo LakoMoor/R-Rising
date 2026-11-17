@@ -11,6 +11,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod scene_view;
+
 use anyhow::{Context, Result};
 use rrising_content::{list_archives, GameContent};
 use rrising_core::scene::{self, SceneSpec};
@@ -33,6 +35,7 @@ struct Options {
     export_web: Option<PathBuf>,
     import_web: Option<PathBuf>,
     inspect_scene: Option<PathBuf>,
+    scene: Option<PathBuf>,
     type_layouts: Option<PathBuf>,
     bench: bool,
     frames: usize,
@@ -56,6 +59,7 @@ fn parse_args() -> Result<Options> {
         export_web: None,
         import_web: None,
         inspect_scene: None,
+        scene: None,
         type_layouts: None,
         bench: false,
         frames: 60,
@@ -73,6 +77,7 @@ fn parse_args() -> Result<Options> {
             "--width" => opt.width = take()?.parse().context("--width takes a number")?,
             "--height" => opt.height = take()?.parse().context("--height takes a number")?,
             "--inspect-scene" => opt.inspect_scene = Some(PathBuf::from(take()?)),
+            "--scene" => opt.scene = Some(PathBuf::from(take()?)),
             "--type-layouts" => opt.type_layouts = Some(PathBuf::from(take()?)),
             "--import-web" => opt.import_web = Some(PathBuf::from(take()?)),
             "--export-web" => opt.export_web = Some(PathBuf::from(take()?)),
@@ -193,6 +198,78 @@ fn load_scene(renderer: &Renderer, content: &GameContent, spec: &SceneSpec) -> R
     })
 }
 
+/// Move an original scene's resolved placements onto the GPU: one instanced draw per
+/// (mesh, base map) pair, plus one instanced marker-box draw for everything unresolved.
+fn load_scene_view(
+    renderer: &Renderer,
+    content: &GameContent,
+    data: &scene_view::SceneData,
+) -> Result<Loaded> {
+    let mut meshes = Vec::new();
+    let mut textures: Vec<rrising_render::GpuTexture> = Vec::new();
+    let mut items = Vec::new();
+    let mut mesh_slot: std::collections::HashMap<usize, usize> = Default::default();
+    let mut tex_slot: std::collections::HashMap<unity_formats::player::ObjRef, Option<usize>> =
+        Default::default();
+    let mut textures_bound = 0;
+    for g in &data.groups {
+        let mesh = match mesh_slot.get(&g.mesh_id) {
+            Some(&m) => m,
+            None => {
+                meshes.push(rrising_render::mesh::upload_vertices(
+                    renderer.device(),
+                    &g.name,
+                    &g.verts,
+                    &g.inds,
+                    1,
+                    false,
+                )?);
+                mesh_slot.insert(g.mesh_id, meshes.len() - 1);
+                meshes.len() - 1
+            }
+        };
+        let texture = match &g.texture {
+            None => None,
+            Some(r) => *tex_slot.entry(r.clone()).or_insert_with(|| {
+                let gpu = content
+                    .read_texture(r)
+                    .and_then(|t| renderer.upload_texture(&t))
+                    .ok()?;
+                textures.push(gpu);
+                Some(textures.len() - 1)
+            }),
+        };
+        textures_bound += usize::from(texture.is_some());
+        items.push(Item {
+            mesh,
+            texture,
+            instances: g.instances.clone(),
+        });
+    }
+    if !data.markers.is_empty() {
+        let (v, i) = scene_view::marker_box();
+        meshes.push(rrising_render::mesh::upload_vertices(
+            renderer.device(),
+            "marker box",
+            &v,
+            &i,
+            1,
+            false,
+        )?);
+        items.push(Item {
+            mesh: meshes.len() - 1,
+            texture: None,
+            instances: data.markers.clone(),
+        });
+    }
+    Ok(Loaded {
+        meshes,
+        textures,
+        items,
+        textures_bound,
+    })
+}
+
 fn frame_uniforms(aspect: f32) -> FrameUniforms {
     // A camera looking at the grid the scene builder lays out.
     let eye = float3::new(2.0, 3.0, -8.0);
@@ -290,6 +367,10 @@ struct App {
     loaded: Option<Loaded>,
     start: Option<std::time::Instant>,
     frames: u64,
+    /// Fly camera when `--scene` is active: WASD move, Q/E down/up, arrows look, Shift fast.
+    fly: Option<scene_view::FlyCam>,
+    keys: std::collections::HashSet<winit::keyboard::KeyCode>,
+    last_tick: Option<std::time::Instant>,
 }
 
 impl App {
@@ -304,7 +385,35 @@ impl App {
             }
             None => (1280, 720),
         };
-        let uniforms = frame_uniforms(w as f32 / h as f32);
+        let uniforms = match &mut self.fly {
+            Some(cam) => {
+                use winit::keyboard::KeyCode as K;
+                let now = std::time::Instant::now();
+                let dt = self
+                    .last_tick
+                    .map(|t| (now - t).as_secs_f32())
+                    .unwrap_or(0.0)
+                    .min(0.1);
+                self.last_tick = Some(now);
+                let k = |c: K| f32::from(u8::from(self.keys.contains(&c)));
+                let boost = if self.keys.contains(&K::ShiftLeft) {
+                    4.0
+                } else {
+                    1.0
+                };
+                cam.fly(
+                    (k(K::KeyW) - k(K::KeyS)) * boost,
+                    (k(K::KeyD) - k(K::KeyA)) * boost,
+                    (k(K::KeyE) - k(K::KeyQ)) * boost,
+                    dt,
+                );
+                cam.yaw += (k(K::ArrowRight) - k(K::ArrowLeft)) * dt * 1.2;
+                cam.pitch =
+                    (cam.pitch + (k(K::ArrowUp) - k(K::ArrowDown)) * dt * 1.2).clamp(-1.5, 1.5);
+                cam.uniforms(w as f32 / h as f32)
+            }
+            None => frame_uniforms(w as f32 / h as f32),
+        };
         let neutral = r.neutral_view();
         let draws = l.draws(&neutral);
         if let Err(e) = r.render_surface(&uniforms, &draws) {
@@ -348,7 +457,8 @@ impl ApplicationHandler for App {
             }
         };
         match run_windowed(&renderer) {
-            Ok(loaded) => {
+            Ok((loaded, fly)) => {
+                self.fly = fly;
                 self.loaded = Some(loaded);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
@@ -363,6 +473,15 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => el.exit(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+                    if event.state.is_pressed() {
+                        self.keys.insert(code);
+                    } else {
+                        self.keys.remove(&code);
+                    }
+                }
+            }
             WindowEvent::Resized(s) => {
                 if let Some(r) = &mut self.renderer {
                     r.resize(s.width.max(1), s.height.max(1));
@@ -429,12 +548,19 @@ fn open_content(opt: &Options) -> Result<GameContent> {
     Ok(content)
 }
 
-fn run_windowed(renderer: &Renderer) -> Result<Loaded> {
+fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCam>)> {
     let opt = parse_args()?;
     let content = open_content(&opt)?;
+    if let Some(scene_path) = &opt.scene {
+        let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
+        let data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        println!("{}", data.stats.report());
+        let loaded = load_scene_view(renderer, &content, &data)?;
+        return Ok((loaded, Some(scene_view::FlyCam::framing(data.bounds))));
+    }
     let spec = scene::showcase(&content, opt.items);
     println!("scene: {} items", spec.len());
-    load_scene(renderer, &content, &spec)
+    Ok((load_scene(renderer, &content, &spec)?, None))
 }
 
 fn run_offscreen(opt: &Options) -> Result<()> {
@@ -454,6 +580,36 @@ fn run_offscreen(opt: &Options) -> Result<()> {
             "rendered {} transferred objects to {}",
             loaded.item_count(),
             output.display()
+        );
+        return Ok(());
+    }
+    if let Some(scene_path) = &opt.scene {
+        let content = open_content(opt)?;
+        let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
+        let data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        println!("{}", data.stats.report());
+        let loaded = load_scene_view(&renderer, &content, &data)?;
+        let mut renderer = renderer;
+        let cam = scene_view::FlyCam::framing(data.bounds);
+        let uniforms = cam.uniforms(opt.width as f32 / opt.height as f32);
+        let neutral = renderer.neutral_view();
+        let draws = loaded.draws(&neutral);
+        let (w, h, rgba) = renderer.render_to_image(&uniforms, &draws)?;
+        let path = opt
+            .offscreen
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("scene.png"));
+        write_png(&path, w, h, &rgba)?;
+        let clear = (rgba[0], rgba[1], rgba[2]);
+        let covered = rgba
+            .chunks(4)
+            .filter(|p| (p[0], p[1], p[2]) != clear)
+            .count();
+        println!(
+            "wrote {} ({w}x{h}, {} draw groups, {} textures bound, {covered} pixels covered)",
+            path.display(),
+            loaded.items.len(),
+            loaded.textures_bound
         );
         return Ok(());
     }
@@ -500,6 +656,9 @@ fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<()> {
 /// Export only to the owner's local disk. Scene transfers contain original art and are not published.
 fn export_web(opt: &Options, path: &Path) -> Result<()> {
     use rrising_render::snapshot::{Snapshot, SnapshotItem};
+    if opt.scene.is_some() {
+        return export_scene_web(opt, path);
+    }
     let content = open_content(opt)?;
     let scene = scene::showcase(&content, opt.items);
     let mut items = Vec::new();
@@ -524,7 +683,9 @@ fn export_web(opt: &Options, path: &Path) -> Result<()> {
             vertices,
             indices,
             transform: Instance::from_matrix(&item.transform),
+            instances: vec![],
             texture,
+            texture_index: None,
         });
     }
     let snapshot = Snapshot {
@@ -533,6 +694,7 @@ fn export_web(opt: &Options, path: &Path) -> Result<()> {
             .into(),
         uniforms: frame_uniforms(opt.width as f32 / opt.height as f32),
         items,
+        textures: vec![],
     };
     let file =
         std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?;
@@ -543,6 +705,73 @@ fn export_web(opt: &Options, path: &Path) -> Result<()> {
     println!(
         "exported {} objects to {} (local original content; excluded from Git)",
         snapshot.items.len(),
+        path.display()
+    );
+    Ok(())
+}
+
+/// Export an original scene's placements (instanced) for the browser viewer. Local disk only.
+fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
+    use rrising_render::snapshot::{Snapshot, SnapshotItem};
+    let scene_path = opt.scene.as_ref().context("--scene")?;
+    let content = open_content(opt)?;
+    let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
+    let data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+    println!("{}", data.stats.report());
+    let mut pool = Vec::new();
+    let mut slot: std::collections::HashMap<unity_formats::player::ObjRef, Option<usize>> =
+        Default::default();
+    let mut items = Vec::new();
+    let identity = Instance::from_matrix(&float4x4::identity);
+    for g in &data.groups {
+        let texture_index = match &g.texture {
+            None => None,
+            Some(r) => *slot.entry(r.clone()).or_insert_with(|| {
+                let t = content.read_texture(r).ok()?;
+                pool.push(rrising_render::unity_texture::export(&t).ok()?);
+                Some(pool.len() - 1)
+            }),
+        };
+        items.push(SnapshotItem {
+            name: g.name.clone(),
+            vertices: (*g.verts).clone(),
+            indices: (*g.inds).clone(),
+            transform: identity,
+            instances: g.instances.clone(),
+            texture: None,
+            texture_index,
+        });
+    }
+    if !data.markers.is_empty() {
+        let (vertices, indices) = scene_view::marker_box();
+        items.push(SnapshotItem {
+            name: "marker box".into(),
+            vertices,
+            indices,
+            transform: identity,
+            instances: data.markers.clone(),
+            texture: None,
+            texture_index: None,
+        });
+    }
+    let cam = scene_view::FlyCam::framing(data.bounds);
+    let snapshot = Snapshot {
+        version: 1,
+        description: "Original scene entities at original LocalToWorld placements; not gameplay, no lighting parity".into(),
+        uniforms: cam.uniforms(opt.width as f32 / opt.height as f32),
+        items,
+        textures: pool,
+    };
+    let mut writer = std::io::BufWriter::new(
+        std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?,
+    );
+    serde_json::to_writer(&mut writer, &snapshot)?;
+    use std::io::Write;
+    writer.flush()?;
+    println!(
+        "exported {} draw groups, {} pooled textures to {} (local original content; excluded from Git)",
+        snapshot.items.len(),
+        snapshot.textures.len(),
         path.display()
     );
     Ok(())

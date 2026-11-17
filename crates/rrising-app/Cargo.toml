@@ -22,5 +22,6 @@ env_logger.workspace = true
 image.workspace = true
 log.workspace = true
 pollster.workspace = true
+unity-formats.workspace = true
 wgpu.workspace = true
 winit.workspace = true

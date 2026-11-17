@@ -259,3 +259,27 @@ frame time depends on a full world (not implemented here), and the showcase scen
 original renders. A meaningful comparison needs the same scene on both runtimes with GPU capture,
 which requires the original-runtime scenarios that do not yet exist. Page cache state was not
 controlled; indexing/decode times are warm-cache-dependent.
+
+
+## Original scene placement (`--scene`)
+
+`r-rising --scene <file.0.entities> [--offscreen out.png | --export-web out.json]` reads each
+entity's serialized `LocalToWorld`, resolves `MaterialMeshInfo` static indices through the scene's
+first managed shared component (`ManagedRenderMeshArray`: two int arrays of indices) into the scene's
+`Unity.Scenes.ReferencedUnityObjects` MonoBehaviour (found via the runtime catalog, whose object
+records carry the GUID embedded in the `.entityheader`), and draws the referenced `Mesh` with the
+referenced `Material`'s base map. The layout of the managed array bytes (2 header bytes, `i32 n`,
+n ints, 1 byte, `i32 m`, m ints) is observed, not taken from a reader port; it is validated by
+index range and by each array resolving to `Mesh` / `Material` objects. Scenes with more than one
+`ManagedRenderMeshArray` are refused for resolution (chunk-to-array mapping not recovered).
+
+Measured on `c6d34432...` (Silver_Mountain01): 10,353 entities, 9,898 with LocalToWorld, 9,495 with
+MaterialMeshInfo, 567 referenced objects, 226 unique meshes (94 textures), 9,492 instances drawn,
+3 unresolved (mesh unreadable or skinned) drawn as marker boxes. Four other large scenes resolve
+12,910 / 12,911, 10,410 / 10,414, 9,610 / 9,611 and 9,103 / 9,105 renderers the same way.
+Not done: sub-mesh selection, shader/material state, transparency, lighting, LODs, skinned meshes,
+non-renderer entities. Placement is original data; the picture is not a parity claim. The browser
+export transfers it through the existing JSON format (version 1, optional instanced items and a
+shared texture pool); Chrome / WebGPU loaded the 316 draw groups with 0 page errors. A native
+re-import of the same JSON differs from direct loading by a few pixels (2 of 94 textures did not
+export), so byte identity is not claimed for scene exports.

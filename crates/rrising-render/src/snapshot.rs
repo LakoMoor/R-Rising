@@ -12,7 +12,15 @@ pub struct SnapshotItem {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub transform: Instance,
+    /// Extra placements of the same mesh and texture (instanced scenes). Empty for a single
+    /// object; when non-empty these replace `transform`.
+    #[serde(default)]
+    pub instances: Vec<Instance>,
     pub texture: Option<TextureData>,
+    /// Index into [`Snapshot::textures`], for scenes where many items share one texture.
+    /// Ignored when `texture` is present.
+    #[serde(default)]
+    pub texture_index: Option<usize>,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Snapshot {
@@ -20,11 +28,16 @@ pub struct Snapshot {
     pub description: String,
     pub uniforms: FrameUniforms,
     pub items: Vec<SnapshotItem>,
+    /// Shared texture pool referenced by `SnapshotItem::texture_index`.
+    #[serde(default)]
+    pub textures: Vec<TextureData>,
 }
 pub struct LoadedSnapshot {
     meshes: Vec<GpuMesh>,
     textures: Vec<Option<GpuTexture>>,
-    instances: Vec<[Instance; 1]>,
+    pool: Vec<GpuTexture>,
+    item_pool: Vec<Option<usize>>,
+    instances: Vec<Vec<Instance>>,
     pub uniforms: FrameUniforms,
 }
 impl Snapshot {
@@ -41,10 +54,25 @@ impl Snapshot {
         let mut loaded = LoadedSnapshot {
             meshes: vec![],
             textures: vec![],
+            pool: vec![],
+            item_pool: vec![],
             instances: vec![],
             uniforms: self.uniforms,
         };
+        for t in self.textures {
+            loaded.pool.push(t.upload(
+                renderer.device(),
+                renderer.queue(),
+                renderer.device().features(),
+            )?);
+        }
         for item in self.items {
+            ensure!(
+                item.texture_index.is_none_or(|i| i < loaded.pool.len()),
+                "scene item {:?} references a missing pooled texture",
+                item.name
+            );
+            loaded.item_pool.push(item.texture_index);
             loaded.meshes.push(mesh::upload_vertices(
                 renderer.device(),
                 &item.name,
@@ -64,7 +92,11 @@ impl Snapshot {
                     })
                     .transpose()?,
             );
-            loaded.instances.push([item.transform]);
+            loaded.instances.push(if item.instances.is_empty() {
+                vec![item.transform]
+            } else {
+                item.instances
+            });
         }
         Ok(loaded)
     }
@@ -81,6 +113,7 @@ impl LoadedSnapshot {
                 instances: &self.instances[i],
                 texture: self.textures[i]
                     .as_ref()
+                    .or_else(|| self.item_pool[i].map(|p| &self.pool[p]))
                     .map(|t| &t.view)
                     .unwrap_or(&neutral),
             })
@@ -98,6 +131,7 @@ impl LoadedSnapshot {
                 instances: &self.instances[i],
                 texture: self.textures[i]
                     .as_ref()
+                    .or_else(|| self.item_pool[i].map(|p| &self.pool[p]))
                     .map(|t| &t.view)
                     .unwrap_or(&neutral),
             })
