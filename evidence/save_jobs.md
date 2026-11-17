@@ -82,8 +82,20 @@ window or loading game archives. The reader borrows the entity and component
 bytes and uses a 64 MiB per-job budget for index entries. It rejects truncated
 ranges, negative counts and unknown saved type indices; malformed-file
 behavior has not been compared with the original loader. `world_restored`
-still reports `false`.
-Typed game state, shared values and omitted values, entity/blob remapping,
-`WorldData` and `Systems` decoding, and saved-world restoration are outside
-this boundary. No `MoveTowardsPositionBuff` column appears in either capture;
+still reports `false`. The snapshot indexes job rows by their original slot
+and version, validates all job handles and header prefab references against
+the [world version table](save_world.md), and keeps the component payloads
+borrowed. The same report lists the [saved system records](save_systems.md).
+The 284,158 nonpersistent diagnostic slots are disjoint from the job slots in
+each capture; they contain all 23,583 header prefab roots and 19,394 linked
+entity references.
+
+The original loader allocates fresh handles with `EntityManager.CreateEntity`
+(call site `0x7f0c3fa`). `SetupOldToNewEntityRemappingHashMap` (`0x7f0f050`)
+pairs saved and fresh handles and binds prefab roots and children. This is why
+the offline slot index cannot directly serve as a live-world import.
+
+Typed game state, shared and omitted values, entity/blob remapping, and
+saved-world restoration are outside this boundary. No
+`MoveTowardsPositionBuff` column appears in either capture;
 the `EntityInput` bytes are not a live player or steering scenario.

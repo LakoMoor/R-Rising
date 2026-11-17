@@ -14,9 +14,7 @@ use std::sync::Arc;
 mod scene_view;
 
 use anyhow::{Context, Result};
-use rrising_content::persistence::{
-    PersistentSave, SerializationJob, SerializationJobRegistry, CONTAINER_VERSION,
-};
+use rrising_content::persistence::{PersistentSave, SavedSnapshot, CONTAINER_VERSION};
 use rrising_content::{list_archives, GameContent};
 use rrising_core::scene::{self, SceneSpec};
 use rrising_math::{float3, float4, float4x4};
@@ -1294,8 +1292,11 @@ fn main() -> Result<()> {
     let opt = parse_args()?;
     if let Some(path) = &opt.inspect_save {
         let save = PersistentSave::open(path)?;
-        let header = save.header()?;
-        let registry = SerializationJobRegistry::new(&header)?;
+        let snapshot = SavedSnapshot::read(&save)?;
+        let header = snapshot.header();
+        let world = snapshot.world_data();
+        let world_stats = world.stats();
+        let systems = snapshot.systems();
         let linked_entities: usize = header.prefabs.iter().map(|p| p.linked_entities.len()).sum();
         let members: Vec<_> = save
             .members()
@@ -1307,18 +1308,11 @@ fn main() -> Result<()> {
             })
             .collect();
         let mut serialization_jobs = Vec::new();
-        for (index, member) in save.members().iter().enumerate() {
-            if !member.name.starts_with("SerializationJob_") {
-                continue;
-            }
-            let bytes = save
-                .member_data(index)
-                .context("missing serialization job data")?;
-            let job = SerializationJob::read(bytes, &registry)
-                .with_context(|| format!("decoding {}", member.name))?;
+        for (member_index, job) in snapshot.jobs() {
+            let member = &save.members()[*member_index];
             let stats = job.stats();
             serialization_jobs.push(serde_json::json!({
-                "member_name": member.name, "bytes": bytes.len(),
+                "member_name": member.name, "bytes": member.size,
                 "archetypes": stats.archetypes, "chunks": stats.chunks,
                 "entities": stats.entities, "columns": stats.columns,
                 "buffer_entities": stats.buffer_entities,
@@ -1331,6 +1325,24 @@ fn main() -> Result<()> {
                 "uncompressed_bytes": save.uncompressed_bytes(),
                 "table_bytes": save.table_bytes(), "members": members,
                 "serialization_jobs": serialization_jobs,
+                "indexed_entity_count": snapshot.entity_count(),
+                "world_data": {
+                    "entity_capacity": world.entity_capacity(),
+                    "debug_archetypes": world_stats.archetypes,
+                    "debug_chunks": world_stats.chunks,
+                    "debug_entities": world_stats.entities,
+                    "debug_type_hashes": world_stats.type_hashes,
+                },
+                "systems": {
+                    "elapsed_time": systems.elapsed_time,
+                    "world_frame": systems.world_frame()?,
+                    "slot_count": systems.slot_count,
+                    "records": systems.records.iter().map(|record| serde_json::json!({
+                        "slot": record.slot_index, "identifier": record.identifier,
+                        "payload_offset": record.payload_offset, "payload_bytes": record.payload.len(),
+                        "payload_bits": record.payload_bits,
+                    })).collect::<Vec<_>>(),
+                },
                 "header": {
                     "serialization_format_version": header.serialization_format_version,
                     "persistence_version": header.persistence_version,

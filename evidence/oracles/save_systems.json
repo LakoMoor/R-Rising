@@ -1,0 +1,31 @@
+{
+  "evidence_kind": "original-runtime-derived",
+  "original_server_binary_sha256": "41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7",
+  "bytes": 1859,
+  "slot_count": 8,
+  "record_fields": ["identifier", "offset", "payload_offset", "payload_bytes", "payload_fnv1a64"],
+  "records": [
+    ["StablesSystem_MountItemGain_Persistence", 12, 56, 8, "a8c7f832281a39c5"],
+    ["ContestIdManagerSystem_Persistence", 64, 103, 1020, "9fb6d307b9a5a354"],
+    ["ServerBootstrapSystem", 1123, 1149, 19, "65df546be8f63ef7"],
+    ["JewelSpawnSystem_Persistence", 1168, 1201, 48, "eef5d06cc23a2267"],
+    ["ActionRecordsPersistenceSystem", 1249, 1284, 4, "4d25767f9dce13f5"],
+    ["WarEventSystem_Persistence", 1288, 1319, 26, "7c598961e158c593"],
+    ["WorldFrame", 1345, 1360, 4, null],
+    ["ModificationSystem", 1364, 1387, 472, "f125e704e02bd54b"]
+  ],
+  "saves": [
+    {
+      "file": "AutoSave_4.save.gz",
+      "elapsed_time_f64_bits": "404cca6a5edb2800",
+      "world_frame": 3871,
+      "world_frame_fnv1a64": "fc1a542e706e9d2b"
+    },
+    {
+      "file": "AutoSave_5.save.gz",
+      "elapsed_time_f64_bits": "4050e5fa40699400",
+      "world_frame": 4162,
+      "world_frame_fnv1a64": "165d80a626289c07"
+    }
+  ]
+}

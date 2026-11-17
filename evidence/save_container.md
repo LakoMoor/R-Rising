@@ -82,5 +82,6 @@ Four portable tests cover the real table shape, unknown names/UTF-8 lengths,
 incomplete/invalid tables and gzip checksum/truncation/limit handling. The two
 original files also pass the actual application command. The header and job
 readers recover saved registry metadata, entity handles and component columns.
-World data, system state and legacy v1 directories remain opaque. These are format
-checks, **not save/load gameplay parity**.
+The snapshot also reads the world version table and system record envelope.
+Legacy v1 directories remain unsupported. These are format checks; saved-world
+gameplay parity has not been verified.

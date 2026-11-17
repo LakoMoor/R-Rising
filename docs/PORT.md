@@ -620,4 +620,7 @@ The serialization-job reader then indexes archetypes, chunks, saved entity handl
 or dynamic-buffer columns. It consumes all eight job members in two original autosaves to their
 exact ends, including two empty members. The original-data check locates saved `EntityInput` and
 `MapCollision` values by entity handle and compares fingerprints. See evidence/save_jobs.md.
-World and system payloads, typed state and remapping remain ahead of restoration and comparison.
+The version table, nonpersistent diagnostics and system record envelope are
+decoded. Native loading allocates fresh handles and binds saved prefab GUIDs
+to current prefab entities before remapping references. That binding, the rest
+of the typed system state, and restore/replay comparisons remain ahead.

@@ -104,8 +104,9 @@ Inspect a local dedicated-server autosave without starting the renderer:
 cargo run --locked -p rrising-app -- --inspect-save /path/to/AutoSave_4.save.gz
 ```
 
-The report includes the header, member ranges and counts for every serialization
-job. See [save format evidence](evidence/save_jobs.md) for the measured scope.
+The report includes the header, counts for every serialization job, indexed
+entity slots, world slot capacity and saved system records. See
+[save format evidence](evidence/save_jobs.md) for the measured scope.
 
 ## Browser build
 

@@ -5,8 +5,8 @@
 //! then member payloads in table order. ReadVersion2 RVA 0x7f1e9e0;
 //! WriteAndZipToDiskJob.Execute 0x7f31d70, WriteFileEntry 0x7f32cb0.
 //! Two actual original autosaves establish the 172-byte table, seven members and
-//! valid empty fourth serialization job. Separate decoders read the header and
-//! serialization jobs; world and system members stay opaque. This diagnostic rejects incomplete
+//! valid empty fourth serialization job. Separate decoders read the header, entity jobs,
+//! world metadata and system envelope. This diagnostic rejects incomplete
 //! payloads, trailing data and invalid UTF-8, and bounds decompression explicitly.
 
 use std::collections::BTreeSet;
@@ -18,6 +18,9 @@ use flate2::bufread::GzDecoder;
 
 mod header;
 mod job;
+mod snapshot;
+mod systems;
+mod world;
 pub use header::{
     PersistenceHeader, PersistentBlob, PersistentComponent, PrefabReference, RequiredComponent,
 };
@@ -25,6 +28,9 @@ pub use job::{
     SavedArchetype, SavedChunk, SavedColumn, SerializationJob, SerializationJobRegistry,
     SerializationJobStats,
 };
+pub use snapshot::{SavedEntityLocation, SavedEntityView, SavedSnapshot};
+pub use systems::{SavedSystemRecord, SavedSystems};
+pub use world::{SavedWorldArchetype, SavedWorldChunk, SavedWorldData, SavedWorldDataStats};
 
 /// Diagnostic allocation limit, not a limit observed in the original game.
 pub const DEFAULT_MAX_DECOMPRESSED_BYTES: usize = 512 * 1024 * 1024;
@@ -150,12 +156,30 @@ impl PersistentSave {
 
     /// Decodes the pinned header schema; this does not restore a runtime World.
     pub fn header(&self) -> Result<PersistenceHeader> {
-        let index = self
-            .members
-            .iter()
-            .position(|m| m.name == "Header.save")
-            .context("missing Header.save")?;
-        PersistenceHeader::read(self.member_data(index).context("missing header data")?)
+        PersistenceHeader::read(
+            self.named_member("Header.save")
+                .context("missing Header.save")?,
+        )
+    }
+
+    pub fn named_member(&self, name: &str) -> Option<&[u8]> {
+        self.member_data(self.members.iter().position(|member| member.name == name)?)
+    }
+
+    pub fn world_data(&self) -> Result<SavedWorldData<'_>> {
+        SavedWorldData::read(
+            self.named_member("WorldData.save")
+                .context("missing WorldData.save")?,
+        )
+        .context("decoding WorldData.save")
+    }
+
+    pub fn systems(&self) -> Result<SavedSystems<'_>> {
+        SavedSystems::read(
+            self.named_member("Systems.save")
+                .context("missing Systems.save")?,
+        )
+        .context("decoding Systems.save")
     }
 
     /// Keeps table order; no member is written to disk.

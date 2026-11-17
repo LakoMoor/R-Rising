@@ -1,5 +1,5 @@
 use rrising_content::persistence::{
-    PersistenceHeader, PersistentSave, SerializationJob, SerializationJobRegistry,
+    PersistenceHeader, PersistentSave, SavedSnapshot, SerializationJob, SerializationJobRegistry,
 };
 use rrising_ecs::Entity;
 use serde_json::Value;
@@ -135,12 +135,57 @@ fn original_save_jobs_consumed_to_eof_and_column_samples_match() {
     for capture in golden["saves"].as_array().expect("save captures") {
         let file = name(capture, "file");
         let save = PersistentSave::open(&root.join(file)).expect("original autosave");
+        let snapshot = SavedSnapshot::read(&save).expect("original saved entity index");
+        let debug_slots: std::collections::HashSet<_> = snapshot
+            .world_data()
+            .nonpersistent_archetypes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .flat_map(|archetype| &archetype.chunks)
+            .flat_map(|chunk| chunk.entity_indices())
+            .collect();
+        assert_eq!(debug_slots.len(), 284158);
+        assert!(snapshot
+            .entities()
+            .all(|entity| !debug_slots.contains(&(entity.index as usize))));
+        assert!(snapshot.header().prefabs.iter().all(|prefab| {
+            std::iter::once(&prefab.entity)
+                .chain(&prefab.linked_entities)
+                .all(|entity| debug_slots.contains(&(entity.index as usize)))
+        }));
         let header = save.header().expect("original persistence header");
         let registry = SerializationJobRegistry::new(&header).expect("job registry");
         let steering = header
             .persistent_component_named("ProjectM.MoveTowardsPositionBuff")
             .expect("steering component in the registry");
         let jobs = capture["jobs"].as_object().expect("expected jobs");
+        let entity_count: u64 = jobs.values().map(|entry| entry[3].as_u64().unwrap()).sum();
+        assert_eq!(snapshot.entity_count() as u64, entity_count);
+        assert_eq!(
+            snapshot.entities().map(|entity| entity.index).min(),
+            Some(1270)
+        );
+        assert_eq!(
+            snapshot.entities().map(|entity| entity.index).max(),
+            Some(if file == "AutoSave_4.save.gz" {
+                559509
+            } else {
+                559503
+            })
+        );
+        let view = snapshot
+            .entity(Entity::new(152830, 4))
+            .expect("sampled entity");
+        assert!(snapshot.entity(Entity::new(152830, 3)).is_none());
+        assert!(snapshot.entity(Entity::NULL).is_none());
+        for sample in samples {
+            let component = header
+                .persistent_component_named(name(sample, "component"))
+                .unwrap();
+            let bytes = view.scalar(component.saved_type_index).unwrap();
+            assert_fingerprint(bytes, name(sample, "fnv1a64"));
+        }
         let mut observed_jobs = 0;
         for (index, entry) in save.members().iter().enumerate() {
             if !entry.name.starts_with("SerializationJob_") {
