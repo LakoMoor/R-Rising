@@ -23,7 +23,7 @@ performance improvement has been demonstrated.
 | Content archives indexed | 4,409 / 4,409 | **100% of this installation** |
 | RuntimeContentCatalog | 1 / 1 | Parsed and used by native startup; 1,904 dependency sets |
 | Entity scene containers and streams decoded | 1,183 / 1,183 | **100% parsing; not world execution** |
-| Scene archetypes with recovered storage shape | 10,040 / 17,579 (23,828 / 31,723 chunks) | Validated offline; 64 identity-only types keep the rest refused; not world execution |
+| Scene archetypes with recovered storage shape | 17,579 / 17,579 (31,723 / 31,723 chunks; 1,385,671 entities) | Validated offline by layout/buffer/patch checks; managed components admitted only as 4-byte slots; not world execution |
 | Native showcase | 48 objects, 26 bound textures | Verified on macOS / Metal |
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |
 | Original-game scenarios | 0 | Game parity **unmeasured**; 7 native leaf functions match 1,024 original inputs each |

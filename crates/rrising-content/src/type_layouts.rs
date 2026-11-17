@@ -18,6 +18,8 @@ use serde_json::Value;
 
 use crate::entity_scenes::{SceneArchetypes, SceneChunk, SceneFile};
 
+/// Chunk bytes a managed `IComponentData` class occupies per entity (a managed-store index).
+pub const MANAGED_COMPONENT_SLOT_BYTES: i32 = 4;
 pub const ENTITY_HASH: u64 = 0x6f02_124d_960c_5b29;
 pub const TRANSLATION_HASH: u64 = 0xa42d_e7cc_0763_e5be;
 pub const ROTATION_HASH: u64 = 0xb1ac_0344_99f4_9e3e;
@@ -102,9 +104,17 @@ impl TypeLayouts {
                 "entity" => TypeCategory::EntityData,
                 other => return Err(anyhow!("unsupported category {other:?} for {name}")),
             };
+            // BuildComponentType @ RVA 0x905a560 (managed-class branch at 0x905afa7) stores
+            // SizeInChunk = ElementSize = 4 (the managed-store index), alignment 0 and
+            // BufferCapacity -1 for a managed IComponentData class; no other managed per-entity
+            // shape is recovered.
             ensure!(
-                !managed || category == TypeCategory::ISharedComponentData,
-                "per-entity managed storage remains unsupported: {name}"
+                !managed
+                    || category == TypeCategory::ISharedComponentData
+                    || (category == TypeCategory::ComponentData
+                        && integer(ecs, "size_in_chunk")? == MANAGED_COMPONENT_SLOT_BYTES
+                        && integer(ecs, "element_size")? == MANAGED_COMPONENT_SLOT_BYTES),
+                "per-entity managed storage shape is unrecovered: {name}"
             );
             let size = integer(ecs, "size_in_chunk")?;
             let element_size = integer(ecs, "element_size")?;
@@ -185,6 +195,12 @@ impl TypeLayouts {
             }
             if boolean(ecs, "enableable")? {
                 flags |= TypeIndex::K_ENABLEABLE_MASK;
+            }
+            // BuildComponentType sets bit 23 when any inherited interface is an IEquatable<>
+            // instance (lambda RVA 0x9065a80). Every flag bit participates in memory ordering,
+            // so omitting it mis-orders buffers (ProfessorCoilPairElement sorts last).
+            if boolean(ecs, "iequatable")? {
+                flags |= TypeIndex::K_IEQUATABLE_MASK;
             }
             if boolean(ecs, "cleanup")? {
                 flags |= TypeIndex::K_CLEANUP_MASK;
@@ -492,6 +508,8 @@ impl<'a> ResolvedScene<'a> {
         if arch.types[slot].is_chunk_component()
             || arch.types[slot].is_shared_component_type()
             || arch.types[slot].is_zero_sized()
+            // The 4-byte slot is a managed-store index; order among managed types is not verified.
+            || arch.types[slot].is_managed_component()
         {
             return Ok(None);
         }

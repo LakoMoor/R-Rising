@@ -44,6 +44,7 @@ class Identities:
             for i in range(start,start+count):
                 self.image_ranges[i]=ranges
                 self.assembly_names[i]=assembly_name
+        self.expressions = {}
         self.generic_observations = {}
         self.unsupported = collections.Counter()
 
@@ -96,6 +97,47 @@ class Identities:
         if not row['bitfield']&1 or row['bitfield']&2 or row['namespace']=='System' and row['name'] in PRIMITIVES.values():
             return False
         return any(self.contains_entity(field,seen) for _,field,_ in self.fields(expression))
+
+    SCALARS = {'System.Boolean':1,'System.Char':2,'System.SByte':1,'System.Byte':1,'System.Int16':2,'System.UInt16':2,
+               'System.Int32':4,'System.UInt32':4,'System.Int64':8,'System.UInt64':8,'System.Single':4,'System.Double':8,
+               'System.IntPtr':8,'System.UIntPtr':8}
+
+    @functools.lru_cache(None)
+    def sequential_layout(self, expression):
+        """(size, alignment, entity_offsets) of a value type by natural sequential layout.
+
+        Constructed generics carry no layout in metadata (IL2CPP computes them when the class is
+        initialised), so this applies the C# sequential rule. It refuses explicit layouts, and
+        results are only trusted after scene validation (offsets, buffer headers, patches).
+        Non-generic types are cross-checked against IL2CPP's own baked size by the caller.
+        """
+        if expression[0]!='type':
+            return (8,8,())                       # pointers and managed arrays
+        i,args=expression[1:]
+        row=self.p.type_rows[i]
+        name=self.p.full_name(i)
+        if name in self.SCALARS:
+            return (self.SCALARS[name],self.SCALARS[name],())
+        if name=='Unity.Entities.Entity':
+            return (8,4,(0,))
+        if not row['bitfield']&1:
+            return (8,8,())                       # managed reference
+        explicit=row['flags']&0x18==0x10
+        offset,align,entities,extent=0,1,[],0
+        for _,field,declared in self.fields(expression):
+            size,field_align,field_entities=self.sequential_layout(field)
+            if explicit:
+                if declared is None:
+                    raise Unsupported('explicit layout field without a recovered offset')
+                offset=declared
+            else:
+                offset=(offset+field_align-1)//field_align*field_align
+            entities.extend(offset+e for e in field_entities)
+            offset+=size
+            extent=max(extent,offset)
+            align=max(align,field_align)
+        extent=max(extent,1)
+        return ((extent+align-1)//align*align,align,tuple(entities))
 
     def short_name(self, expression):
         if expression[0]=='type':
@@ -283,6 +325,7 @@ class Identities:
                 if expression[0]=='type':
                     direct=[{'name':name,'type':identities.full_name(field),'field_offset_attribute':offset}
                             for name,field,offset in identities.fields(expression)]
+                self.expressions[stable]=expression
                 matches[stable]=dict(name=name,stable_hash=f'{stable:016x}',already_in_baseline=stable in baseline,
                     generic_arguments=[identities.full_name(arg) for arg in expression[2]] if expression[0]=='type' else [],
                     direct_fields=direct)

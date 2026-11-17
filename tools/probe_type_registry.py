@@ -19,7 +19,7 @@ import json
 import struct
 from pathlib import Path
 
-EXPECTED_MATCHES = 1708
+EXPECTED_MATCHES = 1772  # 1,708 value-type shapes + 61 managed IComponentData classes + 3 constructed generics
 BASIS = 0xCBF29CE484222325
 PRIME = 0x100000001B3
 MASK = (1 << 64) - 1
@@ -252,6 +252,32 @@ class Probe:
                 result.add(f'unsupported-native-interface:{native_index}')
         return result
 
+    def has_generic_interface(self, i, definition_name, visited=None):
+        """True if any (inherited) interface is a constructed instance of `definition_name`.
+
+        Mirrors `GetInterfaces().Any(...)` in BuildComponentType (lambda at RVA 0x9065a80,
+        result becomes TypeIndex bit 23, `IsIEquatable`); only the generic definition is compared.
+        """
+        visited = set() if visited is None else visited
+        if i in visited:
+            return False
+        visited.add(i)
+        row = self.type_rows[i]
+        for j in range(row['interface_count']):
+            native_index = struct.unpack_from('<i',self.metadata,self.interfaces+(row['interface_start']+j)*4)[0]
+            kind, data, _ = self.native(native_index)
+            if kind == 0x15:
+                if self.full_name(self.typedef_for(self.native_ptr(self.qword(data)))) == definition_name:
+                    return True
+                continue
+            try:
+                typedef = self.typedef_for(self.native(native_index))
+            except Unsupported:
+                continue
+            if self.has_generic_interface(typedef, definition_name, visited):
+                return True
+        return False
+
     @functools.lru_cache(None)
     def is_zero_size(self, i):
         row = self.type_rows[i]
@@ -316,11 +342,79 @@ class Probe:
                     attribute_payload_issue=self.attributes[i]['unsupported'],
                     category=category, managed=any(not f['static'] and self.native(f['native_type_index'])[0] in [14,18,28,29] for f in self.layout(i)['fields']), zero_sized=size_in_chunk == 0, zero_size_struct=zero,
                     enableable=has('IEnableableComponent'),
+                    # Entity is registered through the special path (memory ordering 0, always slot 0), not BuildComponentType.
+                    iequatable=name != 'Unity.Entities.Entity' and self.has_generic_interface(i,'System.IEquatable`1'),
                     cleanup=has('ICleanupComponentData') or has('ICleanupBufferElementData') or has('ICleanupSharedComponentData'),
                     size_in_chunk=size_in_chunk, element_size=size if category == 'buffer' else size_in_chunk,
                     buffer_capacity=capacity, alignment_in_bytes=0 if category == 'shared' else alignment,
                     maximum_chunk_capacity=maximum_chunk_capacity,
                     entity_offsets=self.entity_offsets(i))
+
+    def ecs_layout_generic(self, expression, stable):
+        """Storage shape of a constructed generic value-type component/buffer element.
+
+        Size, alignment and Entity offsets come from `Identities.sequential_layout` (the C#
+        sequential/explicit rule over the constructed field types); metadata bakes no layout for
+        constructed generics. Anything not cross-checkable by the scene acceptance is not admitted.
+        """
+        i = expression[1]
+        name = self.identities.full_name(expression)
+        interfaces = self.interface_names(i)
+        attrs = self.attributes[i]['names']
+        forced = self.attribute_integer(i,'Unity.Entities.TypeManager+ForcedMemoryOrderingAttribute')
+        version = self.attribute_integer(i,'Unity.Entities.TypeManager+TypeVersionAttribute')
+        max_capacity = self.attribute_integer(i,'Unity.Entities.MaximumChunkCapacityAttribute')
+        if version not in [None,0] or forced is not None or self.attributes[i]['unsupported']:
+            raise Unsupported('generic type carries an ordering/version override')
+        category = 'buffer' if 'Unity.Entities.IBufferElementData' in interfaces else 'component' if 'Unity.Entities.IComponentData' in interfaces else None
+        if category is None or not self.type_rows[i]['bitfield'] & 1:
+            raise Unsupported('generic type is not an unmanaged component or buffer element')
+        size, alignment_of, entities = self.identities.sequential_layout(expression)
+        entities = list(entities)
+        if size <= 0:
+            raise Unsupported('empty generic component')
+        capacity = None
+        if category == 'buffer':
+            capacity = self.attribute_integer(i,'Unity.Entities.InternalBufferCapacityAttribute')
+            if capacity is None:
+                capacity = 128//size
+            size_in_chunk = 16+size*capacity
+        else:
+            size_in_chunk = size
+        alignment = size if 0 < size < 16 and size & (size-1) == 0 else 16
+        return dict(memory_ordering=f'{stable:016x}', memory_ordering_source='CalculateMemoryOrdering fallback to stable hash; no override attribute present',
+                    type_version=0, interfaces=sorted(interfaces), attribute_types=attrs, attribute_payload_issue=self.attributes[i]['unsupported'],
+                    category=category, managed=False, zero_sized=False, zero_size_struct=False,
+                    enableable='Unity.Entities.IEnableableComponent' in interfaces, iequatable=self.has_generic_interface(i,'System.IEquatable`1'),
+                    cleanup=any(x in interfaces for x in ['Unity.Entities.ICleanupComponentData','Unity.Entities.ICleanupBufferElementData','Unity.Entities.ICleanupSharedComponentData']),
+                    size_in_chunk=size_in_chunk, element_size=size if category == 'buffer' else size_in_chunk,
+                    buffer_capacity=capacity, alignment_in_bytes=alignment,
+                    maximum_chunk_capacity=128 if max_capacity is None else min(128,max_capacity),
+                    entity_offsets=entities), name, size
+
+    def ecs_layout_managed_class(self, i, stable):
+        """Storage shape of a managed `IComponentData` class (BuildComponentType managed branch).
+
+        RVA 0x905afa7..0x905b0ff: sizeInChunk = 4 (a managed-store index; the object itself
+        lives outside the chunk), elementSize = max(4, 0) = 4, bufferCapacity = -1, alignment 0.
+        The zero-size flag (bit 30) is only set when sizeInChunk == 0, so it is never set here.
+        Entity references inside the object are found by managed reflection at runtime and are
+        not recoverable offline, so `entity_offsets` is empty and never patched.
+        """
+        attrs = self.attributes[i]['names']
+        forced = self.attribute_integer(i,'Unity.Entities.TypeManager+ForcedMemoryOrderingAttribute')
+        version = self.attribute_integer(i,'Unity.Entities.TypeManager+TypeVersionAttribute')
+        max_capacity = self.attribute_integer(i,'Unity.Entities.MaximumChunkCapacityAttribute')
+        if version not in [None,0] or forced is not None or max_capacity is not None or self.attributes[i]['unsupported']:
+            raise Unsupported('managed class carries an ordering/capacity override')
+        interfaces = self.interface_names(i)
+        return dict(memory_ordering=f'{stable:016x}', memory_ordering_source='CalculateMemoryOrdering fallback to stable hash; no override attribute present',
+                    type_version=0, interfaces=sorted(interfaces), attribute_types=attrs, attribute_payload_issue=self.attributes[i]['unsupported'],
+                    category='component', managed=True, zero_sized=False, zero_size_struct=False,
+                    enableable='Unity.Entities.IEnableableComponent' in interfaces, iequatable=self.has_generic_interface(i,'System.IEquatable`1'),
+                    cleanup='Unity.Entities.ICleanupComponentData' in interfaces,
+                    size_in_chunk=4, element_size=4, buffer_capacity=None, alignment_in_bytes=0,
+                    maximum_chunk_capacity=128, entity_offsets=[])
 
     def offset(self, address):
         for va, n, raw in self.sections:
@@ -487,7 +581,17 @@ def main():
     identities = probe.identities = Identities(probe)
     for row in probe.type_rows:
         if not row['bitfield'] & 1:
-            continue  # managed classes: identity only (per-entity managed slot layout is unverified)
+            # Managed IComponentData classes: slot shape from BuildComponentType's managed branch.
+            try:
+                if 'Unity.Entities.IComponentData' not in probe.interface_names(row['index']) or row['generic'] >= 0:
+                    continue
+                stable = identities.stable_hash(identities.expr(probe.native(row['byval'])))
+                if stable in observed:
+                    matched.append(dict(name=probe.full_name(row['index']), stable_hash=f'{stable:016x}', metadata_type_index=row['index'],
+                                        managed_value_size=0, native_size=None, ecs=probe.ecs_layout_managed_class(row['index'],stable)))
+            except (Unsupported, RecursionError, struct.error):
+                unsupported += 1
+            continue
         try:
             stable = identities.stable_hash(identities.expr(probe.native(row['byval'])))
             if stable not in observed:
@@ -500,6 +604,20 @@ def main():
     # storage shape here; they are recorded as identities only (never read by layouts).
     known = {int(row['stable_hash'], 16) for row in matched}
     identity_matches, _ = identities.match_scene(observed, known)
+    # Constructed generic components (e.g. Rukhanka blob records, structs holding ReferenceToken<Entity>):
+    # shape from the sequential/explicit layout rule; scene acceptance cross-checks it.
+    for stable, row in identity_matches.items():
+        if stable in known:
+            continue
+        expression = identities.expressions[stable]
+        if expression[0] != 'type' or not probe.type_rows[expression[1]]['bitfield'] & 1:
+            continue
+        try:
+            ecs, name, size = probe.ecs_layout_generic(expression, stable)
+        except (Unsupported, RecursionError, struct.error):
+            continue
+        matched.append(dict(name=row['name'], stable_hash=row['stable_hash'], metadata_type_index=expression[1], managed_value_size=size, native_size=None, ecs=ecs))
+        known.add(stable)
     identity_only = [dict(name=row['name'], stable_hash=row['stable_hash'], generic_arguments=row['generic_arguments'])
                      for row in identity_matches.values() if int(row['stable_hash'], 16) not in known]
     identity_only.sort(key=lambda row: row['name'])
@@ -522,7 +640,7 @@ def main():
             raise ValueError('pinned-build identity changed; anchors are not transferable')
         if len(matched) != EXPECTED_MATCHES or len({row['stable_hash'] for row in matched}) != EXPECTED_MATCHES:
             raise ValueError('pinned-build type-hash coverage changed')
-        if result['identity_only_count'] != 64 or result['unresolved_scene_hashes'] != 0:
+        if result['identity_only_count'] != 0 or result['unresolved_scene_hashes'] != 0:
             raise ValueError('scene hash identity coverage changed')
         anchors = {
             'Unity.Entities.Entity': ('6f02124d960c5b29',8),
@@ -539,11 +657,26 @@ def main():
         for name, stable in [('Unity.Rendering.ManagedRenderMeshArray','f423fa42b77d7330'),('ProjectM.Terrain.PerChunkFluffDataComponent','a26e40a1d5cc937c')]:
             if by_name[name]['stable_hash'] != stable or by_name[name]['ecs']['category'] != 'shared' or not by_name[name]['ecs']['managed']:
                 raise ValueError('managed shared-array identity changed: '+name)
+        # Shapes recovered for the formerly identity-only types (see docs/COMPATIBILITY.md).
+        managed = by_name['ProjectM.NetworkSnapshotIdentifier']['ecs']
+        if (managed['managed'], managed['size_in_chunk'], managed['element_size'], managed['alignment_in_bytes']) != (True, 4, 4, 0):
+            raise ValueError('managed IComponentData class slot shape changed')
+        if sum(1 for row in matched if row['ecs']['managed'] and row['ecs']['category'] == 'component') != 61:
+            raise ValueError('managed IComponentData class count changed')
+        mount = by_name['ProjectM.MountModelStreaming']
+        if (mount['ecs']['size_in_chunk'], mount['ecs']['entity_offsets']) != (28, [16]):
+            raise ValueError('MountModelStreaming generic Entity-offset case changed')
+        for name in ['Rukhanka.NewBlobAssetDatabaseRecord`1<Rukhanka.AnimationClipBlob>', 'Rukhanka.NewBlobAssetDatabaseRecord`1<Rukhanka.AvatarMaskBlob>']:
+            record = by_name[name]['ecs']
+            if (record['category'], record['element_size'], record['buffer_capacity'], record['size_in_chunk']) != ('buffer', 24, 5, 136):
+                raise ValueError('constructed generic buffer shape changed: '+name)
+        if not by_name['ProjectM.ProfessorCoilPairElement']['ecs']['iequatable'] or by_name['Unity.Entities.Entity']['ecs']['iequatable']:
+            raise ValueError('IEquatable flag derivation changed')
         if by_name['ProjectM.VampireTag']['ecs']['size_in_chunk'] != 0:
             raise ValueError('empty tag unexpectedly consumes chunk payload')
         if by_name['ProjectM.TileModelRegistrationState']['managed_value_size'] != 1 or by_name['ProjectM.TileModelRegistrationState']['native_size'] != 4:
             raise ValueError('managed/marshalled bool-layout distinction lost')
-        print('Pinned-build checks passed: '+str(EXPECTED_MATCHES)+' unique storage-shape matches plus '+str(result['identity_only_count'])+' identity-only (all 1772 scene hashes identified); Entity/transform anchors; zero-size tag; Boolean layout distinction.')
+        print('Pinned-build checks passed: '+str(EXPECTED_MATCHES)+' unique storage-shape matches plus '+str(result['identity_only_count'])+' identity-only (all 1772 scene hashes have a shape); Entity/transform anchors; zero-size tag; Boolean layout distinction.')
     if args.output:
         args.output.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:v for k,v in result.items() if k!='matches'},indent=2))

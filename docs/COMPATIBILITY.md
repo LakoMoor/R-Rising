@@ -109,8 +109,8 @@ All-device compatibility and performance improvement remain goals, not results.
 
 `python3 tools/probe_type_registry.py --check --output /private/tmp/rrising-type-layouts.json`
 reads the pinned IL2CPP metadata v31 and native registration. It derives storage
-shapes for 1,708 of 1,772 stable hashes observed in scenes (the remaining 64 are
-identified by name but carry no storage shape, see below), matching type names and managed field
+shapes for all 1,772 stable hashes observed in scenes (the last 64 were identity-only
+until the managed-class and generic-instance sections below), matching type names and managed field
 sizes/offsets. `native_size` is a marshalled size, not the ECS managed size (a
 bool-backed structure can marshal to four bytes but occupy one byte in ECS).
 
@@ -148,7 +148,9 @@ Five native leaf functions match 1,024 original byte replays each (seven leaf
 functions now have replay evidence in total). Range construction is statically
 recovered, not replay-verified. The inspector reports material/mesh records when
 admitted; the present admitted scene-layout subset has none, because rendering
-archetypes still include unresolved shared/managed types. This gap remains open.
+archetypes still included unresolved shared/managed types. (Superseded: with every archetype
+admitted, the scene acceptance below reads 809,820 MaterialMeshInfo records; they are only
+byte-range checked, and no mesh binding is wired.)
 
 
 ## Managed shared-array type identities
@@ -170,19 +172,54 @@ All **1,772 / 1,772** scene type hashes are now identified by name
 The 279 formerly unresolved hashes split into: explicit-layout structs, whose
 `FieldOffset` is hashed from IL2CPP's own field-offset table (the metadata carries
 no attribute for it), and fields typed as constructed generics (native kind 0x15).
-Of these, 1,708 have a recovered storage shape; 64 are identity-only: 61 managed
-`IComponentData` classes, `ProjectM.MountModelStreaming` (a struct whose generic
-field hides an `Entity` offset that is not recovered) and two
-`Rukhanka.NewBlobAssetDatabaseRecord<T>` instantiations.
+Of these, 1,708 had a recovered storage shape from metadata alone; 64 were identity-only
+(61 managed `IComponentData` classes, `ProjectM.MountModelStreaming`, and two
+`Rukhanka.NewBlobAssetDatabaseRecord<T>` instantiations), which kept 7,539 archetypes /
+7,895 chunks refused until the section below.
 
-With the 1,708 shapes, **all 1,183 scene files** resolve and validate (original
-algorithm, entity uniqueness, buffer headers, external patches): 10,040 of 17,579
-archetypes and 23,828 of 31,723 chunks (1,337,840 entities, 58,788 buffer headers,
-15,995 external patches), up from 3,615 archetypes / 6,542 chunks. The other 7,539
-archetypes / 7,895 chunks contain one of the 64 identity-only types and stay
-refused. An experiment storing managed components as a 4-byte chunk slot passed
-until one archetype's buffer offsets diverged (also tried 0, 1, 2, 8, 16), so it
-was not adopted: managed per-entity storage remains unrecovered.
+## Managed components, IEquatable ordering bit, constructed generics
+
+All 1,772 / 1,772 scene hashes now carry a storage shape (`tools/probe_type_registry.py
+--check` pins 1,772 matches, 0 identity-only), and **all 17,579 archetypes / 31,723 chunks of
+all 1,183 scenes** resolve and validate (original CreateArchetype algorithm, entity
+uniqueness, buffer headers, external patches): 1,385,671 entities, 274,197 buffer headers,
+89,120 external patches.
+
+- **Managed `IComponentData` class (61 types).** `TypeManager.BuildComponentType`
+  (RVA 0x905a560) has a managed-class branch at 0x905afa7: after
+  `CheckIsAllowedAsManagedComponentData` it stores `sizeInChunk = 4` (`mov [rbp-0x51], 4`),
+  category 0 (ComponentData), bufferCapacity -1, alignment 0 and `elementSize = max(4, 0)`;
+  the zero-size bit (30) is only set when `sizeInChunk == 0`. The slot is a 4-byte
+  managed-store index; the object lives outside the chunk. Only 4 passes the scene
+  acceptance; slot sizes 1, 2, 8 and 16 each fail in the first scenes (offsets of every
+  later type shift). An earlier 4-byte experiment diverged in four archetypes; that was not a
+  slot-size problem (see next item).
+  `type_layouts` admits a managed per-entity component only with size = element size = 4,
+  and `component_bytes` returns `None` for them (the slot order among several managed types
+  depends on entity-reference flag bits that offline analysis cannot derive for classes, so
+  the index of a particular managed type is not claimed). No managed object is deserialized.
+- **IEquatable ordering bit (the real cause of the 4 divergent archetypes).** Every TypeIndex
+  flag bit orders memory. BuildComponentType sets bit 23 (`IsIEquatable`, `bts r14d,0x17`) from
+  `GetInterfaces().Any(<lambda at 0x9065a80>)`, i.e. any `IEquatable<>` instance. The layout
+  reader omitted it, so `ProjectM.ProfessorCoilPairElement` (a 144-byte buffer) sorted before
+  16-byte buffers, whereas real chunk bytes (headers at 25,280 / 26,048 / 26,752 / 27,136
+  in the first failing chunk) put it last. The probe now emits `iequatable` (23 types; Entity,
+  registered through the special path with ordering 0, is excluded) and the reader sets the bit.
+- **Constructed generics.** Metadata bakes no layout for generic instances, so
+  `Identities.sequential_layout` applies the C# sequential/explicit rule to the constructed
+  field types (cross-checked on 1,704 non-generic structs against IL2CPP's baked sizes and
+  Entity offsets: 1,700 agree; the 4 that differ are explicit-layout types the calculator is
+  not used for). Results: `MountModelStreaming` = 28 bytes, align 4, Entity at offset 16
+  (`AssetGuid` 16 + `ReferenceToken<Entity>` 12); each `NewBlobAssetDatabaseRecord<T>` =
+  `Hash128` 16 + `BlobAssetReference<T>` 8 = 24, inline capacity 5, 136 chunk bytes.
+  These were not taken on faith: the scene acceptance rejects the neighbours (Mount size
+  24 or 32; Rukhanka capacity 4/6 or element 8/16/32 all fail on buffer/pointer checks
+  in the first scene using them), and only the derived values pass.
+
+Limits: the acceptance proves the slot sizes, ordering and buffer geometry of every scene
+archetype, not component semantics. The Entity references inside managed objects and blob
+asset pointers are neither patched nor dereferenced. Per-type managed slot attribution among
+several managed types, write groups and refcount/serialization flags remain unreconstructed.
 
 ## Performance measurement (Rust only)
 

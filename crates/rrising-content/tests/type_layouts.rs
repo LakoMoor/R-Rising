@@ -88,13 +88,44 @@ fn recovered_layouts_validate_real_chunk_headers_and_buffers() {
     println!("recovered scene layouts: scenes={scenes} archetypes={archetypes} chunks={chunks} entities={entities} buffer_headers={headers} external_patches={patches} transform_chunks={transforms} unresolved_archetypes={unresolved_archetypes} unresolved_chunks={unresolved_chunks}");
     println!("MaterialMeshInfo records read: {material_mesh_records}");
     assert_eq!(scenes, 1183);
-    // Remaining gaps need 64 identity-only hashes (61 managed classes, MountModelStreaming, 2 generics).
-    assert_eq!((unresolved_archetypes, unresolved_chunks), (7539, 7895));
+    // All 1,772 scene hashes have a storage shape: every archetype resolves and validates.
+    assert_eq!((unresolved_archetypes, unresolved_chunks), (0, 0));
     assert_eq!(
         (archetypes, chunks, entities, headers, patches, transforms),
-        (10040, 23828, 1337840, 58788, 15995, 27597),
+        (17579, 31723, 1385671, 274197, 89120, 41462),
         "pinned scene-layout acceptance set changed; investigate first divergence"
     );
+}
+
+fn synthetic_report(entity_size: i32, managed_size: i32) -> Vec<u8> {
+    let row = |name: &str, hash: &str, size: i32, managed: bool, entity: bool| {
+        format!(
+            r#"{{"name":"{name}","stable_hash":"{hash}","managed_value_size":{},"ecs":{{"category":"{}","managed":{managed},"zero_sized":false,"enableable":false,"cleanup":false,"iequatable":false,"size_in_chunk":{size},"element_size":{size},"buffer_capacity":null,"alignment_in_bytes":{},"maximum_chunk_capacity":128,"memory_ordering":"{}","entity_offsets":[]}}}}"#,
+            if managed { 0 } else { size },
+            if entity { "entity" } else { "component" },
+            if managed { 0 } else { 8 },
+            if entity { "0000000000000000" } else { hash }
+        )
+    };
+    format!(
+        r#"{{"schema_version":1,"evidence_kind":"offline-derived-and-scene-hash-matched","binary_sha256":"a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56","metadata_sha256":"b8f9f76ffb72a0c77079082aac8eb78da839094e9d090e8461b49230e8831271","matches":[{},{}]}}"#,
+        row("Unity.Entities.Entity", "6f02124d960c5b29", entity_size, false, true),
+        row("Test.ManagedClass", "0123456789abcdef", managed_size, true, false)
+    )
+    .into_bytes()
+}
+
+#[test]
+fn managed_component_admits_only_the_recovered_four_byte_slot() {
+    // BuildComponentType's managed-class branch stores SizeInChunk = ElementSize = 4.
+    let layouts = TypeLayouts::from_json(&synthetic_report(8, 4)).expect("4-byte managed slot");
+    assert_eq!(layouts.len(), 2);
+    for wrong in [0, 1, 2, 8, 16] {
+        assert!(
+            TypeLayouts::from_json(&synthetic_report(8, wrong)).is_err(),
+            "managed slot of {wrong} bytes must stay refused"
+        );
+    }
 }
 
 #[test]
