@@ -819,10 +819,12 @@ impl Archetype {
     }
 
     /// `Archetype.HasChunkComponents` — src: `get_HasChunkComponents_25`:
-    /// `NumChunkComponents > 0`.
+    /// `FirstChunkComponent != TypesCount` (@ 0x911c4e0 compiles to `cmp; setne`, not `> 0`; the
+    /// two only differ when `TypesCount < FirstChunkComponent`, which the original replay oracle
+    /// `tests/oracle_entities.rs` exercises).
     #[inline]
     pub const fn has_chunk_components(&self) -> bool {
-        self.types_count - self.data.layout.first_chunk_component > 0
+        self.types_count != self.data.layout.first_chunk_component
     }
 
     /// `Archetype.IsManaged` — src: `IsManaged_26` @ 0x911c340: the managed, companion and

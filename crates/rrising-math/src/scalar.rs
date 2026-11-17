@@ -11,9 +11,11 @@
 pub fn abs(x: f32) -> f32 {
     x.abs()
 }
+/// `math.abs(int)` — compiled as `neg; cmovle`, so `abs(i32::MIN)` stays `i32::MIN` (original
+/// replay oracle, `tests/oracle_math.rs`).
 #[inline]
 pub fn absi(x: i32) -> i32 {
-    x.abs()
+    x.wrapping_abs()
 }
 /// `math.min(float x, float y)` — the original is `IsNaN(y) || x < y ? x : y`: a NaN `y` returns
 /// `x` and a NaN `x` returns `y`. Rust's `f32::min` picks the other way round, so it is not used.
@@ -56,9 +58,11 @@ pub fn maxi(a: i32, b: i32) -> i32 {
 pub fn clamp(value: f32, lower: f32, upper: f32) -> f32 {
     max(lower, min(upper, value))
 }
+/// `math.clamp(int x, int a, int b)` — the original is `max(a, min(b, x))`, so with `a > b` it
+/// returns `a` (original replay oracle).
 #[inline]
 pub fn clampi(x: i32, a: i32, b: i32) -> i32 {
-    mini(maxi(x, a), b)
+    maxi(a, mini(b, x))
 }
 /// `math.saturate`
 #[inline]

@@ -69,3 +69,25 @@ The component is decoded by the read-only scene inspector when available.
 Current admitted archetypes contain **zero** MaterialMeshInfo records: their
 rendering archetypes still include unresolved types/shared objects. No real
 mesh/material binding or original world rendering is claimed from these leaf tests.
+
+## Pure Unity.Mathematics / Unity.Entities leaf oracles (2,048 cases each)
+
+`tools/oracle_replay.py` extracts each function's bytes from the pinned GameAssembly.dll, rejects anything
+containing calls or jumps leaving the function, patches RIP-relative constant reads into a temporary
+Mach-O, and runs it under Rosetta with the Windows x64 ABI. Only input/output rows are kept in
+`evidence/oracles/*.tsv`; no original bytes or decompiled text.
+
+| Script | Golden | Functions | Rust test |
+|---|---|---|---|
+| `capture_math_int.py` | `math_int.tsv` | lzcnt, reversebits, ceilpow2 (int, uint), ceillog2, floorlog2, ispow2, abs, min, max, clamp (int) | `rrising-math/tests/oracle_math.rs` |
+| `capture_math_float.py` | `math_float.tsv` | f32tof16, f16tof32, radians, degrees, unlerp, remap, step, sign, clamp, min, max, smoothstep (incl. NaN/Inf/denormal inputs) | same |
+| `capture_entities.py` | `typeindex_flags.tsv` | 19 TypeIndex predicates plus Flags and Index | `rrising-ecs/tests/oracle_entities.rs` |
+| | `hash128.tsv` | Hash128 op_LessThan, op_GreaterThan, CompareTo, GetHashCode, op_Inequality | same |
+| | `archetype_getters.tsv` | 13 Archetype flag predicates and 11 section-count getters | same |
+| | `entity_compare.tsv` | Entity.CompareTo, ChunkIndex lt/gt, ComponentTypeInArchetype >= | same |
+
+Total: 75 functions x 2,048 cases (153,600 function evaluations; two TypeIndex getters overlap the earlier
+type_flags oracle). Divergences found and fixed in Rust: `math.clamp(int)` is `max(a, min(b, x))` (differs for
+a > b), `math.abs(int.MinValue)` stays MinValue (Rust overflowed), and `Archetype.HasChunkComponents` is
+`FirstChunkComponent != TypesCount`. Not covered: functions that call out (Hash128.get_IsValid reads statics,
+sinh/frac call helpers) and the archetype layout builder, which is not a leaf.
