@@ -148,6 +148,15 @@ impl<'a> SavedSnapshot<'a> {
             .iter()
             .map(|(&index, &(version, _))| Entity::new(index, version))
     }
+
+    /// Enumerates handles in the order expected by the loader's fresh-handle binding stage.
+    pub fn entities_in_job_order(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.jobs()
+            .iter()
+            .flat_map(|(_, job)| &job.archetypes)
+            .flat_map(|archetype| &archetype.chunks)
+            .flat_map(|chunk| chunk.entities())
+    }
 }
 
 fn check_world_version(world: &SavedWorldData<'_>, entity: Entity) -> Result<()> {

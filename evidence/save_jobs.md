@@ -93,7 +93,8 @@ entity references.
 The original loader allocates fresh handles with `EntityManager.CreateEntity`
 (call site `0x7f0c3fa`). `SetupOldToNewEntityRemappingHashMap` (`0x7f0f050`)
 pairs saved and fresh handles and binds prefab roots and children. This is why
-the offline slot index cannot directly serve as a live-world import.
+the offline slot index cannot directly serve as a live-world import. See
+[saved entity bindings](save_bindings.md) for the implemented mapping stage.
 
 Typed game state, shared and omitted values, entity/blob remapping, and
 saved-world restoration are outside this boundary. No

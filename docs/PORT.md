@@ -622,5 +622,7 @@ exact ends, including two empty members. The original-data check locates saved `
 `MapCollision` values by entity handle and compares fingerprints. See evidence/save_jobs.md.
 The version table, nonpersistent diagnostics and system record envelope are
 decoded. Native loading allocates fresh handles and binds saved prefab GUIDs
-to current prefab entities before remapping references. That binding, the rest
-of the typed system state, and restore/replay comparisons remain ahead.
+to current prefab entities before remapping references. The
+[binding stage](../evidence/save_bindings.md) accepts fresh handles and current
+prefab groups. Building those groups from booted server content, patching
+component fields, restoring typed system state and replay comparisons remain.

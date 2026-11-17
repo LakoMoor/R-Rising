@@ -1,0 +1,41 @@
+{
+  "evidence_kind": "original-runtime-derived-source-topology",
+  "original_server_binary_sha256": "41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7",
+  "prefab_topology": {
+    "prefab_entries": 23583,
+    "unique_guids": 23583,
+    "duplicate_guid_entries": 0,
+    "negative_guid_entries": 11725,
+    "zero_guid_entries": 0,
+    "unique_roots": 23583,
+    "linked_entries": 19394,
+    "unique_linked_entities": 19394,
+    "prefabs_without_a_group": 21811,
+    "nonempty_groups": 1772,
+    "min_nonempty_group_size": 2,
+    "max_group_size": 155,
+    "own_root_in_first_linked_position": 1772,
+    "roots_also_linked": 1772,
+    "source_handles_in_multiple_guids": 0,
+    "unique_source_handles": 41205,
+    "null_source_handles": 0
+  },
+  "saves": [
+    {
+      "file": "AutoSave_4.save.gz",
+      "job_entities": 274238,
+      "job_prefab_overlap": 0,
+      "job_entity_order_fnv1a64": "6c4ffbfa97a4ef66",
+      "job_entity_order_sha256": "442cb2d02e3d7bb70c52b54f6ecc81b501c93726f69ccd4591a1e16b2c163025",
+      "bindings_including_null": 315444
+    },
+    {
+      "file": "AutoSave_5.save.gz",
+      "job_entities": 274236,
+      "job_prefab_overlap": 0,
+      "job_entity_order_fnv1a64": "d6ef082c3b9f8840",
+      "job_entity_order_sha256": "6ddaf68845c9be51c43ecfeb25f0a4cd6116bcbe9acd4b756c9c1d3f034bf535",
+      "bindings_including_null": 315442
+    }
+  ]
+}

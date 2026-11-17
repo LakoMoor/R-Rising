@@ -16,11 +16,13 @@ use std::path::Path;
 use anyhow::{ensure, Context, Result};
 use flate2::bufread::GzDecoder;
 
+mod bindings;
 mod header;
 mod job;
 mod snapshot;
 mod systems;
 mod world;
+pub use bindings::{SavedBindingIssue, SavedEntityBindings};
 pub use header::{
     PersistenceHeader, PersistentBlob, PersistentComponent, PrefabReference, RequiredComponent,
 };
