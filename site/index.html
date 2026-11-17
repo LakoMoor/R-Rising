@@ -82,6 +82,12 @@
             <td data-s="yes"><i></i><b>Yes</b></td>
             <td data-s="part" title="23 functions replayed from the original; most of the library is untested"><i></i><b>Partly</b></td>
             <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
+          <tr><th scope="row">Transforms</th>
+            <td data-s="yes" title="Stored LocalToWorld read from all scenes"><i></i><b>Yes</b></td>
+            <td data-s="part" title="Computed in Rust; not yet run as a scheduled system"><i></i><b>Partly</b></td>
+            <td data-s="no" title="Formulas measured against stored output, not translated from original code"><i></i><b>No</b></td>
+            <td data-s="part" title="99.3% of 112,177 recomputed matrices within 1e-5 of the stored ones; static entities not covered"><i></i><b>Partly</b></td>
+            <td data-s="no"><i></i><b>No</b></td></tr>
           <tr><th scope="row">Rendering</th>
             <td data-s="yes" title="Real meshes and textures"><i></i><b>Yes</b></td>
             <td data-s="yes" title="Native and WebGPU"><i></i><b>Yes</b></td>
@@ -112,6 +118,7 @@
         <div><dt>Original functions replayed</dt><dd>80+</dd><dd class="note">Original machine code run on 1,024 to 2,048 inputs each; three Rust bugs found and fixed</dd></div>
         <div><dt>All scenes into a World</dt><dd>3.4 <small>s</small></dd><dd class="note">Every entity keeps its stored id</dd></div>
         <div><dt>Offscreen frame, 1280×720</dt><dd>1.42 <small>ms median</small></dd><dd class="note">Includes GPU readback</dd></div>
+        <div><dt>Stored transforms reproduced</dt><dd>99.3 <small>%</small></dd><dd class="note">112,177 matrices recomputed and compared with the originals within 1e-5; 86,798 bit-identical. 87.8% of stored transforms have no source to compute from</dd></div>
         <div class="warn"><dt>Original-game scenarios matched</dt><dd id="scenarios">0</dd><dd class="note">Until this is above zero, 1:1 behaviour is unproven</dd></div>
         <div class="warn"><dt>API names matched</dt><dd><span id="overall">2.7</span><small>%</small></dd><dd class="note"><span id="overall-count">5,107 of 187,377</span>. A name match is a hint, not a proof. <a href="https://github.com/LakoMoor/R-Rising/blob/main/tools/port_coverage.py">How it is counted</a></dd></div>
       </dl>
@@ -185,7 +192,7 @@ cargo run --release --locked -p rrising-app -- \
       <div class="block-head"><h2 id="next-title">What happens next</h2></div>
       <ol class="road">
         <li class="done"><h3>Read and draw real content</h3><p>Archives, scenes and types are read; native and browser draw original scenes at their stored positions.</p></li>
-        <li class="now"><h3>Make the world run</h3><p>Compute transforms the way the original does and compare them with the values stored in the scenes, the first check against original data. Then systems, scheduling and the remaining component kinds.</p></li>
+        <li class="now"><h3>Make the world run</h3><p>Transforms already reproduce 99.3% of the stored values; the rest is the exact original arithmetic, then systems, scheduling and the remaining component kinds.</p></li>
         <li><h3>One playable scenario</h3><p>Tie input, simulation and display together and compare the result with the running original.</p></li>
         <li><h3>Speed and devices</h3><p>Same-scene release timings against the original, texture fallbacks, and checks on other platforms.</p></li>
       </ol>

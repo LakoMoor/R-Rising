@@ -33,6 +33,7 @@ pub mod chunk_data;
 pub mod entity;
 pub mod hash128;
 pub mod store;
+pub mod transform;
 pub mod type_table;
 pub mod world;
 
