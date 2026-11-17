@@ -578,3 +578,10 @@ records the normalization sqrt stub. These are bounded function checks, not game
 The full port goal remains active. Next acceptance: more original runtime system behavior and
 live world/input/render integration, followed by a reproducible original-game scenario. Gameplay,
 physics, audio, networking, saves and full-game performance comparison remain unimplemented.
+
+
+The device-compatibility continuation adds CPU BC fallback and fixes BC6H/BC7 texel orientation,
+unsigned Unity BC6H and partial block-row mip chains. Native GPU tests, WASM, and Chrome loading
+of the same original scene with and without BC enabled passed. Five CPU tests and the dedicated
+640-block GPU comparison document precision limits; physical mobile devices remain untested.
+See COMPATIBILITY.md and docs/verification/bc-textures.json. No new game-parity percentage claimed.

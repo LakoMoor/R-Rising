@@ -11,7 +11,7 @@
 <p>Original content. Shared Rust renderer. WebGPU.<br>This viewer displays a locally exported scene (a showcase grid or an original scene's placements); gameplay and lighting parity are not implemented.</p>
 <div class="toolbar"><label>Open local scene<input id="scene" type="file" accept=".json"></label><span id="status" role="status">Starting WebAssembly…</span></div>
 <canvas id="viewport" width="1600" height="900" aria-label="Scene rendered by Rust and WebGPU"></canvas>
-<footer>Export with <code>r-rising --export-web scene.rrscene.json --archives 5000 --items 48 --width 1600 --height 900</code>.<br>Files stay on this device. A WebGPU adapter with BC texture support is currently required for compressed art. <a href="https://github.com/LakoMoor/R-Rising">Source & compatibility</a></footer>
+<footer>Export with <code>r-rising --export-web scene.rrscene.json --archives 5000 --items 48 --width 1600 --height 900</code>.<br>Files stay on this device. WebGPU is required. BC textures decode on the CPU when hardware support is unavailable, using more memory. Physical mobile devices remain untested. <a href="https://github.com/LakoMoor/R-Rising">Source & compatibility</a></footer>
 <script type="module">
 import init, { BrowserViewer } from './pkg/rrising_web.js';
 const status = document.querySelector('#status');

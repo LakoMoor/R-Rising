@@ -1,12 +1,13 @@
-//! Uploading a stored `Texture2D` to the GPU without transcoding it.
+//! Uploading a stored `Texture2D` with hardware BC or a portable CPU decoder.
 //!
 //! The game's art is compressed (BC1/BC3/BC4/BC5/BC6h/BC7 and the odd uncompressed RGBA). wgpu can
 //! hold those block formats directly on Metal and D3D11/Vulkan, so the port uploads the file's own
-//! blocks and keeps the pixels 1:1 with the install. Crunch (Unity's `DXT1Crunched`/`DXT5Crunched`)
+//! blocks when the format and orientation allow it. Otherwise it decodes to uncompressed texels. Crunch (Unity's `DXT1Crunched`/`DXT5Crunched`)
 //! is unpacked by `unity_formats::texture::UnityTexture::levels`, which hands back the DXT blocks
 //! the crunch stream decodes to — still the shipped pixels, just Huffman-decoded, which is what the
-//! original's own loader does at load time. Where a format cannot be held the texture is reported as
-//! unsupported rather than silently approximated.
+//! original's own loader does at load time. BC6H/BC7 decode before the texel-row flip; BC1/3/4/5
+//! use the same fallback without hardware BC support. CPU and GPU BC1..5 palette interpolation
+//! can differ; measured bounds are recorded in docs/COMPATIBILITY.md.
 //!
 //! One orientation fact matters: `UnityTexture::levels` returns each mip **bottom row first**, while
 //! wgpu textures start at the top row. The upload flips each level's rows, which is the only place
@@ -44,7 +45,8 @@ pub fn map_format(format: TextureFormat, srgb: bool) -> Result<wgpu::TextureForm
         }
         U::Bc5 => wgpu::TextureFormat::Bc5RgUnorm,
         U::Bc4 => wgpu::TextureFormat::Bc4RUnorm,
-        U::Bc6h => wgpu::TextureFormat::Bc6hRgbFloat,
+        // unity-formats' TextureFormat::Bc6h is unsigned half-float RGB.
+        U::Bc6h => wgpu::TextureFormat::Bc6hRgbUfloat,
         U::Rgba32 => {
             if srgb {
                 wgpu::TextureFormat::Rgba8UnormSrgb

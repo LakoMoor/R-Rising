@@ -32,21 +32,18 @@ impl TextureData {
         }
     }
 
-    pub fn upload(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        features: wgpu::Features,
-    ) -> Result<GpuTexture> {
+    /// Decode BC pixels without changing the stored bottom-first orientation or mip count.
+    /// Used automatically when the GPU cannot upload BC, and for BC6H/BC7 whose row flip
+    /// cannot be expressed by rearranging compressed index rows.
+    pub fn decoded_bc(&self) -> Result<Self> {
+        self.validate()?;
+        crate::bc::decode(self)
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             self.width > 0 && self.height > 0,
             "texture {:?}: zero dimension",
-            self.name
-        );
-        ensure!(
-            self.width <= device.limits().max_texture_dimension_2d
-                && self.height <= device.limits().max_texture_dimension_2d,
-            "texture {:?}: exceeds device dimensions",
             self.name
         );
         ensure!(
@@ -54,12 +51,6 @@ impl TextureData {
                 && self.levels.len() as u32 <= self.width.max(self.height).ilog2() + 1,
             "texture {:?}: invalid mip count",
             self.name
-        );
-        ensure!(
-            features.contains(self.format.required_features()),
-            "texture {:?}: adapter lacks {:?}",
-            self.name,
-            self.format.required_features()
         );
         let (bw, bh) = self.format.block_dimensions();
         let block = self
@@ -76,6 +67,7 @@ impl TextureData {
                     | wgpu::TextureFormat::Bc3RgbaUnormSrgb
                     | wgpu::TextureFormat::Bc4RUnorm
                     | wgpu::TextureFormat::Bc5RgUnorm
+                    | wgpu::TextureFormat::Bc6hRgbUfloat
                     | wgpu::TextureFormat::Bc6hRgbFloat
                     | wgpu::TextureFormat::Bc7RgbaUnorm
                     | wgpu::TextureFormat::Bc7RgbaUnormSrgb
@@ -84,6 +76,7 @@ impl TextureData {
                     | wgpu::TextureFormat::Bgra8Unorm
                     | wgpu::TextureFormat::Bgra8UnormSrgb
                     | wgpu::TextureFormat::R8Unorm
+                    | wgpu::TextureFormat::Rg8Unorm
                     | wgpu::TextureFormat::Rgba16Float
             ),
             "texture {:?}: format {:?} is not supported by the filtered material path",
@@ -94,11 +87,66 @@ impl TextureData {
             let w = (self.width >> mip).max(1).div_ceil(bw);
             let h = (self.height >> mip).max(1).div_ceil(bh);
             ensure!(
-                data.len() == w as usize * h as usize * block as usize,
+                Some(data.len())
+                    == (w as usize)
+                        .checked_mul(h as usize)
+                        .and_then(|n| n.checked_mul(block as usize)),
                 "texture {:?} mip {mip}: invalid byte count",
                 self.name
             );
         }
+        Ok(())
+    }
+
+    pub fn upload(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        features: wgpu::Features,
+    ) -> Result<GpuTexture> {
+        self.validate()?;
+        ensure!(
+            self.width <= device.limits().max_texture_dimension_2d
+                && self.height <= device.limits().max_texture_dimension_2d,
+            "texture {:?}: exceeds device dimensions",
+            self.name
+        );
+        let bc = self
+            .format
+            .required_features()
+            .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
+        // A partial final block row cannot be flipped losslessly in compressed form:
+        // e.g. a 12-pixel base level has a 6-pixel mip with two padded rows.
+        let partial_mip_row = (0..self.levels.len()).any(|mip| {
+            let height = (self.height >> mip).max(1);
+            height > 4 && !height.is_multiple_of(4)
+        });
+        if bc
+            && (!features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+                || matches!(
+                    self.format,
+                    wgpu::TextureFormat::Bc6hRgbFloat
+                        | wgpu::TextureFormat::Bc6hRgbUfloat
+                        | wgpu::TextureFormat::Bc7RgbaUnorm
+                        | wgpu::TextureFormat::Bc7RgbaUnormSrgb
+                )
+                || !self.width.is_multiple_of(4)
+                || !self.height.is_multiple_of(4)
+                || partial_mip_row)
+        {
+            return self.decoded_bc()?.upload(device, queue, features);
+        }
+        ensure!(
+            features.contains(self.format.required_features()),
+            "texture {:?}: adapter lacks {:?}",
+            self.name,
+            self.format.required_features()
+        );
+        let (bw, bh) = self.format.block_dimensions();
+        let block = self
+            .format
+            .block_copy_size(None)
+            .expect("validated material format");
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(&self.name),
             size: wgpu::Extent3d {
@@ -118,8 +166,8 @@ impl TextureData {
             let ph = (self.height >> mip).max(1).next_multiple_of(bh);
             let row_bytes = pw / bw * block;
             let rows = ph / bh;
-            // Flip block rows, then texel rows inside each block (BC1/3/4/5; BC6H/BC7 cannot
-            // be flipped without re-encoding and keep the block-row-only flip).
+            // Flip block rows, then texel rows inside each BC1/3/4/5 block.
+            // BC6H/BC7 were decoded above, so they take the ordinary pixel-row flip.
             let mut flipped = Vec::with_capacity(data.len());
             for row in (0..rows as usize).rev() {
                 let start = row * row_bytes as usize;

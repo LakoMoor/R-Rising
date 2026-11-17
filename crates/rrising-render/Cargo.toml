@@ -16,6 +16,7 @@ serde_json.workspace = true
 rrising-math.workspace = true
 anyhow.workspace = true
 bytemuck.workspace = true
+bcdec_rs = "=0.2.0"
 image.workspace = true
 log.workspace = true
 wgpu = { workspace = true, features = ["serde"] }

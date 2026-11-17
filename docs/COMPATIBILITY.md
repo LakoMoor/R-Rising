@@ -13,7 +13,7 @@ original assets, executables or decompiled sources should be distributed.
 | ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Scene Worlds, deterministic schedule and TransformSystem; `--scene-sim` feeds viewer/export | Store tests derived from decompiled bodies; native replay for pure getters, comparisons and change versions; 372 real-scene transform scenarios | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, original system scheduling |
 | Rendering | Basic lit meshes, sub-meshes and cutout pipeline | Original-scene viewer, optional transform-system output | GPU regressions; native/WebGPU screenshots; stored-vs-simulated Rust image comparison | Animation, HDRP, transparent materials, terrain blending and original-game visual parity |
 | Gameplay / HUD / physics / sound / networking / saves | Not implemented | None | No end-to-end parity cases | First original-scene playable slice |
-| Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, mobile texture fallback, game world |
+| Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, physical mobile-device verification, game world |
 | Performance | Rust-only absolute timings (see Performance measurement) | None | No comparable original-runtime benchmark | Same-scene release measurements on both runtimes |
 
 ## Metrics
@@ -564,3 +564,54 @@ No other original scheduling semantics are claimed by this fix.
 Verification after the fix: 132 portable workspace tests passed (7 original-data tests ignored by
 that command); the 372-scene scenario passed separately, with unchanged transform counts.
 Formatting, strict workspace Clippy, WASM build and both generated-report comparisons passed.
+
+### 2026-11-17: BC texture fallback and correct row orientation
+
+`rrising-render` now uses the pinned MIT `bcdec_rs` 0.2.0 decoder (pure Rust, no new native
+or Unity dependency in WASM). BC1/3/4/5 decode when BC support is absent. BC6H/BC7 always decode
+before flipping texel rows: merely reversing block rows left details inside each block mirrored.
+Chains with partial block rows (e.g. a 12x12 texture's 6x6 mip) also decode, as do non-block-sized
+base levels. All mip dimensions, data lengths and arithmetic are checked before calling the decoder;
+mip count, sRGB tagging and bottom-first source orientation are retained. Upload applies the final
+Y flip once. BC4 stays R8, BC5 RG8; BC6H retains half floats and adds alpha 1 rather than clamping
+HDR to 8-bit. Unity BC6H now maps to unsigned `Bc6hRgbUfloat`, as specified by the reader's enum;
+the old mapping incorrectly selected signed BC6H. Re-export old scene transfers to correct that tag.
+
+The fallback follows the original engine's documented fallback formats for BC6H/BC7
+([Unity GPU format reference](https://docs.unity.com/en-us/engine/6000.0/manual/materials-and-shaders/textures/textures-getting-started/texture-compression-formats/texture-formats-reference));
+this is format guidance, not observation of this V Rising build executing on mobile.
+The tradeoff is extra decode time and uncompressed GPU memory: BC1 -> RGBA8 is 8x the compressed
+storage, BC3/BC7 -> RGBA8 is 4x, BC6H -> RGBA16F is 8x, BC4/BC5 -> R8/RG8 is 2x. These are byte-size
+ratios, not measured whole-application RAM or performance improvements.
+
+Verification on Apple M4 / Metal:
+
+- Five asset-independent tests cover BC1 row order, sRGB, cropped blocks and mip tails; BC3 alpha;
+  BC4/5 channel storage; half-float alpha; malformed lengths/counts; and unsigned Unity BC6H mapping.
+- `cargo test --locked -p rrising-render --test bc_gpu -- --ignored --nocapture` creates a device
+  with **no BC feature enabled**, uploads and samples 10 format variants, and compares 640 synthetic
+  blocks against a second device's hardware decoder, including all 14 BC6H and 8 BC7 modes. BC6H
+  and BC7 agree bit-for-bit on these samples; a partial-row mip chain also uploads uncompressed.
+- The initial 1/255 BC1–5 difference bound failed. First BC1 mismatch: block
+  `63 a8 3f 5e 85 9b ce de`, green CPU 136/255 vs Metal 138/255. BC3 alpha, BC4 and BC5 also differ
+  in palette interpolation. This is not evidence of equivalent numeric rules: different results
+  remain. [D3D11.3 section 19.5.2](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm)
+  permits endpoint-dependent approximation for BC1–5, while requiring exact BC6H/BC7.
+  The test now explicitly uses a **bounded regression** of 2/255 for these synthetic linear samples
+  (4.8/255 after sRGB's slope bound), with this written justification; it is not a universal format
+  conformance bound or a widened original-game parity threshold. Measured max: BC1/3 2/255,
+  BC4/5 0.007598; sRGB max 0.010989. Full results: [bc-textures.json](verification/bc-textures.json).
+- Original Silver_Mountain01: 9,474 mesh instances, 3 markers, 314 groups, 91 pooled textures
+  (22 BC1 sRGB and 69 BC3 sRGB). Chrome 157 loaded the same 74.7 MB transfer both normally and
+  with BC masked from the adapter before wgpu initialization. The latter requested no optional
+  features and the actual browser device did not expose BC. Both rendered with 0 page/console
+  errors. Reusable probe: `tools/check_browser_bc.cjs` (existing Playwright and Chrome required).
+- Canvas pixels, same 1280x720: hardware vs CPU fallback differ at 12.18% of pixels, max channel
+  delta 3/255, mean absolute RGB delta 0.0525/255. Native vs browser hardware differs at 113 pixels,
+  max delta 38/255 (edge pixels), mean 0.000592/255. These are comparisons between Rust hosts,
+  **not original-game image parity**. Native screenshot is byte-identical to the previously
+  committed native scene screenshot. [No-BC browser capture](screenshots/browser-bc-fallback.png).
+
+Release WASM, strict Clippy, formatting, portable tests and existing GPU regressions passed.
+Physical Android/iOS GPUs, mobile memory limits, touch input, WebGL and gameplay remain unverified.
+The shader, terrain-layer assumptions, transparency exclusions and other viewer limits are unchanged.

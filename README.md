@@ -116,10 +116,12 @@ Open `http://localhost:8080` in a WebGPU browser and choose **Open local scene**
 The file is read on-device. Exports contain original game art and are excluded
 from Git. Generated WASM/JS are build outputs, also excluded from Git.
 
-Currently requires WebGPU and a GPU exposing **BC texture compression** for the
-compressed art in this PC build. Mobile GPU fallback, browser archive import,
-world streaming, touch controls and gameplay are still pending. Windows, Linux,
-Android and iOS execution have not been verified. There is no WebGL fallback.
+Requires WebGPU. BC1/3/4/5/6H/7 textures now decode on the CPU when BC compression
+is unavailable; BC6H/BC7 also decode for correct row orientation. This costs load
+time and GPU memory. Chrome was checked with BC excluded from the adapter and
+actual device. Physical mobile devices, browser archive import, world streaming,
+touch controls and gameplay remain unverified or pending. There is no WebGL fallback.
+See [the measured fallback limits](docs/COMPATIBILITY.md#2026-11-17-bc-texture-fallback-and-correct-row-orientation).
 
 ## Validation
 
@@ -144,7 +146,7 @@ installation is counted as a successful original-game compatibility test.
 | `rrising-ecs` | Entity store, queries, World, deterministic schedule and one transform system; not a running game |
 | `rrising-content` | Unity archives, objects, entity scene streams, settings, localization |
 | `rrising-core` | Scene assembly and base-map selection for the showcase |
-| `rrising-render` | Shared GPU pipeline, mesh/texture uploads, scene transfers, readback |
+| `rrising-render` | Shared GPU pipeline, texture uploads with BC CPU fallback, scene transfers, readback |
 | `rrising-app` | Native window, offscreen capture and local scene export |
 | `rrising-web` | Async WebGPU initialization and browser host |
 

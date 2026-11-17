@@ -1,10 +1,11 @@
 //! `rrising-render` — the port's wgpu renderer.
 //!
-//! It draws the original's own meshes with the original's own compressed textures, uploaded without
-//! transcoding. It is deliberately not a reimplementation of HDRP: the game's real pipeline is
+//! It draws the original's own meshes and textures, using hardware BC when possible and a
+//! CPU decoder where compression support or texture orientation requires it. It is deliberately not a reimplementation of HDRP: the game's real pipeline is
 //! deferred, clustered and shadowed, and that layer is ported later. What lives here is enough to
 //! put real content on screen and to read frames back for comparison.
 
+mod bc;
 pub mod mesh;
 pub mod renderer;
 pub mod snapshot;

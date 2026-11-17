@@ -1,0 +1,160 @@
+{
+  "date": "2026-11-17",
+  "hardware": "Apple M4",
+  "backend": "Metal",
+  "decoder": "bcdec_rs 0.2.0 (MIT)",
+  "kind": "CPU fallback vs hardware textureLoad, flipped texel rows; not original-game parity",
+  "bc_feature_absent_on_fallback_device": true,
+  "cases": [
+    {
+      "format": "Bc1RgbaUnorm",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.007843137,
+      "regression_bound": 0.007843138,
+      "bit_exact": false
+    },
+    {
+      "format": "Bc1RgbaUnormSrgb",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.01098901,
+      "regression_bound": 0.01882353,
+      "bit_exact": false
+    },
+    {
+      "format": "Bc3RgbaUnorm",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.007843137,
+      "regression_bound": 0.007843138,
+      "bit_exact": false
+    },
+    {
+      "format": "Bc3RgbaUnormSrgb",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.01098901,
+      "regression_bound": 0.01882353,
+      "bit_exact": false
+    },
+    {
+      "format": "Bc4RUnorm",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.0075980425,
+      "regression_bound": 0.007843138,
+      "bit_exact": false
+    },
+    {
+      "format": "Bc5RgUnorm",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.0075980425,
+      "regression_bound": 0.007843138,
+      "bit_exact": false
+    },
+    {
+      "format": "Bc6hRgbUfloat",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.0,
+      "regression_bound": 0.0,
+      "bit_exact": true
+    },
+    {
+      "format": "Bc6hRgbFloat",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.0,
+      "regression_bound": 0.0,
+      "bit_exact": true
+    },
+    {
+      "format": "Bc7RgbaUnorm",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.0,
+      "regression_bound": 0.0,
+      "bit_exact": true
+    },
+    {
+      "format": "Bc7RgbaUnormSrgb",
+      "synthetic_blocks": 64,
+      "max_channel_delta": 0.0,
+      "regression_bound": 0.0,
+      "bit_exact": true
+    }
+  ],
+  "browser": {
+    "browser": "157.0.8103.79",
+    "featureAbsenceSimulated": true,
+    "results": [
+      {
+        "withoutBC": false,
+        "status": "314 draw groups \u00b7 Rust / WebGPU \u00b7 original data, not gameplay",
+        "loaded": "true",
+        "probe": {
+          "requestedFeatures": [
+            "texture-compression-bc"
+          ],
+          "actualFeatures": [
+            "core-features-and-limits",
+            "texture-compression-bc"
+          ]
+        },
+        "loadMs": 488,
+        "errors": []
+      },
+      {
+        "withoutBC": true,
+        "status": "314 draw groups \u00b7 Rust / WebGPU \u00b7 original data, not gameplay",
+        "loaded": "true",
+        "probe": {
+          "requestedFeatures": [],
+          "actualFeatures": [
+            "core-features-and-limits"
+          ]
+        },
+        "loadMs": 534,
+        "errors": []
+      }
+    ]
+  },
+  "original_scene": {
+    "file": "c6d34432693f24046ae5916650cc70ef.0.entities",
+    "mesh_instances": 9474,
+    "marker_instances": 3,
+    "draw_groups": 314,
+    "pooled_textures": 91,
+    "texture_formats": {
+      "bc1-rgba-unorm-srgb": 22,
+      "bc3-rgba-unorm-srgb": 69
+    },
+    "transfer_bytes": 74700986
+  },
+  "pixel_comparison": {
+    "imageDimensions": [
+      [
+        1282,
+        722
+      ],
+      [
+        1282,
+        722
+      ],
+      [
+        1280,
+        720
+      ]
+    ],
+    "resolution": [
+      1280,
+      720
+    ],
+    "hardwareVsFallback": {
+      "pixelsDiffering": 112236,
+      "percent": 12.178385416666666,
+      "maxChannelDelta": 3,
+      "meanAbsRgbDelta": 0.05251844618055555
+    },
+    "nativeVsBrowserHardware": {
+      "pixelsDiffering": 113,
+      "percent": 0.012261284722222222,
+      "maxChannelDelta": 38,
+      "meanAbsRgbDelta": 0.0005920862268518519
+    },
+    "note": "Prior browser capture of the same final decoding algorithm, same scene and resolution; canvas borders cropped. Not an original-game comparison."
+  }
+}
