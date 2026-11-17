@@ -13,10 +13,10 @@ use serde_json::Value;
 /// Read one settings document.
 pub fn load_json(path: &Path) -> Result<Value> {
     // The game writes these with a UTF-8 BOM, which serde_json rejects.
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+    serde_json::from_str(text).with_context(|| format!("parsing {}", path.display()))
 }
 
 /// Follow a dotted path like `GameSettings.XpMultiplier` through a settings document.

@@ -28,7 +28,10 @@ impl Entity {
     /// `CustomPostProcessVolumeComponent.get_injectionPoint`, which shares the code) and
     /// `Entity.ToString` @ 0x8fc5b20, whose first test is `Index == 0 && Version == 0` — the
     /// original treats that pair as the null handle.
-    pub const NULL: Entity = Entity { index: 0, version: 0 };
+    pub const NULL: Entity = Entity {
+        index: 0,
+        version: 0,
+    };
 
     /// The two-field construction the dump lists (`Entity(int index, int version)`).
     #[inline]

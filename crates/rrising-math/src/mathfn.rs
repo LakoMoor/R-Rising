@@ -13,10 +13,13 @@
 //! from their own bodies. `fastinverse` is transcribed for `float4x4` from the shuffle unroll at
 //! 0x929eac0; the `float3x4`, `double3x4` and `double4x4` overloads are not. `docs/PORT.md`
 //! records this.
+// Constants are transcribed bit-exact from the original `.rdata`; replacing them with std consts or
+// shortening them would risk changing the float the game uses.
+#![allow(clippy::approx_constant, clippy::excessive_precision)]
 
 use crate::{
-    bool2, bool3, bool4, clamp, double2, double3, double4, float2, float3, float4, int2, int3, int4,
-    max, maxi, min, mini, quaternion, uint2, uint3, uint4,
+    bool2, bool3, bool4, clamp, double2, double3, double4, float2, float3, float4, int2, int3,
+    int4, max, maxi, min, mini, quaternion, uint2, uint3, uint4,
 };
 /// `math.ShuffleComponent` — the enum the `shuffle` overloads take (`dump.cs`). The values are the
 /// component index into the concatenation `left ++ right`, which is what the decompiled
@@ -241,11 +244,19 @@ reduce_impl!(
     v.x + v.y + v.z,
     {
         let a = if v.x > v.y { v.x } else { v.y };
-        if a > v.z { a } else { v.z }
+        if a > v.z {
+            a
+        } else {
+            v.z
+        }
     },
     {
         let a = if v.x < v.y { v.x } else { v.y };
-        if a < v.z { a } else { v.z }
+        if a < v.z {
+            a
+        } else {
+            v.z
+        }
     }
 );
 reduce_impl!(
@@ -256,12 +267,20 @@ reduce_impl!(
     {
         let a = if v.x > v.y { v.x } else { v.y };
         let b = if v.z > v.w { v.z } else { v.w };
-        if a > b { a } else { b }
+        if a > b {
+            a
+        } else {
+            b
+        }
     },
     {
         let a = if v.x < v.y { v.x } else { v.y };
         let b = if v.z < v.w { v.z } else { v.w };
-        if a < b { a } else { b }
+        if a < b {
+            a
+        } else {
+            b
+        }
     }
 );
 
@@ -428,7 +447,12 @@ pub fn fold_to_uint(x: f64) -> u32 {
 #[inline]
 pub fn compress(output: &mut [f32], index: i32, val: float4, mask: bool4) -> i32 {
     let mut i = index;
-    for (v, m) in [(val.x, mask.x), (val.y, mask.y), (val.z, mask.z), (val.w, mask.w)] {
+    for (v, m) in [
+        (val.x, mask.x),
+        (val.y, mask.y),
+        (val.z, mask.z),
+        (val.w, mask.w),
+    ] {
         if m {
             output[i as usize] = v;
             i += 1;
@@ -612,32 +636,56 @@ pub fn normalizesafe(value: float3, default: float3) -> float3 {
 /// exactly one component. `tests/math_statics.rs` pins all six.
 #[inline]
 pub fn up() -> float3 {
-    float3 { x: 0.0, y: 1.0, z: 0.0 }
+    float3 {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    }
 }
 /// `math.down()`
 #[inline]
 pub fn down() -> float3 {
-    float3 { x: 0.0, y: -1.0, z: 0.0 }
+    float3 {
+        x: 0.0,
+        y: -1.0,
+        z: 0.0,
+    }
 }
 /// `math.forward()`
 #[inline]
 pub fn forward() -> float3 {
-    float3 { x: 0.0, y: 0.0, z: 1.0 }
+    float3 {
+        x: 0.0,
+        y: 0.0,
+        z: 1.0,
+    }
 }
 /// `math.back()`
 #[inline]
 pub fn back() -> float3 {
-    float3 { x: 0.0, y: 0.0, z: -1.0 }
+    float3 {
+        x: 0.0,
+        y: 0.0,
+        z: -1.0,
+    }
 }
 /// `math.left()`
 #[inline]
 pub fn left() -> float3 {
-    float3 { x: -1.0, y: 0.0, z: 0.0 }
+    float3 {
+        x: -1.0,
+        y: 0.0,
+        z: 0.0,
+    }
 }
 /// `math.right()`
 #[inline]
 pub fn right() -> float3 {
-    float3 { x: 1.0, y: 0.0, z: 0.0 }
+    float3 {
+        x: 1.0,
+        y: 0.0,
+        z: 0.0,
+    }
 }
 
 // ---------------------------------------------------------------------------

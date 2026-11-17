@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use unity_formats::material::UnityMaterialData;
 use unity_formats::mesh::UnityMeshData;
 use unity_formats::player::{BundleSpec, NodeSelection, ObjRef, Player};
@@ -165,7 +165,8 @@ impl GameContent {
 
     /// Read a `Material`: its shader, saved properties and texture table.
     pub fn read_material(&self, r: &ObjRef) -> Result<UnityMaterialData> {
-        UnityMaterialData::read(&self.player, r).map_err(|e| anyhow::anyhow!("material {}: {e}", r.file))
+        UnityMaterialData::read(&self.player, r)
+            .map_err(|e| anyhow::anyhow!("material {}: {e}", r.file))
     }
 
     /// The `Player` behind the store, for readers this module does not wrap.
@@ -193,7 +194,9 @@ pub fn list_archives(dir: &Path) -> Result<Vec<PathBuf>> {
         .collect();
     out.sort();
     out.retain(|p| {
-        let Ok(mut f) = std::fs::File::open(p) else { return false };
+        let Ok(mut f) = std::fs::File::open(p) else {
+            return false;
+        };
         let mut head = [0u8; 7];
         match std::io::Read::read_exact(&mut f, &mut head) {
             Ok(()) => head == UNITYFS,

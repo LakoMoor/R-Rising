@@ -17,7 +17,8 @@ const IDENTITY: [[f32; 4]; 4] = [
 
 #[test]
 fn draws_a_hand_built_triangle() {
-    let mut renderer = pollster::block_on(Renderer::new_offscreen(64, 64)).expect("offscreen device");
+    let mut renderer =
+        pollster::block_on(Renderer::new_offscreen(64, 64)).expect("offscreen device");
     let device = renderer.device();
 
     let verts = [
@@ -82,7 +83,10 @@ fn draws_a_hand_built_triangle() {
         .chunks(4)
         .filter(|p| p[0] > 200 && p[1] > 200 && p[2] > 200)
         .count();
-    let untouched = rgba.chunks(4).filter(|p| (p[0], p[1], p[2]) == clear).count();
+    let untouched = rgba
+        .chunks(4)
+        .filter(|p| (p[0], p[1], p[2]) == clear)
+        .count();
 
     let mut drawn: Vec<(u8, u8, u8)> = rgba
         .chunks(4)

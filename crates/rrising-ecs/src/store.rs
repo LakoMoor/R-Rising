@@ -44,7 +44,9 @@ use anyhow::{bail, ensure, Result};
 use crate::archetype::{create_archetype_data, Archetype, ArchetypeFlags, SpecialTypes};
 use crate::chunk::{Chunk, ChunkIndex};
 use crate::entity::Entity;
-use crate::type_table::{AccessMode, ComponentType, ComponentTypeInArchetype, TypeIndex, TypeManager};
+use crate::type_table::{
+    AccessMode, ComponentType, ComponentTypeInArchetype, TypeIndex, TypeManager,
+};
 
 /// `ThrowIfEntitiesPerWorldIsTooHigh` @ 0x8fa9500: `0x8000000 < requested` throws.
 pub const K_MAX_ENTITIES_PER_WORLD: i64 = 0x800_0000;
@@ -76,9 +78,12 @@ pub struct StoredArchetype {
 }
 
 /// Port-side query description: types with `AccessMode::Exclude` must be absent, every other type
-/// must be present. The default exclusion of `Disabled`/`Prefab` archetypes follows Unity's
-/// documented `EntityQueryOptions` behaviour and has NOT been checked against the binary's
-/// `EntityQueryData` bodies.
+/// must be present. The default exclusion of `Disabled`/`Prefab` archetypes is checked against the
+/// binary: `EntityQueryManager.IsMatchingArchetype` (@ 0x90f46c0) rejects an archetype whose
+/// `Flags` (+0x122) has bit 4 (`Disabled`) unless query options bit 2 is set, and bit 8 (`Prefab`)
+/// unless options bit 1 is set. Not ported from that function: the other option gates (chunk
+/// header, system instance, spawn/destroy tag), the bloom-filter pre-check, any/none ordering and
+/// version checks; verified by reading the decompiled body, not by native replay.
 #[derive(Clone, Debug, Default)]
 pub struct EntityQuery {
     pub all: Vec<TypeIndex>,
@@ -139,6 +144,10 @@ impl EntityComponentStore {
     pub fn new(initial_capacity: i32, special: SpecialTypes) -> Result<Self> {
         ensure!(initial_capacity >= 1, "entity capacity must be at least 1");
         ensure!(
+            special.entity_type_is_set(),
+            "SpecialTypes.entity_type must be set (use SpecialTypes::new)"
+        );
+        ensure!(
             (initial_capacity as i64) <= K_MAX_ENTITIES_PER_WORLD,
             "entities per world too high"
         );
@@ -184,12 +193,16 @@ impl EntityComponentStore {
 
     /// `IncreaseCapacity` @ 0x8fa9050: doubles; re-initialises from the old last slot.
     fn increase_capacity(&mut self) -> Result<()> {
-        let new_cap = (self.capacity as i64 * 2).min(i64::MAX);
+        let new_cap = self.capacity as i64 * 2;
         ensure!(
             new_cap <= K_MAX_ENTITIES_PER_WORLD,
             "entities per world too high: {new_cap} > {K_MAX_ENTITIES_PER_WORLD}"
         );
-        let start = if self.capacity > 0 { self.capacity - 1 } else { 0 };
+        let start = if self.capacity > 0 {
+            self.capacity - 1
+        } else {
+            0
+        };
         self.resize_and_initialize(start, new_cap as i32)
     }
 
@@ -230,7 +243,12 @@ impl EntityComponentStore {
     /// `ValidateEntity` @ 0x8fbfb40: negative or `>= capacity` indices throw.
     fn validate(&self, e: Entity) -> Result<()> {
         ensure!(e.index >= 0, "entity index {} is negative", e.index);
-        ensure!(e.index < self.capacity, "entity index {} outside capacity {}", e.index, self.capacity);
+        ensure!(
+            e.index < self.capacity,
+            "entity index {} outside capacity {}",
+            e.index,
+            self.capacity
+        );
         Ok(())
     }
 
@@ -247,7 +265,11 @@ impl EntityComponentStore {
     /// Find or build the archetype for a type set. Entity is always archetype type 0 (the port's
     /// ordering rule: entity first, then the rest sorted by packed value; the original's
     /// `GetOrCreateArchetype` ordering was not re-derived here).
-    pub fn get_or_create_archetype(&mut self, tm: &TypeManager, types: &[TypeIndex]) -> Result<usize> {
+    pub fn get_or_create_archetype(
+        &mut self,
+        tm: &TypeManager,
+        types: &[TypeIndex],
+    ) -> Result<usize> {
         let entity = self.special.entity_type;
         let mut rest: Vec<TypeIndex> = types.iter().copied().filter(|t| *t != entity).collect();
         rest.sort();
@@ -259,8 +281,11 @@ impl EntityComponentStore {
             return Ok(i);
         }
         let data = create_archetype_data(&list, tm.infos(), &self.special)?;
-        let in_arch: Vec<ComponentTypeInArchetype> =
-            list.iter().copied().map(ComponentTypeInArchetype::new).collect();
+        let in_arch: Vec<ComponentTypeInArchetype> = list
+            .iter()
+            .copied()
+            .map(ComponentTypeInArchetype::new)
+            .collect();
         let idx = self.archetypes.len();
         let archetype = Archetype::new(idx as i32, in_arch, data);
         let l = archetype.layout();
@@ -314,7 +339,11 @@ impl EntityComponentStore {
         let sa = &mut self.archetypes[arch];
         // AddToChunkList_28: grow by doubling (1 when empty), then ArchetypeChunkData.Add.
         if sa.chunk_data.count() == sa.chunk_data.capacity() {
-            let new_cap = if sa.chunk_data.capacity() == 0 { 1 } else { sa.chunk_data.capacity() * 2 };
+            let new_cap = if sa.chunk_data.capacity() == 0 {
+                1
+            } else {
+                sa.chunk_data.capacity() * 2
+            };
             sa.chunk_data.grow(new_cap)?;
         }
         let pos = sa.chunk_data.add(ci, 0, &[], gsv)?;
@@ -336,12 +365,19 @@ impl EntityComponentStore {
     fn empty_slot_remove(&mut self, arch: usize, ci: ChunkIndex) -> Result<()> {
         let at = self.chunk_mut(ci)?.list_with_empty_slots_index;
         let list = &mut self.archetypes[arch].chunks_with_empty_slots;
-        ensure!(at >= 0 && (at as usize) < list.len(), "chunk not in empty-slot list");
-        ensure!(list[at as usize] == ci.value, "empty-slot list entry mismatch");
+        ensure!(
+            at >= 0 && (at as usize) < list.len(),
+            "chunk not in empty-slot list"
+        );
+        ensure!(
+            list[at as usize] == ci.value,
+            "empty-slot list entry mismatch"
+        );
         list.swap_remove(at as usize);
         let moved = list.get(at as usize).copied();
         if let Some(m) = moved {
-            self.chunk_mut(ChunkIndex::new(m))?.list_with_empty_slots_index = at;
+            self.chunk_mut(ChunkIndex::new(m))?
+                .list_with_empty_slots_index = at;
         }
         Ok(())
     }
@@ -397,7 +433,9 @@ impl EntityComponentStore {
         if count < cap {
             self.empty_slot_remove(arch, ci)?;
         }
-        let removal = self.archetypes[arch].chunk_data.remove_at_swap_back(list_index as usize)?;
+        let removal = self.archetypes[arch]
+            .chunk_data
+            .remove_at_swap_back(list_index as usize)?;
         if let Some(moved) = removal.moved {
             self.chunk_mut(moved)?.list_index = list_index;
         }
@@ -418,6 +456,15 @@ impl EntityComponentStore {
     /// `CreateEntities` @ 0x8fbb... (`_201`): fill chunks with empty slots until `count` entities
     /// exist. Returns the new handles in creation order.
     pub fn create_entities(&mut self, arch: usize, count: usize) -> Result<Vec<Entity>> {
+        self.create_entities_inner(arch, count, None)
+    }
+
+    fn create_entities_inner(
+        &mut self,
+        arch: usize,
+        count: usize,
+        ids: Option<&[Entity]>,
+    ) -> Result<Vec<Entity>> {
         ensure!(arch < self.archetypes.len(), "unknown archetype {arch}");
         let mut out = Vec::with_capacity(count);
         let mut remaining = count;
@@ -426,10 +473,76 @@ impl EntityComponentStore {
             let cap = self.archetypes[arch].archetype.chunk_capacity();
             let free = cap - self.chunk_mut(ci)?.count;
             let n = remaining.min(free as usize);
-            self.allocate(arch, ci, n as i32, &mut out)?;
+            let done = out.len();
+            self.allocate(
+                arch,
+                ci,
+                n as i32,
+                &mut out,
+                ids.map(|s| &s[done..done + n]),
+            )?;
             remaining -= n;
         }
         Ok(out)
+    }
+
+    /// Create entities that keep the ids (index and version) a scene stored. Not an original
+    /// function: the original deserialiser patches ids via `EntityRemapUtility`; this port-side
+    /// helper reproduces the end state (slot `index` live at `version`, every other slot free).
+    ///
+    /// Every id must have `index >= 0`, `version >= 1`, be unique, and name a currently free slot.
+    /// Capacity is grown so the last slot stays free (the invariant `IncreaseCapacity` relies on),
+    /// then the free list is rebuilt ascending over all free slots.
+    pub fn restore_entities(&mut self, arch: usize, ids: &[Entity]) -> Result<()> {
+        ensure!(arch < self.archetypes.len(), "unknown archetype {arch}");
+        let mut max = -1i32;
+        let mut seen = std::collections::HashSet::new();
+        for e in ids {
+            ensure!(e.index >= 0 && e.version >= 1, "invalid restored id {e:?}");
+            ensure!(seen.insert(e.index), "duplicate entity index {}", e.index);
+            max = max.max(e.index);
+        }
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let needed = max as i64 + 2;
+        ensure!(
+            needed <= K_MAX_ENTITIES_PER_WORLD,
+            "entities per world too high"
+        );
+        if needed > self.capacity as i64 {
+            let mut cap = self.capacity as i64;
+            while cap < needed {
+                cap *= 2;
+            }
+            let cap = cap.min(K_MAX_ENTITIES_PER_WORLD) as i32;
+            self.resize_and_initialize(self.capacity, cap)?;
+        }
+        for e in ids {
+            ensure!(
+                self.entity_in_chunk[e.index as usize].chunk.is_null(),
+                "entity slot {} is already live",
+                e.index
+            );
+        }
+        ensure!(
+            self.entity_in_chunk[(self.capacity - 1) as usize]
+                .chunk
+                .is_null(),
+            "last entity slot is live"
+        );
+        self.create_entities_inner(arch, ids.len(), Some(ids))?;
+        // rebuild the free list over all free slots, ascending, last slot terminating with -1
+        let free: Vec<i32> = (0..self.capacity)
+            .filter(|&i| self.entity_in_chunk[i as usize].chunk.is_null())
+            .collect();
+        for w in free.windows(2) {
+            self.entity_in_chunk[w[0] as usize].index_in_chunk = w[1];
+        }
+        let last = *free.last().expect("last slot is free");
+        self.entity_in_chunk[last as usize].index_in_chunk = -1;
+        self.next_free_entity_index = free[0];
+        Ok(())
     }
 
     pub fn create_entity(&mut self, arch: usize) -> Result<Entity> {
@@ -437,7 +550,14 @@ impl EntityComponentStore {
     }
 
     /// `ChunkDataUtility.Allocate_42` @ 0x902be20.
-    fn allocate(&mut self, arch: usize, ci: ChunkIndex, want: i32, out: &mut Vec<Entity>) -> Result<()> {
+    fn allocate(
+        &mut self,
+        arch: usize,
+        ci: ChunkIndex,
+        want: i32,
+        out: &mut Vec<Entity>,
+        ids: Option<&[Entity]>,
+    ) -> Result<()> {
         let gsv = self.global_system_version;
         let cap = self.archetypes[arch].archetype.chunk_capacity();
         // AllocateIntoChunk_40: clip to capacity, SetChunkCount, EntityCount += n
@@ -450,19 +570,38 @@ impl EntityComponentStore {
         self.archetypes[arch].archetype.entity_count += n;
         // AllocateEntities_174
         for i in 0..n {
-            let mut next = self.entity_in_chunk[self.next_free_entity_index as usize].index_in_chunk;
-            if next == -1 {
-                self.increase_capacity()?;
-                next = self.entity_in_chunk[self.next_free_entity_index as usize].index_in_chunk;
-            }
-            let idx = self.next_free_entity_index;
-            let version = self.versions[idx as usize];
-            let e = Entity::new(idx, version);
-            let off = self.archetypes[arch].archetype.layout().entity_offset(0, start + i) as usize;
+            let (e, next) = match ids {
+                // Restoration path: the id is dictated by the scene; the free list is rebuilt by
+                // `restore_entities` afterwards.
+                Some(ids) => {
+                    let e = ids[i as usize];
+                    self.versions[e.index as usize] = e.version;
+                    (e, self.next_free_entity_index)
+                }
+                None => {
+                    let mut next =
+                        self.entity_in_chunk[self.next_free_entity_index as usize].index_in_chunk;
+                    if next == -1 {
+                        self.increase_capacity()?;
+                        next = self.entity_in_chunk[self.next_free_entity_index as usize]
+                            .index_in_chunk;
+                    }
+                    let idx = self.next_free_entity_index;
+                    (Entity::new(idx, self.versions[idx as usize]), next)
+                }
+            };
+            let idx = e.index;
+            let off = self.archetypes[arch]
+                .archetype
+                .layout()
+                .entity_offset(0, start + i) as usize;
             let chunk = self.chunk_mut(ci)?;
             chunk.buffer[off..off + 4].copy_from_slice(&e.index.to_le_bytes());
             chunk.buffer[off + 4..off + 8].copy_from_slice(&e.version.to_le_bytes());
-            self.entity_in_chunk[idx as usize] = EntityInChunk { chunk: ci, index_in_chunk: start + i };
+            self.entity_in_chunk[idx as usize] = EntityInChunk {
+                chunk: ci,
+                index_in_chunk: start + i,
+            };
             self.entity_order_version += 1;
             self.next_free_entity_index = next;
             out.push(e);
@@ -476,7 +615,9 @@ impl EntityComponentStore {
             chunk.buffer[o..o + n as usize * sz].fill(0);
         }
         let li = self.chunk_mut(ci)?.list_index as usize;
-        self.archetypes[arch].chunk_data.set_all_change_version(li, gsv)?;
+        self.archetypes[arch]
+            .chunk_data
+            .set_all_change_version(li, gsv)?;
         self.bump_order_versions(arch);
         Ok(())
     }
@@ -503,7 +644,12 @@ impl EntityComponentStore {
                 Some(f) if !f.chunk.is_null() => {
                     while i + run < entities.len() {
                         match live(self, entities[i + run])? {
-                            Some(n) if n.chunk == f.chunk && n.index_in_chunk == f.index_in_chunk + run as i32 => run += 1,
+                            Some(n)
+                                if n.chunk == f.chunk
+                                    && n.index_in_chunk == f.index_in_chunk + run as i32 =>
+                            {
+                                run += 1
+                            }
                             _ => break,
                         }
                     }
@@ -530,7 +676,10 @@ impl EntityComponentStore {
         let layout = self.archetypes[arch].archetype.layout().clone();
         let gsv = self.global_system_version;
         let chunk_count = self.chunk_mut(ci)?.count;
-        ensure!(start >= 0 && count > 0 && start + count <= chunk_count, "batch outside chunk");
+        ensure!(
+            start >= 0 && count > 0 && start + count <= chunk_count,
+            "batch outside chunk"
+        );
         // entities of the batch, in order
         let ent_at = |s: &mut Self, slot: i32| -> Result<i32> {
             let off = layout.entity_offset(0, slot) as usize;
@@ -565,14 +714,18 @@ impl EntityComponentStore {
                 let sz = layout.size_of(t) as usize;
                 let base = layout.offset_of(t) as usize;
                 let from = base + src0 as usize * sz;
-                chunk.buffer.copy_within(from..from + n as usize * sz, base + start as usize * sz);
+                chunk
+                    .buffer
+                    .copy_within(from..from + n as usize * sz, base + start as usize * sz);
             }
         }
         // Deallocate_49 tail: versions, EntityCount, SetChunkCount
         let li = self.chunk_mut(ci)?.list_index as usize;
         self.bump_order_versions(arch);
         if self.chunk_mut(ci)?.count - count != 0 {
-            self.archetypes[arch].chunk_data.set_all_change_version(li, gsv)?;
+            self.archetypes[arch]
+                .chunk_data
+                .set_all_change_version(li, gsv)?;
         }
         self.archetypes[arch].archetype.entity_count -= count;
         self.set_chunk_count(arch, ci, chunk_count - count)?;
@@ -586,7 +739,9 @@ impl EntityComponentStore {
         let eic = self.entity_in_chunk[e.index as usize];
         let arch = self.chunk(eic.chunk).unwrap().archetype_index as usize;
         let a = &self.archetypes[arch].archetype;
-        let ti = a.index_of_type(t).ok_or_else(|| anyhow::anyhow!("entity lacks that component"))?;
+        let ti = a
+            .index_of_type(t)
+            .ok_or_else(|| anyhow::anyhow!("entity lacks that component"))?;
         let sz = a.layout().size_of(ti) as usize;
         let off = a.layout().entity_offset(ti, eic.index_in_chunk) as usize;
         Ok((eic.chunk, off, sz, arch))
@@ -601,12 +756,18 @@ impl EntityComponentStore {
     /// Write a component; bumps the chunk change version to the global system version.
     pub fn set_component_bytes(&mut self, e: Entity, t: TypeIndex, bytes: &[u8]) -> Result<()> {
         let (c, off, sz, arch) = self.locate(e, t)?;
-        ensure!(bytes.len() == sz, "component is {sz} bytes, got {}", bytes.len());
+        ensure!(
+            bytes.len() == sz,
+            "component is {sz} bytes, got {}",
+            bytes.len()
+        );
         self.chunk_mut(c)?.buffer[off..off + sz].copy_from_slice(bytes);
         let li = self.chunk(c).unwrap().list_index as usize;
         let ti = self.archetypes[arch].archetype.index_of_type(t).unwrap();
         let gsv = self.global_system_version;
-        self.archetypes[arch].chunk_data.set_change_version(ti, li, gsv)?;
+        self.archetypes[arch]
+            .chunk_data
+            .set_change_version(ti, li, gsv)?;
         Ok(())
     }
 
@@ -628,8 +789,12 @@ impl EntityComponentStore {
 
     /// Entities stored in a chunk, in slot order.
     pub fn chunk_entities(&self, c: ChunkIndex) -> Result<Vec<Entity>> {
-        let ch = self.chunk(c).ok_or_else(|| anyhow::anyhow!("chunk not allocated"))?;
-        let layout = self.archetypes[ch.archetype_index as usize].archetype.layout();
+        let ch = self
+            .chunk(c)
+            .ok_or_else(|| anyhow::anyhow!("chunk not allocated"))?;
+        let layout = self.archetypes[ch.archetype_index as usize]
+            .archetype
+            .layout();
         Ok((0..ch.count)
             .map(|s| {
                 let o = layout.entity_offset(0, s) as usize;

@@ -15,6 +15,16 @@
 //! Naming note: the original's members are PascalCase (`float3.zero`, `quaternion.identity`,
 //! `math.PI`). The port keeps them lower-case-cased as Rust requires but *not* renamed, and allows
 //! the `non_upper_case_globals` lint so a reviewer can still match names one to one.
+// This crate transcribes the original `Unity.Mathematics` bodies bit-for-bit: the 9-argument matrix
+// constructor, `a * b * -1.0` evaluation order and the static `mul(a, b)` name are the original shape,
+// so these style lints are allowed crate-wide rather than rewriting numerics.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::neg_multiply,
+    clippy::should_implement_trait,
+    clippy::excessive_precision,
+    clippy::approx_constant
+)]
 #![allow(non_upper_case_globals, non_camel_case_types, dead_code)]
 
 mod binary16;
@@ -26,6 +36,7 @@ mod rigid;
 mod scalar;
 mod vector;
 pub use binary16::half;
+pub use mathfn::*;
 pub use matrix::{float3x3, float4x4, transpose3, transpose4};
 pub use quat::quaternion;
 pub use rigid::{
@@ -33,7 +44,6 @@ pub use rigid::{
     RigidTransform,
 };
 pub use scalar::*;
-pub use mathfn::*;
 pub use vector::{
     bool2, bool3, bool4, clamp3, cross2, distance, double2, double3, double4, float2, float3,
     float4, greater3, greater_equal3, half2, half3, half4, int2, int3, int4, length, length2,
@@ -54,19 +64,21 @@ pub use vector::{
 
 /// `math` as a namespace, so ported systems can write `math::clamp(...)` the way the C# does.
 pub mod math {
+    pub use crate::mathfn::*;
     pub use crate::quat::quaternion;
     pub use crate::rigid::{
         hash_rigid, hashwide_rigid, rigid_transform, rigid_transform_m3, rigid_transform_m4,
         RigidTransform,
     };
     pub use crate::scalar::*;
-    pub use crate::mathfn::*;
     pub use crate::vector::{
         clamp3, cross2, distance, greater3, greater_equal3, length, length2, lengthsq, lengthsq2,
         lerp2, lerp3, lerp4, less3, less_equal3, max3, min3, normalize, select3, select4,
     };
-    pub use crate::{bool2, bool3, bool4, double2, double3, double4, float2, float3, float4, half,
-                    half2, half3, half4, int2, int3, int4, uint2, uint3, uint4};
+    pub use crate::{
+        bool2, bool3, bool4, double2, double3, double4, float2, float3, float4, half, half2, half3,
+        half4, int2, int3, int4, uint2, uint3, uint4,
+    };
 
     /// `math.RotationOrder` — the shipped enum, from `dump.cs`: `XYZ = 0, XZY = 1, YXZ = 2,
     /// YZX = 3, ZXY = 4, ZYX = 5, Default = 4`. This build has no `None` member, and its default

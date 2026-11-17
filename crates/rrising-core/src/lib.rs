@@ -7,4 +7,4 @@
 
 pub mod scene;
 
-pub use scene::{SceneItem, SceneSpec, base_map_name, showcase};
+pub use scene::{base_map_name, showcase, SceneItem, SceneSpec};

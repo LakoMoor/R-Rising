@@ -6,7 +6,7 @@
 
 use std::cmp::Ordering;
 
-use rrising_ecs::{BufferHeader, Entity, K_MINIMUM_CAPACITY, TrashMode};
+use rrising_ecs::{BufferHeader, Entity, TrashMode, K_MINIMUM_CAPACITY};
 
 /// A 4-byte element at 4-byte alignment — the sizes `BufferHeader` is called with for most buffers.
 const ELEMENT: i32 = 4;
@@ -60,7 +60,15 @@ fn growth_follows_the_bodies_rule() {
 
     // 0 doubled is 0, so the request wins; then `if (count < 9) count = 8` lifts it to the minimum.
     header
-        .ensure_capacity(1, ELEMENT, ALIGN, TrashMode::TrashOldData, false, 0, &mut inline)
+        .ensure_capacity(
+            1,
+            ELEMENT,
+            ALIGN,
+            TrashMode::TrashOldData,
+            false,
+            0,
+            &mut inline,
+        )
         .expect("grow");
     assert_eq!(header.capacity(), K_MINIMUM_CAPACITY);
     assert!(
@@ -70,19 +78,43 @@ fn growth_follows_the_bodies_rule() {
 
     // 8 doubled is 16, and a request of 9 fits under that.
     header
-        .ensure_capacity(9, ELEMENT, ALIGN, TrashMode::RetainOldData, false, 0, &mut inline)
+        .ensure_capacity(
+            9,
+            ELEMENT,
+            ALIGN,
+            TrashMode::RetainOldData,
+            false,
+            0,
+            &mut inline,
+        )
         .expect("grow");
     assert_eq!(header.capacity(), 16);
 
     // 16 doubled is 32; a request of 40 is larger, so the request wins.
     header
-        .ensure_capacity(40, ELEMENT, ALIGN, TrashMode::RetainOldData, false, 0, &mut inline)
+        .ensure_capacity(
+            40,
+            ELEMENT,
+            ALIGN,
+            TrashMode::RetainOldData,
+            false,
+            0,
+            &mut inline,
+        )
         .expect("grow");
     assert_eq!(header.capacity(), 40);
 
     // A request already covered changes nothing.
     header
-        .ensure_capacity(10, ELEMENT, ALIGN, TrashMode::RetainOldData, false, 0, &mut inline)
+        .ensure_capacity(
+            10,
+            ELEMENT,
+            ALIGN,
+            TrashMode::RetainOldData,
+            false,
+            0,
+            &mut inline,
+        )
         .expect("no-op");
     assert_eq!(header.capacity(), 40);
 }
@@ -131,7 +163,16 @@ fn retain_copies_the_overlap_and_trash_with_a_pattern_memsets() {
     // Shrink with an init pattern asked for and TrashOldData: the whole new block is set to the
     // pattern, and Length is left alone — only Assign writes it.
     header
-        .set_capacity(4, ELEMENT, ALIGN, TrashMode::TrashOldData, true, 0xAB, 0, &mut inline)
+        .set_capacity(
+            4,
+            ELEMENT,
+            ALIGN,
+            TrashMode::TrashOldData,
+            true,
+            0xAB,
+            0,
+            &mut inline,
+        )
         .expect("shrink");
     assert_eq!(header.capacity(), 4);
     assert_eq!(header.length(), 8, "SetCapacity does not touch Length");

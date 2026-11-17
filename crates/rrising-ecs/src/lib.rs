@@ -34,6 +34,7 @@ pub mod entity;
 pub mod hash128;
 pub mod store;
 pub mod type_table;
+pub mod world;
 
 pub use archetype::{
     create_archetype_data, Archetype, ArchetypeData, ArchetypeFlags, ArchetypeLayout,
@@ -60,3 +61,5 @@ pub use render_mesh::MaterialMeshInfo;
 pub use store::{
     EntityComponentStore, EntityInChunk, EntityQuery, StoredArchetype, K_MAX_ENTITIES_PER_WORLD,
 };
+
+pub use world::{ArchetypeInput, ChunkInput, EntityIds, World, WorldInput};

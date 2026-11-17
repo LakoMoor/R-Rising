@@ -356,8 +356,7 @@ pub fn rigid_transform_m4(transform: float4x4) -> RigidTransform {
 pub fn hash_rigid(t: RigidTransform) -> u32 {
     let q = t.rot.value;
     let p = t.pos;
-    p.y
-        .to_bits()
+    p.y.to_bits()
         .wrapping_mul(0x4462_9891)
         .wrapping_add(q.w.to_bits().wrapping_mul(0x43be_0b51))
         .wrapping_add(p.x.to_bits().wrapping_mul(0xf3a3_52ef))
@@ -376,23 +375,19 @@ pub fn hashwide_rigid(t: RigidTransform) -> uint4 {
     let q = t.rot.value;
     let p = t.pos;
     uint4::new(
-        p.x
-            .to_bits()
+        p.x.to_bits()
             .wrapping_mul(0x884b_d90f)
             .wrapping_add(q.x.to_bits().wrapping_mul(0xb130_c137))
             .wrapping_add(0x189a_d918),
-        q.y
-            .to_bits()
+        q.y.to_bits()
             .wrapping_mul(0x5483_4775)
             .wrapping_add(p.y.to_bits().wrapping_mul(0xe529_3d0d))
             .wrapping_add(0x189a_d918),
-        q.z
-            .to_bits()
+        q.z.to_bits()
             .wrapping_mul(0x7c02_2221)
             .wrapping_add(p.x.to_bits().wrapping_mul(0x5efb_ba2d))
             .wrapping_add(0x189a_d918),
-        p.z
-            .to_bits()
+        p.z.to_bits()
             .wrapping_mul(0x5efb_ba2d)
             .wrapping_add(q.w.to_bits().wrapping_mul(0xa2d0_0edf))
             .wrapping_add(0x189a_d918),

@@ -7,7 +7,6 @@
 
 use rrising_math::{bool2, double4, float2, float3, float4, half, half2, half3, half4};
 
-
 /// Builds a `halfN` from floats, the way the original's `new half4(1.5f, ...)` would.
 fn h2(a: f32, b: f32) -> half2 {
     half2::new(half::from_f32(a), half::from_f32(b))
@@ -34,7 +33,11 @@ fn half_round_trips_every_finite_pattern_through_the_type() {
         if (bits >> 10) & 0x1f == 0x1f && bits & 0x3ff != 0 {
             continue; // NaN: not equal to itself under the original's own comparison
         }
-        assert_eq!(half::from_f32(h.to_f32()).to_bits(), bits, "pattern {bits:#06x}");
+        assert_eq!(
+            half::from_f32(h.to_f32()).to_bits(),
+            bits,
+            "pattern {bits:#06x}"
+        );
         checked += 1;
     }
     // 65536 patterns minus the 2046 NaN ones (exponent all ones, mantissa non-zero, both signs);
@@ -101,7 +104,14 @@ fn vectors_store_halves_and_convert_to_the_float_forms_the_dump_declares() {
     assert_eq!(half3::from(f), v);
     // `half3 op_Implicit(half v)` splats the scalar.
     let s = half3::from(half::from_f32(0.5));
-    assert_eq!(s, half3::new(half::from_f32(0.5), half::from_f32(0.5), half::from_f32(0.5)));
+    assert_eq!(
+        s,
+        half3::new(
+            half::from_f32(0.5),
+            half::from_f32(0.5),
+            half::from_f32(0.5)
+        )
+    );
     // and the float splat `half3 op_Explicit(float v)`.
     assert_eq!(half3::from(0.5f32), s);
 }

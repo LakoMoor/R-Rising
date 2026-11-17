@@ -20,7 +20,8 @@ fn opens_a_slice_of_the_content_archives() {
     let all = rrising_content::list_archives(&dir).unwrap();
     let slice: Vec<_> = all.iter().take(200).cloned().collect();
     let t = Instant::now();
-    let content = rrising_content::GameContent::open(Path::new(DATA), &slice, Path::new(TPK)).unwrap();
+    let content =
+        rrising_content::GameContent::open(Path::new(DATA), &slice, Path::new(TPK)).unwrap();
     let elapsed = t.elapsed();
     let counts = content.class_counts();
     println!(
@@ -33,7 +34,11 @@ fn opens_a_slice_of_the_content_archives() {
     for (k, v) in &counts {
         println!("  {k:24} {v}");
     }
-    assert!(content.entries().len() > 1000, "expected a real index, got {}", content.entries().len());
+    assert!(
+        content.entries().len() > 1000,
+        "expected a real index, got {}",
+        content.entries().len()
+    );
     assert!(counts.contains_key("Mesh"), "no meshes indexed");
     assert!(counts.contains_key("Texture2D"), "no textures indexed");
 }
@@ -47,7 +52,8 @@ fn reads_a_real_mesh_and_its_textures() {
     let dir = Path::new(DATA).join("StreamingAssets/ContentArchives");
     let all = rrising_content::list_archives(&dir).unwrap();
     let slice: Vec<_> = all.iter().take(400).cloned().collect();
-    let content = rrising_content::GameContent::open(Path::new(DATA), &slice, Path::new(TPK)).unwrap();
+    let content =
+        rrising_content::GameContent::open(Path::new(DATA), &slice, Path::new(TPK)).unwrap();
 
     let mesh_entry = content
         .entries()
@@ -64,7 +70,11 @@ fn reads_a_real_mesh_and_its_textures() {
         mesh.skin.is_some()
     );
     assert!(mesh.vertex_count > 0, "mesh {} has no vertices", mesh.name);
-    assert!(!mesh.indices.is_empty(), "mesh {} has no indices", mesh.name);
+    assert!(
+        !mesh.indices.is_empty(),
+        "mesh {} has no indices",
+        mesh.name
+    );
     // Positions are channel 0 in Unity's layout.
     let positions = mesh.channels[0].as_ref().expect("a position channel");
     assert_eq!(positions.dim, 3);
@@ -94,7 +104,11 @@ fn reads_a_real_mesh_and_its_textures() {
         tex.data.len()
     );
     assert!(tex.width > 0 && tex.height > 0);
-    assert!(!tex.data.is_empty(), "texture {} carries no pixels", tex.name);
+    assert!(
+        !tex.data.is_empty(),
+        "texture {} carries no pixels",
+        tex.name
+    );
 
     let mat_entry = content
         .entries()
@@ -109,7 +123,11 @@ fn reads_a_real_mesh_and_its_textures() {
         mat.textures.len(),
         mat.render_queue
     );
-    assert!(mat.shader.is_some(), "material {} names no shader", mat.name);
+    assert!(
+        mat.shader.is_some(),
+        "material {} names no shader",
+        mat.name
+    );
 }
 
 #[test]
@@ -128,13 +146,20 @@ fn localization_and_settings_load() {
     )
     .unwrap();
     println!("setting presets: {:?}", presets.len());
-    assert!(presets.iter().any(|p| p == "StandardPvE"), "no StandardPvE preset");
+    assert!(
+        presets.iter().any(|p| p == "StandardPvE"),
+        "no StandardPvE preset"
+    );
 
     let doc = rrising_content::settings::load_json(
         &Path::new(DATA).join("StreamingAssets/GameSettingPresets/StandardPvE.json"),
     )
     .unwrap();
-    println!("StandardPvE top-level keys: {:?}", doc.as_object().map(|m| m.keys().take(6).collect::<Vec<_>>()));
+    println!(
+        "StandardPvE top-level keys: {:?}",
+        doc.as_object()
+            .map(|m| m.keys().take(6).collect::<Vec<_>>())
+    );
     assert!(doc.is_object());
 }
 
@@ -148,7 +173,8 @@ fn opens_the_whole_content_archive_folder() {
     let all = rrising_content::list_archives(&dir).unwrap();
     println!("archives on disk: {}", all.len());
     let t = Instant::now();
-    let content = rrising_content::GameContent::open(Path::new(DATA), &all, Path::new(TPK)).unwrap();
+    let content =
+        rrising_content::GameContent::open(Path::new(DATA), &all, Path::new(TPK)).unwrap();
     let elapsed = t.elapsed();
     let counts = content.class_counts();
     let total: usize = counts.values().sum();

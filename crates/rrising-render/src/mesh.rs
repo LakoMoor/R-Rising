@@ -136,12 +136,12 @@ pub fn upload_vertices(
     );
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some(&format!("verts {name}")),
-        contents: bytemuck::cast_slice(&verts),
+        contents: bytemuck::cast_slice(verts),
         usage: wgpu::BufferUsages::VERTEX,
     });
     let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some(&format!("inds {name}")),
-        contents: bytemuck::cast_slice(&indices),
+        contents: bytemuck::cast_slice(indices),
         usage: wgpu::BufferUsages::INDEX,
     });
     Ok(GpuMesh {

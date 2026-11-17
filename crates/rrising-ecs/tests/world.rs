@@ -1,0 +1,171 @@
+//! Tests for `World::build` and `SpecialTypes` construction on synthetic data (not original data).
+use rrising_ecs::{
+    ArchetypeInput, ChunkInput, ComponentType, Entity, EntityIds, EntityQuery, SpecialTypes,
+    TypeCategory, TypeIndex, TypeManager, TypeSpec, World, WorldInput,
+};
+
+struct T {
+    tm: TypeManager,
+    entity: TypeIndex,
+    a: TypeIndex,
+    tag: TypeIndex,
+    disabled: TypeIndex,
+    prefab: TypeIndex,
+}
+
+fn types() -> T {
+    let mut tm = TypeManager::default();
+    tm.register(TypeSpec::tag("<reserved null>")).unwrap();
+    let mut es = TypeSpec::component_data("Entity", 8, 8);
+    es.category = TypeCategory::EntityData;
+    let entity = tm.register(es).unwrap();
+    let a = tm.register(TypeSpec::component_data("A", 4, 4)).unwrap();
+    let tag = tm.register(TypeSpec::tag("Tag")).unwrap();
+    let disabled = tm.register(TypeSpec::tag("Disabled")).unwrap();
+    let prefab = tm.register(TypeSpec::tag("Prefab")).unwrap();
+    T {
+        tm,
+        entity,
+        a,
+        tag,
+        disabled,
+        prefab,
+    }
+}
+
+fn special(t: &T) -> SpecialTypes {
+    SpecialTypes {
+        disabled: t.disabled,
+        prefab: t.prefab,
+        ..SpecialTypes::new(t.entity)
+    }
+}
+
+#[test]
+fn special_types_default_does_not_alias_type_zero() {
+    let d = SpecialTypes::default();
+    for v in [
+        d.chunk_header,
+        d.prefab,
+        d.spawn_tag,
+        d.destroy_tag,
+        d.cleanup_entity,
+        d.disabled,
+        d.system_instance,
+    ] {
+        assert_eq!(v, SpecialTypes::UNSET);
+        assert_ne!(v, TypeIndex::NULL);
+    }
+    assert!(!d.entity_type_is_set());
+    // a store with an unset Entity type is refused
+    assert!(rrising_ecs::EntityComponentStore::new(4, d).is_err());
+    assert!(SpecialTypes::new(TypeIndex::new(1)).entity_type_is_set());
+}
+
+#[test]
+fn builds_preserving_ids_and_component_bytes() {
+    let t = types();
+    let ids = vec![Entity::new(5, 3), Entity::new(2, 7), Entity::new(40, 1)];
+    let data: Vec<u8> = [11u32, 22, 33]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let input = WorldInput {
+        archetypes: vec![ArchetypeInput { types: vec![t.a] }],
+        chunks: vec![ChunkInput {
+            archetype: 0,
+            entities: EntityIds::Preserved(ids.clone()),
+            components: vec![(t.a, data)],
+        }],
+    };
+    let (a, sp) = (t.a, special(&t));
+    let w = World::build(t.tm, sp, 4, &input).unwrap();
+    for (e, v) in ids.iter().zip([11u32, 22, 33]) {
+        assert!(w.store.exists(*e).unwrap());
+        assert_eq!(w.store.component_bytes(*e, a).unwrap(), &v.to_le_bytes());
+    }
+    // wrong version is dead; untouched slot keeps version 1
+    assert!(!w.store.exists(Entity::new(5, 1)).unwrap());
+    assert_eq!(w.store.get_entity_by_entity_index(3), Entity::new(3, 1));
+    // the free list skips used slots: next fresh allocation is slot 0
+    let mut s = w.store;
+    let arch = w.archetype_map[0];
+    assert_eq!(s.create_entity(arch).unwrap(), Entity::new(0, 1));
+    assert_eq!(s.create_entity(arch).unwrap(), Entity::new(1, 1));
+    assert_eq!(s.create_entity(arch).unwrap(), Entity::new(3, 1));
+}
+
+#[test]
+fn rejects_duplicate_or_bad_ids_and_bad_byte_lengths() {
+    let t = types();
+    let sp = special(&t);
+    let mk = |ids: Vec<Entity>, bytes: usize, tm: &TypeManager| {
+        let input = WorldInput {
+            archetypes: vec![ArchetypeInput { types: vec![t.a] }],
+            chunks: vec![ChunkInput {
+                archetype: 0,
+                entities: EntityIds::Preserved(ids),
+                components: vec![(t.a, vec![0; bytes])],
+            }],
+        };
+        World::build(tm.clone(), sp, 4, &input)
+    };
+    assert!(mk(vec![Entity::new(1, 1), Entity::new(1, 2)], 8, &t.tm).is_err());
+    assert!(mk(vec![Entity::new(1, 0)], 4, &t.tm).is_err());
+    assert!(mk(vec![Entity::new(-1, 1)], 4, &t.tm).is_err());
+    assert!(mk(vec![Entity::new(1, 1)], 3, &t.tm).is_err());
+    assert!(mk(vec![Entity::new(1, 1)], 4, &t.tm).is_ok());
+}
+
+#[test]
+fn query_counts_on_synthetic_data_with_disabled_and_prefab() {
+    let t = types();
+    let (a, tag, dis, pre) = (t.a, t.tag, t.disabled, t.prefab);
+    let chunk = |arch, n| ChunkInput {
+        archetype: arch,
+        entities: EntityIds::Fresh(n),
+        components: vec![],
+    };
+    let input = WorldInput {
+        archetypes: vec![
+            ArchetypeInput { types: vec![a] },
+            ArchetypeInput {
+                types: vec![a, tag],
+            },
+            ArchetypeInput {
+                types: vec![a, dis],
+            },
+            ArchetypeInput {
+                types: vec![a, pre],
+            },
+        ],
+        // 3 + 2 + 4 + 5; archetype 0 split over two input chunks
+        chunks: vec![
+            chunk(0, 2),
+            chunk(0, 1),
+            chunk(1, 2),
+            chunk(2, 4),
+            chunk(3, 5),
+        ],
+    };
+    let sp = special(&t);
+    let w = World::build(t.tm, sp, 2, &input).unwrap();
+    assert_eq!(w.entities.len(), 14);
+    let q = EntityQuery::new(&[ComponentType::read_only(a)]);
+    assert_eq!(
+        w.query_count(&q),
+        5,
+        "Disabled and Prefab excluded by default"
+    );
+    let q_tag = EntityQuery::new(&[ComponentType::read_only(a), ComponentType::exclude(tag)]);
+    assert_eq!(w.query_count(&q_tag), 3);
+    let mut q_dis = q.clone();
+    q_dis.include_disabled = true;
+    assert_eq!(w.query_count(&q_dis), 9);
+    let mut q_all = q_dis.clone();
+    q_all.include_prefab = true;
+    assert_eq!(w.query_count(&q_all), 14);
+    // explicitly requiring Disabled still needs include_disabled in this port-side matcher
+    let q_req = EntityQuery::new(&[ComponentType::read_only(dis)]);
+    assert_eq!(w.query_count(&q_req), 0);
+}

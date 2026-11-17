@@ -4,14 +4,17 @@
 //! generator's idea of the format drifts from the build's.
 
 use rrising_math::{
-    bool2x2, double2, float2, float3, float3x3, float4, float3x4, float4x3, float4x4, half, half2,
+    bool2x2, double2, float2, float3, float3x3, float3x4, float4, float4x3, float4x4, half, half2,
     int2, int4x4, quaternion, uint4,
 };
 
 #[test]
 fn vectors_print_their_name_then_their_components() {
     assert_eq!(float2::new(1.5, -2.5).to_string(), "float2(1.5f, -2.5f)");
-    assert_eq!(float3::new(1.5, -2.5, 3.0).to_string(), "float3(1.5f, -2.5f, 3f)");
+    assert_eq!(
+        float3::new(1.5, -2.5, 3.0).to_string(),
+        "float3(1.5f, -2.5f, 3f)"
+    );
     assert_eq!(
         float4::new(0.0, 1.0, -0.5, 2.0).to_string(),
         "float4(0f, 1f, -0.5f, 2f)"
@@ -23,10 +26,7 @@ fn vectors_print_their_name_then_their_components() {
         half2::new(half::from_f32(1.5), half::from_f32(-2.5)).to_string(),
         "half2(1.5, -2.5)"
     );
-    assert_eq!(
-        uint4::new(1, 2, 3, 4).to_string(),
-        "uint4(1, 2, 3, 4)"
-    );
+    assert_eq!(uint4::new(1, 2, 3, 4).to_string(), "uint4(1, 2, 3, 4)");
     assert_eq!(
         quaternion::new(1.0, 2.0, 3.0, 4.0).to_string(),
         "quaternion(1f, 2f, 3f, 4f)"

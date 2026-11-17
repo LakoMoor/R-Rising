@@ -6,11 +6,11 @@
 //! quaternion component by multiplying by −1.0f, summing a squared length `y, x, z` — the test pins
 //! the surprise.
 
+use rrising_math::math::{fastinverse, normalize};
 use rrising_math::{
     float3, float3x3, float4, float4x4, hash_rigid, hashwide_rigid, quaternion, rigid_transform,
     rigid_transform_m3, rigid_transform_m4, RigidTransform, RotationOrder,
 };
-use rrising_math::math::{fastinverse, normalize};
 
 fn close(a: f32, b: f32, tol: f32) -> bool {
     (a - b).abs() <= tol || (a.is_nan() && b.is_nan())
@@ -87,8 +87,14 @@ fn matrix_to_quaternion_inverts_from_quaternion() {
     }
     // The identity matrix converts to the identity quaternion exactly: the shuffles move the
     // `1.0 + |m00|` term into `w` and the rest stay zero.
-    assert_eq!(quaternion::from_matrix3(float3x3::identity), quaternion::identity);
-    assert_eq!(quaternion::from_matrix4(float4x4::identity), quaternion::identity);
+    assert_eq!(
+        quaternion::from_matrix3(float3x3::identity),
+        quaternion::identity
+    );
+    assert_eq!(
+        quaternion::from_matrix4(float4x4::identity),
+        quaternion::identity
+    );
 }
 
 #[test]
@@ -168,14 +174,21 @@ fn quaternion_look_rotation_safe_agrees_with_the_matrix() {
     for (f, u) in pairs {
         let q = quaternion::look_rotation_safe(f, u);
         assert!(
-            m3_close(float3x3::from_quaternion(q), float3x3::look_rotation_safe(f, u), 1e-5),
+            m3_close(
+                float3x3::from_quaternion(q),
+                float3x3::look_rotation_safe(f, u),
+                1e-5
+            ),
             "{f:?} / {u:?}: the quaternion and the matrix disagree"
         );
         // The quaternion is the local→world rotation whose +Z axis is `forward` — that is what
         // `LookRotation` means, and it is the basis' third column. Rotating `forward` itself by it
         // would apply the rotation twice.
         let z = quaternion::mul_qv(q, float3::new(0.0, 0.0, 1.0));
-        assert!(v3_close(z, normalize(f), 1e-5), "{f:?}: +Z should map onto forward");
+        assert!(
+            v3_close(z, normalize(f), 1e-5),
+            "{f:?}: +Z should map onto forward"
+        );
     }
 }
 
@@ -193,14 +206,26 @@ fn rigid_eulers_are_quaternion_eulers_with_a_zero_translation() {
         (RigidTransform::euler_zyx(v), quaternion::euler_zyx(v)),
     ];
     for (r, q) in by_order {
-        assert!(q_close(r.rot, q, 0.0), "{q:?} disagrees with the RigidTransform form");
+        assert!(
+            q_close(r.rot, q, 0.0),
+            "{q:?} disagrees with the RigidTransform form"
+        );
         assert_eq!(r.pos, float3::zero);
     }
     // The scalar overloads take the same arguments in the same order.
     for (r, q) in [
-        (RigidTransform::euler_xyz_3(0.3, -0.9, 1.2), quaternion::euler_xyz(v)),
-        (RigidTransform::euler_zxy_3(0.3, -0.9, 1.2), quaternion::euler_zxy(v)),
-        (RigidTransform::euler_zyx_3(0.3, -0.9, 1.2), quaternion::euler_zyx(v)),
+        (
+            RigidTransform::euler_xyz_3(0.3, -0.9, 1.2),
+            quaternion::euler_xyz(v),
+        ),
+        (
+            RigidTransform::euler_zxy_3(0.3, -0.9, 1.2),
+            quaternion::euler_zxy(v),
+        ),
+        (
+            RigidTransform::euler_zyx_3(0.3, -0.9, 1.2),
+            quaternion::euler_zyx(v),
+        ),
     ] {
         assert!(q_close(r.rot, q, 0.0));
     }
@@ -213,13 +238,24 @@ fn rigid_eulers_are_quaternion_eulers_with_a_zero_translation() {
         (RotationOrder::ZXY, quaternion::euler_zxy(v)),
         (RotationOrder::ZYX, quaternion::euler_zyx(v)),
     ] {
-        assert!(q_close(RigidTransform::euler(v, order).rot, q, 0.0), "{order:?}");
-        assert!(q_close(RigidTransform::euler_3(0.3, -0.9, 1.2, order).rot, q, 0.0));
+        assert!(
+            q_close(RigidTransform::euler(v, order).rot, q, 0.0),
+            "{order:?}"
+        );
+        assert!(q_close(
+            RigidTransform::euler_3(0.3, -0.9, 1.2, order).rot,
+            q,
+            0.0
+        ));
     }
     // AxisAngle @ 0x938d960 and RotateX/Y/Z @ 0x938e500-0x938e660 likewise keep pos at zero, and
     // Translate @ 0x938e710 keeps the rotation at the identity.
     let axis = normalize(float3::new(0.3, -0.6, 0.75));
-    assert!(q_close(RigidTransform::axis_angle(axis, 1.1).rot, quaternion::axis_angle(axis, 1.1), 0.0));
+    assert!(q_close(
+        RigidTransform::axis_angle(axis, 1.1).rot,
+        quaternion::axis_angle(axis, 1.1),
+        0.0
+    ));
     assert_eq!(RigidTransform::axis_angle(axis, 1.1).pos, float3::zero);
     for (r, q) in [
         (RigidTransform::rotate_x(0.4), quaternion::rotate_x(0.4)),
@@ -251,13 +287,24 @@ fn rigid_inverse_keeps_the_bodies_negation_and_lane_order() {
     assert_eq!(inv.pos, float3::zero);
 
     // The fused translation is `-(R⁻¹ · pos)`, checked against the two-step form.
-    let t = RigidTransform::new(quaternion::euler_zxy(float3::new(0.3, -0.9, 1.2)), float3::new(4.0, -5.5, 6.0));
+    let t = RigidTransform::new(
+        quaternion::euler_zxy(float3::new(0.3, -0.9, 1.2)),
+        float3::new(4.0, -5.5, 6.0),
+    );
     let i = RigidTransform::inverse(t);
     let expect = -quaternion::mul_qv(i.rot, t.pos);
     assert!(v3_close(i.pos, expect, 1e-4), "{} vs {}", i.pos, expect);
     // Composing a transform with its inverse gives the identity.
-    assert!(rt_close(RigidTransform::mul(i, t), RigidTransform::identity, 1e-4));
-    assert!(rt_close(RigidTransform::mul(t, i), RigidTransform::identity, 1e-4));
+    assert!(rt_close(
+        RigidTransform::mul(i, t),
+        RigidTransform::identity,
+        1e-4
+    ));
+    assert!(rt_close(
+        RigidTransform::mul(t, i),
+        RigidTransform::identity,
+        1e-4
+    ));
 }
 
 #[test]
@@ -283,8 +330,16 @@ fn rigid_mul_composes_rotations_and_translations() {
         quaternion::mul_qv(a.rot, b.pos) + a.pos
     );
     // Identity on either side, and associativity of composition.
-    assert!(rt_close(RigidTransform::mul(RigidTransform::identity, b), b, 0.0));
-    assert!(rt_close(RigidTransform::mul(a, RigidTransform::identity), a, 0.0));
+    assert!(rt_close(
+        RigidTransform::mul(RigidTransform::identity, b),
+        b,
+        0.0
+    ));
+    assert!(rt_close(
+        RigidTransform::mul(a, RigidTransform::identity),
+        a,
+        0.0
+    ));
     let c = RigidTransform::new(quaternion::rotate_z(2.0), float3::new(0.25, -0.5, 0.75));
     assert!(
         rt_close(
@@ -313,10 +368,17 @@ fn rigid_mul_composes_rotations_and_translations() {
 fn rigid_mul_v4_and_rotate_transform_agree() {
     // math.mul(RigidTransform, float4) @ 0x92cd920 rotates xyz, scales the translation by w and
     // passes w straight through.
-    let a = RigidTransform::new(quaternion::euler_xyz(float3::new(0.4, 0.5, 0.6)), float3::new(1.0, -2.0, 3.0));
+    let a = RigidTransform::new(
+        quaternion::euler_xyz(float3::new(0.4, 0.5, 0.6)),
+        float3::new(1.0, -2.0, 3.0),
+    );
     let p = float4::new(2.0, 3.0, -4.0, 1.0);
     let got = RigidTransform::mul_v4(a, p);
-    assert!(v3_close(float3::new(got.x, got.y, got.z), RigidTransform::transform(a, float3::new(2.0, 3.0, -4.0)), 1e-5));
+    assert!(v3_close(
+        float3::new(got.x, got.y, got.z),
+        RigidTransform::transform(a, float3::new(2.0, 3.0, -4.0)),
+        1e-5
+    ));
     assert_eq!(got.w, 1.0);
     // With w = 0 the translation drops out entirely and the result is all zeros.
     assert_eq!(
@@ -325,12 +387,24 @@ fn rigid_mul_v4_and_rotate_transform_agree() {
     );
     // With w = 1 and a zero position the scaling term is what remains.
     let scaled = RigidTransform::mul_v4(a, float4::new(0.0, 0.0, 0.0, 2.0));
-    assert!(v3_close(float3::new(scaled.x, scaled.y, scaled.z), a.pos * 2.0, 0.0));
+    assert!(v3_close(
+        float3::new(scaled.x, scaled.y, scaled.z),
+        a.pos * 2.0,
+        0.0
+    ));
 
     // math.rotate @ 0x92cdac0 ignores the translation; math.transform @ 0x92cdc10 adds it.
     let d = float3::new(1.5, -2.5, 3.5);
-    assert!(v3_close(RigidTransform::rotate(a, d), quaternion::mul_qv(a.rot, d), 1e-5));
-    assert!(v3_close(RigidTransform::transform(a, d), RigidTransform::rotate(a, d) + a.pos, 0.0));
+    assert!(v3_close(
+        RigidTransform::rotate(a, d),
+        quaternion::mul_qv(a.rot, d),
+        1e-5
+    ));
+    assert!(v3_close(
+        RigidTransform::transform(a, d),
+        RigidTransform::rotate(a, d) + a.pos,
+        0.0
+    ));
 }
 
 #[test]
@@ -338,7 +412,10 @@ fn rigid_to_float4x4_round_trips() {
     // float4x4(RigidTransform) @ 0x934fa60 embeds the rotation columns with 0.0 below each and
     // puts the translation in the fourth column; math.RigidTransform(float4x4) @ 0x92cd3d0 reads
     // it back out.
-    let t = RigidTransform::new(quaternion::euler_yzx(float3::new(0.3, 1.1, -0.4)), float3::new(12.0, -3.5, 7.25));
+    let t = RigidTransform::new(
+        quaternion::euler_yzx(float3::new(0.3, 1.1, -0.4)),
+        float3::new(12.0, -3.5, 7.25),
+    );
     let m = RigidTransform::to_float4x4(t);
     assert_eq!(m.c3, float4::new(12.0, -3.5, 7.25, 1.0));
     let r = float3x3::from_quaternion(t.rot);
@@ -359,11 +436,7 @@ fn rigid_to_float4x4_round_trips() {
     let moved = m * p;
     let via_transform = RigidTransform::transform(t, float3::new(1.0, 2.0, 3.0));
     assert!(
-        v3_close(
-            float3::new(moved.x, moved.y, moved.z),
-            via_transform,
-            1e-4
-        ),
+        v3_close(float3::new(moved.x, moved.y, moved.z), via_transform, 1e-4),
         "{} vs {}",
         float3::new(moved.x, moved.y, moved.z),
         via_transform
@@ -374,7 +447,10 @@ fn rigid_to_float4x4_round_trips() {
 fn fastinverse_is_the_rigid_inverse() {
     // math.fastinverse(float4x4) @ 0x929eac0: the transposed rotation with 0.0 below each column,
     // and the translation negated through the same matrix.
-    let t = RigidTransform::new(quaternion::euler_zxy(float3::new(0.3, -0.9, 1.2)), float3::new(4.0, -5.5, 6.0));
+    let t = RigidTransform::new(
+        quaternion::euler_zxy(float3::new(0.3, -0.9, 1.2)),
+        float3::new(4.0, -5.5, 6.0),
+    );
     let m = RigidTransform::to_float4x4(t);
     let f = fastinverse(m);
     assert_eq!(f.c0.w, 0.0);
@@ -467,7 +543,10 @@ fn display_is_the_recovered_format_string() {
 fn equality_is_the_bodies_seven_component_compare() {
     // Equals @ 0x938e780 compares rot.xyzw then pos.xyz, component by component. Rust's derived
     // PartialEq walks the fields in declaration order, which is the same seven comparisons.
-    let a = RigidTransform::new(quaternion::new(1.0, 2.0, 3.0, 4.0), float3::new(5.0, 6.0, 7.0));
+    let a = RigidTransform::new(
+        quaternion::new(1.0, 2.0, 3.0, 4.0),
+        float3::new(5.0, 6.0, 7.0),
+    );
     let mut b = a;
     assert_eq!(a, b);
     b.pos.z = 7.5;
@@ -477,8 +556,14 @@ fn equality_is_the_bodies_seven_component_compare() {
     assert_ne!(a, b);
     // +0.0 and -0.0 compare equal, as they do in the original's `==` on floats.
     assert_eq!(
-        RigidTransform::new(quaternion::new(0.0, 0.0, 0.0, 1.0), float3::new(0.0, 0.0, 0.0)),
-        RigidTransform::new(quaternion::new(-0.0, -0.0, -0.0, 1.0), float3::new(-0.0, -0.0, -0.0))
+        RigidTransform::new(
+            quaternion::new(0.0, 0.0, 0.0, 1.0),
+            float3::new(0.0, 0.0, 0.0)
+        ),
+        RigidTransform::new(
+            quaternion::new(-0.0, -0.0, -0.0, 1.0),
+            float3::new(-0.0, -0.0, -0.0)
+        )
     );
     // Default is the zeroed struct, not the identity: the original has no parameterless
     // constructor that would fix that up.

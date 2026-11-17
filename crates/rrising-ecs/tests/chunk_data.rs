@@ -45,7 +45,6 @@ fn swap_back_moves_all_metadata_and_dispose_retains_type_counts() {
     let mut data = ArchetypeChunkData::new(2, 1).expect("metadata");
     data.grow(3).expect("grow");
     for i in 0..3 {
-        let i = i as i32;
         data.add(ChunkIndex::new(i + 1), i + 1, &[100 + i], i as u32)
             .expect("add");
         data.set_enabled_bits_and_hierarchical_data(i as usize, &[[i as u64, 0], [9, 8]], &[i, 4])

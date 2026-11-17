@@ -9,10 +9,24 @@
 //! generates the same surface from the dump's own member list — see `build.rs` — and keeps the
 //! `math.*` statics the game calls as free functions below.
 
-// The generated `half2`/`half3`/`half4` name the scalar type in their fields and statics.
-use crate::half;
-
-include!(concat!(env!("OUT_DIR"), "/vectors.rs"));
+// The generated surface deliberately mirrors the original `Unity.Mathematics` source (diffable against
+// dump.cs): `x: x` field inits, literal constants such as LN_2, the 9-argument float3x3 constructor and
+// the `mul` name. The lints are allowed on this module only so the generated semantics stay identical.
+#[allow(
+    clippy::redundant_field_names,
+    clippy::excessive_precision,
+    clippy::approx_constant,
+    clippy::neg_multiply,
+    clippy::too_many_arguments,
+    clippy::should_implement_trait
+)]
+mod generated {
+    // The generated `half2`/`half3`/`half4` name the scalar type in their fields and statics.
+    #[allow(unused_imports)]
+    use crate::half;
+    include!(concat!(env!("OUT_DIR"), "/vectors.rs"));
+}
+pub use generated::*;
 
 // `math` helpers the game calls on vectors. Names keep the original spelling where the original is a
 // static (`math.lengthsq`, `math.normalize`); the arity suffix is the port's, because Rust has no

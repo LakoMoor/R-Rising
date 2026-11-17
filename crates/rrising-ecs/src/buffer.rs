@@ -15,10 +15,10 @@
 //! tracking, and the port uses the Rust global allocator with the same size and alignment. Recorded
 //! in `docs/PORT.md` rather than left implicit.
 
-use std::alloc::{Layout, alloc, dealloc, handle_alloc_error};
+use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 /// `BufferHeader.kMinimumCapacity` (`dump.cs`): the smallest capacity the original will grow to.
 pub const K_MINIMUM_CAPACITY: i32 = 8;
@@ -40,8 +40,9 @@ pub enum TrashMode {
 
 fn layout_for(bytes: usize, alignment: i32) -> Result<Layout> {
     let align = (alignment.max(1) as usize).next_power_of_two();
-    Layout::from_size_align(bytes.max(1), align)
-        .map_err(|e| anyhow!("a buffer of {bytes} bytes at alignment {alignment} has no valid layout: {e}"))
+    Layout::from_size_align(bytes.max(1), align).map_err(|e| {
+        anyhow!("a buffer of {bytes} bytes at alignment {alignment} has no valid layout: {e}")
+    })
 }
 
 /// `Memory.Unmanaged.Array.Resize(0, 0, ..., totalByteSize, alignment, 0)` — allocate a block.
@@ -113,7 +114,11 @@ impl BufferHeader {
     /// ELEMENT_OFFSET`).
     #[inline]
     pub fn element_ptr(&self, inline_base: *mut u8) -> *mut u8 {
-        if self.pointer.is_null() { inline_base } else { self.pointer }
+        if self.pointer.is_null() {
+            inline_base
+        } else {
+            self.pointer
+        }
     }
 
     /// The bytes the buffer currently holds: `Length * type_size` of the data area.
@@ -160,13 +165,24 @@ impl BufferHeader {
         let ts = type_size.max(0) as usize;
         let new_bytes = (new_capacity.max(0) as usize)
             .checked_mul(ts)
-            .ok_or_else(|| anyhow!("capacity {new_capacity} x element size {type_size} overflows"))?;
+            .ok_or_else(|| {
+                anyhow!("capacity {new_capacity} x element size {type_size} overflows")
+            })?;
         let old_bytes = (self.capacity.max(0) as usize)
             .checked_mul(ts)
-            .ok_or_else(|| anyhow!("capacity {} x element size {type_size} overflows", self.capacity))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "capacity {} x element size {type_size} overflows",
+                    self.capacity
+                )
+            })?;
 
         let inline_base = inline.as_mut_ptr();
-        let old_data = if self.pointer.is_null() { inline_base } else { self.pointer };
+        let old_data = if self.pointer.is_null() {
+            inline_base
+        } else {
+            self.pointer
+        };
         let use_heap = internal_capacity < new_capacity;
         let (new_data, new_layout) = if use_heap {
             allocate(new_bytes, alignment)?
@@ -179,7 +195,13 @@ impl BufferHeader {
             if use_memory_init_pattern {
                 if trash == TrashMode::RetainOldData {
                     if new_bytes > keep {
-                        unsafe { ptr::write_bytes(new_data.add(keep), memory_init_pattern, new_bytes - keep) };
+                        unsafe {
+                            ptr::write_bytes(
+                                new_data.add(keep),
+                                memory_init_pattern,
+                                new_bytes - keep,
+                            )
+                        };
                     }
                     if keep > 0 {
                         unsafe { ptr::copy_nonoverlapping(old_data, new_data, keep) };
@@ -318,7 +340,7 @@ impl BufferHeader {
             bytes.max(1),
             (alignment.max(1) as usize).next_power_of_two(),
         )
-            .unwrap_or_else(|_| Layout::new::<u8>());
+        .unwrap_or_else(|_| Layout::new::<u8>());
         unsafe { dealloc(ptr, layout) };
     }
 }

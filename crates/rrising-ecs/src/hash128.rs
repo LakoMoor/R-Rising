@@ -37,12 +37,16 @@ pub struct Hash128 {
 impl Hash128 {
     /// `Hash128..ctor(uint x, uint y, uint z, uint w)` @ 0x8fcb2a0.
     pub const fn new(x: u32, y: u32, z: u32, w: u32) -> Self {
-        Self { value: [x, y, z, w] }
+        Self {
+            value: [x, y, z, w],
+        }
     }
 
     /// The all-zero value `get_IsValid` @ 0x8fcb8d0 compares against (the static `Hash128.Empty`
     /// the body loads from the type's static base).
-    pub const NULL: Self = Self { value: [0, 0, 0, 0] };
+    pub const NULL: Self = Self {
+        value: [0, 0, 0, 0],
+    };
 
     /// `Hash128.get_IsValid` @ 0x8fcb8d0: false only for the all-zero value.
     pub const fn is_valid(&self) -> bool {
@@ -57,7 +61,10 @@ impl Hash128 {
     ///   front, `d[7]<<28 | d[6]<<24 | ... | d[0]`.
     /// - `false`: the pairs are swapped per byte, `d[6]<<28 | d[7]<<24 | d[4]<<20 | d[5]<<16 | ...`,
     ///   which is the mixed-endian layout a `.NET` `Guid` string maps to.
-    pub const fn string_to_hash(chars: &[u8; K_GUID_STRING_LENGTH], guid_formatted: bool) -> Option<Self> {
+    pub const fn string_to_hash(
+        chars: &[u8; K_GUID_STRING_LENGTH],
+        guid_formatted: bool,
+    ) -> Option<Self> {
         let mut out = [0u32; 4];
         let mut g = 0;
         while g < 4 {
@@ -71,11 +78,23 @@ impl Hash128 {
                 i += 1;
             }
             out[g] = if guid_formatted {
-                (n[7] << 28) | (n[6] << 24) | (n[5] << 20) | (n[4] << 16) | (n[3] << 12) | (n[2] << 8)
-                    | (n[1] << 4) | n[0]
+                (n[7] << 28)
+                    | (n[6] << 24)
+                    | (n[5] << 20)
+                    | (n[4] << 16)
+                    | (n[3] << 12)
+                    | (n[2] << 8)
+                    | (n[1] << 4)
+                    | n[0]
             } else {
-                (n[6] << 28) | (n[7] << 24) | (n[4] << 20) | (n[5] << 16) | (n[2] << 12) | (n[3] << 8)
-                    | (n[0] << 4) | n[1]
+                (n[6] << 28)
+                    | (n[7] << 24)
+                    | (n[4] << 20)
+                    | (n[5] << 16)
+                    | (n[2] << 12)
+                    | (n[3] << 8)
+                    | (n[0] << 4)
+                    | n[1]
             };
             g += 1;
         }
@@ -152,7 +171,10 @@ impl Hash128 {
         let b = (v[3] as i32).wrapping_mul(-0x1e943763);
         let c = (v[2] as i32).wrapping_mul(0x7aa2c2bd);
         let d = (v[0] as i32).wrapping_mul(-0x4b6d40eb);
-        a.wrapping_add(b).wrapping_add(c).wrapping_add(d).wrapping_add(0x7aa07cd3)
+        a.wrapping_add(b)
+            .wrapping_add(c)
+            .wrapping_add(d)
+            .wrapping_add(0x7aa07cd3)
     }
 
     /// `Hash128.CompareTo` @ 0x8fcb830.
@@ -160,7 +182,11 @@ impl Hash128 {
         let mut i = 3;
         loop {
             if self.value[i] != other.value[i] {
-                return if self.value[i] < other.value[i] { Ordering::Less } else { Ordering::Greater };
+                return if self.value[i] < other.value[i] {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
             }
             if i == 0 {
                 return Ordering::Equal;
@@ -179,7 +205,7 @@ impl Hash128 {
 
 impl PartialOrd for Hash128 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.compare_to(other))
+        Some(self.cmp(other))
     }
 }
 

@@ -34,6 +34,8 @@ struct Options {
     import_web: Option<PathBuf>,
     inspect_scene: Option<PathBuf>,
     type_layouts: Option<PathBuf>,
+    bench: bool,
+    frames: usize,
 }
 
 fn parse_args() -> Result<Options> {
@@ -55,6 +57,8 @@ fn parse_args() -> Result<Options> {
         import_web: None,
         inspect_scene: None,
         type_layouts: None,
+        bench: false,
+        frames: 60,
     };
     while let Some(a) = args.next() {
         let mut take = || {
@@ -72,6 +76,8 @@ fn parse_args() -> Result<Options> {
             "--type-layouts" => opt.type_layouts = Some(PathBuf::from(take()?)),
             "--import-web" => opt.import_web = Some(PathBuf::from(take()?)),
             "--export-web" => opt.export_web = Some(PathBuf::from(take()?)),
+            "--bench" => opt.bench = true,
+            "--frames" => opt.frames = take()?.parse().context("--frames takes a number")?,
             "--offscreen" => opt.offscreen = Some(PathBuf::from(take()?)),
             other => return Err(anyhow::anyhow!("unknown argument {other:?}")),
         }
@@ -197,7 +203,7 @@ fn frame_uniforms(aspect: f32) -> FrameUniforms {
     // negative view-space z (Unity's own `worldToCameraMatrix` applies the same flip engine-side).
     let camera_to_world = float4x4::look_at(eye, target, float3::new(0.0, 1.0, 0.0));
     let view = float4x4::scale(float3::new(1.0, 1.0, -1.0)) * camera_to_world.inverse();
-    let proj = float4x4::perspective_fov(1.0472, aspect, 0.1, 200.0);
+    let proj = float4x4::perspective_fov(std::f32::consts::FRAC_PI_3, aspect, 0.1, 200.0);
     let view_proj = rrising_render::clip_fix() * proj * view;
     FrameUniforms {
         view_proj: Instance::from_matrix(&view_proj).model,
@@ -305,7 +311,7 @@ impl App {
             log::error!("render: {e}");
         }
         self.frames += 1;
-        if self.frames % 120 == 0 {
+        if self.frames.is_multiple_of(120) {
             println!(
                 "frame {} at {:.1} ms/frame — {} items, {} textures bound",
                 self.frames,
@@ -610,9 +616,96 @@ fn inspect_scene(opt: &Options, path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Median of a non-empty list of durations, in milliseconds.
+fn median_ms(mut v: Vec<f64>) -> f64 {
+    v.sort_by(|a, b| a.total_cmp(b));
+    v[v.len() / 2]
+}
+
+/// `--bench`: wall-clock timings of the Rust port only (there is no original-game comparison).
+/// Run with `--release`; numbers from a debug build are meaningless.
+fn bench(opt: &Options) -> Result<()> {
+    use std::time::Instant;
+    let dir = opt.data.join("StreamingAssets/ContentArchives");
+    let catalog_path = dir.join("archive_dependencies.bin");
+    let t = Instant::now();
+    let catalog = rrising_content::catalog::RuntimeContentCatalog::open(&catalog_path)?;
+    let catalog_s = t.elapsed().as_secs_f64();
+    let paths = catalog.archive_paths(&dir);
+    let take = opt.archives.min(paths.len());
+    let t = Instant::now();
+    let content = GameContent::open(&opt.data, &paths[..take], &opt.tpk)?;
+    let index_s = t.elapsed().as_secs_f64();
+    let objects: usize = content.class_counts().values().sum();
+
+    let scenes_dir = opt.data.join("StreamingAssets/EntityScenes");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&scenes_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "entities"))
+        .collect();
+    files.sort();
+    let t = Instant::now();
+    let (mut ok, mut bytes, mut chunks) = (0usize, 0usize, 0usize);
+    for f in &files {
+        let Ok(scene) = rrising_content::entity_scenes::SceneFile::open(f) else {
+            continue;
+        };
+        bytes += scene.bytes().len();
+        let decoded = scene.chunks().map(|c| c.len());
+        let all = decoded.is_ok()
+            & scene.archetypes().is_ok()
+            & scene.buffer_data().is_ok()
+            & scene.enabled_bits().is_ok()
+            & scene.shared_and_managed_components().is_ok()
+            & scene.blob_assets().is_ok();
+        chunks += decoded.unwrap_or(0);
+        ok += usize::from(all);
+    }
+    let scenes_s = t.elapsed().as_secs_f64();
+
+    let renderer = pollster::block_on(Renderer::new_offscreen(opt.width, opt.height))?;
+    let spec = scene::showcase(&content, opt.items);
+    let loaded = load_scene(&renderer, &content, &spec)?;
+    let mut renderer = renderer;
+    let uniforms = frame_uniforms(opt.width as f32 / opt.height as f32);
+    let neutral = renderer.neutral_view();
+    let draws = loaded.draws(&neutral);
+    renderer.render_to_image(&uniforms, &draws)?; // warm-up
+    let mut times = Vec::with_capacity(opt.frames);
+    for _ in 0..opt.frames {
+        let t = Instant::now();
+        renderer.render_to_image(&uniforms, &draws)?;
+        times.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    let min = times.iter().cloned().fold(f64::MAX, f64::min);
+    let median = median_ms(times);
+    println!("bench (Rust port only; no original-game comparison)");
+    println!(
+        "  catalog load:        {catalog_s:.3} s ({} physical archives)",
+        paths.len()
+    );
+    println!("  archive indexing:    {index_s:.2} s ({take} archives, {objects} objects)");
+    println!(
+        "  scene decode:        {scenes_s:.2} s ({ok}/{} scenes fully decoded, {chunks} chunks, {:.1} MiB)",
+        files.len(),
+        bytes as f64 / 1048576.0
+    );
+    println!(
+        "  offscreen frame:     median {median:.2} ms, min {min:.2} ms over {} frames at {}x{}, {} items (includes GPU readback)",
+        opt.frames,
+        opt.width,
+        opt.height,
+        loaded.items.len()
+    );
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::init();
     let opt = parse_args()?;
+    if opt.bench {
+        return bench(&opt);
+    }
     if let Some(path) = &opt.inspect_scene {
         return inspect_scene(&opt, path);
     }

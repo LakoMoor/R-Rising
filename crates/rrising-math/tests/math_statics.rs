@@ -4,6 +4,8 @@
 //! expected values are read off that body (or off the shipped `.rdata`), not off the port. Where a
 //! function's result is a bit pattern rather than a number — `hash`, `f32tof16`, `bitmask` — the
 //! test pins the bits, because that is the observable thing.
+// Expected values are the literals read from the original; keep them as written.
+#![allow(clippy::approx_constant, clippy::excessive_precision)]
 
 use rrising_math::*;
 
@@ -74,7 +76,10 @@ fn bit_reinterpretations_round_trip() {
     assert_eq!(asfloat(0x3f800000u32 as i32), 1.0);
     assert_eq!(asfloat(asint(-2.5)), -2.5);
     assert_eq!(asuint(asfloat(0xdeadbeefu32 as i32)), 0xdeadbeef);
-    assert_eq!(aslong(asdouble(0x1234_5678_9abc_def0u64 as i64)), 0x1234_5678_9abc_def0u64 as i64);
+    assert_eq!(
+        aslong(asdouble(0x1234_5678_9abc_def0u64 as i64)),
+        0x1234_5678_9abc_def0u64 as i64
+    );
     assert_eq!(asulong(3.25), asdouble(3.25f64.to_bits() as i64).to_bits());
 }
 
@@ -126,7 +131,10 @@ fn bit_tricks_match_their_bodies() {
     assert_eq!(bitmask(bool4::new(false, true, false, true)), 0b1010);
     assert_eq!(bitmask(bool4::new(true, true, true, true)), 15);
     assert_eq!(fold_to_uint(1.0f64), 0x3ff0_0000); // bits 0x3FF00000_00000000 folded
-    assert_eq!(fold_to_uint(asdouble(0x0123_4567_89ab_cdefi64)), 0x0123_4567 ^ 0x89ab_cdef);
+    assert_eq!(
+        fold_to_uint(asdouble(0x0123_4567_89ab_cdefi64)),
+        0x0123_4567 ^ 0x89ab_cdef
+    );
 }
 
 #[test]
@@ -161,7 +169,7 @@ fn bool_hashes_match_their_bodies_bit_for_bit() {
     let h = hashwide(bool2::new(true, true));
     assert_eq!((h.x, h.y), (0x6e2bf6a9, 0x6d2523b1));
     assert_eq!(hash(bool2::new(false, false)), 0xedbc_6790);
-    assert_eq!(hash(bool2::new(true, false)), 0x57cad_9b2);
+    assert_eq!(hash(bool2::new(true, false)), 0x57ca_d9b2);
     assert_eq!(hash(bool2::new(false, true)), 0xf2fe_cb78);
     assert_eq!(hash(bool2::new(true, true)), 0x5d0d_3d9a);
 
@@ -170,8 +178,14 @@ fn bool_hashes_match_their_bodies_bit_for_bit() {
     for m in 0..8u32 {
         let v = bool3::new(m & 1 != 0, m & 2 != 0, m & 4 != 0);
         let expected = [
-            0x7ca3_962f, 0x8a3b_cf0b, 0xd218_a45b, 0xdfb0_dd37, 0xcacc_fc63, 0xd865_353f,
-            0x2042_0a8f, 0x2dda_436b,
+            0x7ca3_962f,
+            0x8a3b_cf0b,
+            0xd218_a45b,
+            0xdfb0_dd37,
+            0xcacc_fc63,
+            0xd865_353f,
+            0x2042_0a8f,
+            0x2dda_436b,
         ][m as usize];
         assert_eq!(hash3(v), expected, "bool3 mask {m:b}");
     }
@@ -184,9 +198,22 @@ fn bool_hashes_match_their_bodies_bit_for_bit() {
     for m in 0..16u32 {
         let v = bool4::new(m & 1 != 0, m & 2 != 0, m & 4 != 0, m & 8 != 0);
         let expected = [
-            0x6ea1_81ae, 0xd3e1_5dea, 0x6388_7ec0, 0xc8c8_5afc, 0x42ac_c3a0, 0xa7ec_9fdc,
-            0x3793_c0b2, 0x9cd3_9cee, 0x6690_41dc, 0xcbd0_1e18, 0x5b77_3eee, 0xc0b7_1b2a,
-            0x3a9b_83ce, 0x9fdb_600a, 0x2f82_80e0, 0x94c2_5d1c,
+            0x6ea1_81ae,
+            0xd3e1_5dea,
+            0x6388_7ec0,
+            0xc8c8_5afc,
+            0x42ac_c3a0,
+            0xa7ec_9fdc,
+            0x3793_c0b2,
+            0x9cd3_9cee,
+            0x6690_41dc,
+            0xcbd0_1e18,
+            0x5b77_3eee,
+            0xc0b7_1b2a,
+            0x3a9b_83ce,
+            0x9fdb_600a,
+            0x2f82_80e0,
+            0x94c2_5d1c,
         ][m as usize];
         assert_eq!(hash4(v), expected, "bool4 mask {m:04b}");
     }
@@ -227,24 +254,20 @@ fn vector_geometry_matches_the_bodies() {
     assert!(v3_close(r, float3::new(1.0, 1.0, 0.0), 1e-6));
 
     // refract_1284 @ 0x92b3960, with the body's total-internal-reflection zero.
-    let f = refract(
-        float3::new(0.0, -1.0, 0.0),
-        float3::new(0.0, 1.0, 0.0),
-        1.0,
-    );
+    let f = refract(float3::new(0.0, -1.0, 0.0), float3::new(0.0, 1.0, 0.0), 1.0);
     assert!(v3_close(f, float3::new(0.0, -1.0, 0.0), 1e-6));
     let t = refract(
         float3::new(0.7071068, -0.7071068, 0.0),
         float3::new(0.0, 1.0, 0.0),
         2.0,
     );
-    assert!(v3_close(t, float3::zero, 0.0), "expected the zero fallback, got {t}");
+    assert!(
+        v3_close(t, float3::zero, 0.0),
+        "expected the zero fallback, got {t}"
+    );
 
     // project_1290 @ 0x92b4170 and projectsafe_1293 @ 0x92b4390.
-    let p = project(
-        float3::new(3.0, 4.0, 0.0),
-        float3::new(1.0, 0.0, 0.0),
-    );
+    let p = project(float3::new(3.0, 4.0, 0.0), float3::new(1.0, 0.0, 0.0));
     assert!(v3_close(p, float3::new(3.0, 0.0, 0.0), 1e-6));
     let d = float3::new(9.0, 9.0, 9.0);
     assert!(v3_close(
@@ -263,11 +286,7 @@ fn vector_geometry_matches_the_bodies() {
     assert!(v3_close(ns, float3::new(0.0, 0.6, 0.8), 1e-6));
     assert!(v3_close(normalizesafe(float3::zero, d), d, 0.0));
     // A vector just under the threshold still falls back.
-    assert!(v3_close(
-        normalizesafe(float3::splat(1e-20), d),
-        d,
-        0.0
-    ));
+    assert!(v3_close(normalizesafe(float3::splat(1e-20), d), d, 0.0));
 }
 
 #[test]
@@ -321,7 +340,17 @@ fn quaternion_exp_log_and_nlerp_match_their_bodies() {
     let angle = 0.9f32;
     let pure = quaternion::new(axis.x * angle, axis.y * angle, axis.z * angle, 0.0);
     let e = unitexp(pure);
-    assert!(approx(e.value.x * e.value.x + e.value.y * e.value.y + e.value.z * e.value.z + e.value.w * e.value.w, 1.0, 1e-5), "unitexp must produce a unit quaternion: {e:?}");
+    assert!(
+        approx(
+            e.value.x * e.value.x
+                + e.value.y * e.value.y
+                + e.value.z * e.value.z
+                + e.value.w * e.value.w,
+            1.0,
+            1e-5
+        ),
+        "unitexp must produce a unit quaternion: {e:?}"
+    );
     let back = unitlog(e);
     assert!(
         approx(back.value.x, pure.value.x, 1e-4)
@@ -334,31 +363,33 @@ fn quaternion_exp_log_and_nlerp_match_their_bodies() {
     // unitlog clamps w into [-1, 1] (the -1.0f at 0x18cf29990), but the shipped body has no guard
     // for a clamp that lands on 1.0: `1.0f / sqrt(1 - 1*1)` is inf, `inf * acos(1.0f)` is NaN.
     let l = unitlog(quaternion::new(0.0, 0.0, 2.5, 1.4));
-    assert!(l.value.x.is_nan() && l.value.z.is_nan() && l.value.w == 0.0, "{l:?}");
+    assert!(
+        l.value.x.is_nan() && l.value.z.is_nan() && l.value.w == 0.0,
+        "{l:?}"
+    );
 
     // nlerp_1705 @ 0x92ccdb0: endpoints are the inputs (normalized), and the antipodal case takes
     // the short way round because the body flips `b` when the dot product is negative.
     let a = quaternion::rotate_z(0.4);
     let b = quaternion::rotate_z(1.2);
     assert!(
-        approx(
-            nlerp(a, b, 0.0).value.z,
-            a.value.z,
-            1e-6
-        ),
+        approx(nlerp(a, b, 0.0).value.z, a.value.z, 1e-6),
         "nlerp t=0 must return a"
     );
     assert!(
-        approx(
-            nlerp(a, b, 1.0).value.z,
-            b.value.z,
-            1e-6
-        ),
+        approx(nlerp(a, b, 1.0).value.z, b.value.z, 1e-6),
         "nlerp t=1 must return b"
     );
     let mid = nlerp(a, b, 0.5);
-    assert!(approx(mid.value.z, quaternion::rotate_z(0.8).value.z, 1e-5), "{mid:?}");
-    let flipped = nlerp(a, quaternion::new(-a.value.x, -a.value.y, -a.value.z, -a.value.w), 1.0);
+    assert!(
+        approx(mid.value.z, quaternion::rotate_z(0.8).value.z, 1e-5),
+        "{mid:?}"
+    );
+    let flipped = nlerp(
+        a,
+        quaternion::new(-a.value.x, -a.value.y, -a.value.z, -a.value.w),
+        1.0,
+    );
     assert!(
         approx(flipped.value.w, a.value.w, 1e-6) && approx(flipped.value.z, a.value.z, 1e-6),
         "nlerp must flip the antipodal target, not rotate the long way: {flipped:?} vs {a:?}"
@@ -377,8 +408,14 @@ fn orthonormalize_is_the_bodies_gram_schmidt_not_the_textbook_one() {
     let o = orthonormalize(m);
     // dot(c1, c0) = 2, so v = (1,3,0) - (2,0,0) * 2 = (-3,3,0) and |v| = 3*sqrt(2); c2 is ignored.
     assert!(v3_close(o.c0, float3::new(1.0, 0.0, 0.0), 1e-6), "{o:?}");
-    assert!(v3_close(o.c1, float3::new(-0.7071068, 0.7071068, 0.0), 1e-6), "{o:?}");
-    assert!(v3_close(o.c2, float3::new(0.0, 0.0, 0.7071068), 1e-6), "{o:?}");
+    assert!(
+        v3_close(o.c1, float3::new(-0.7071068, 0.7071068, 0.0), 1e-6),
+        "{o:?}"
+    );
+    assert!(
+        v3_close(o.c2, float3::new(0.0, 0.0, 0.7071068), 1e-6),
+        "{o:?}"
+    );
 
     // Because the projection subtracts `c0 * dot(c1, c0)` instead of the projection onto the unit
     // c0, the output is only orthonormal when c0 arrives unit length. With a unit c0 the same
@@ -394,17 +431,25 @@ fn orthonormalize_is_the_bodies_gram_schmidt_not_the_textbook_one() {
             "{name} is not unit length: {c}"
         );
     }
-    assert!(approx(s.c0.dot(s.c1), 0.0, 1e-5), "c0.c1 {}", s.c0.dot(s.c1));
-    assert!(approx(s.c0.dot(s.c2), 0.0, 1e-5), "c0.c2 {}", s.c0.dot(s.c2));
-    assert!(approx(s.c1.dot(s.c2), 0.0, 1e-5), "c1.c2 {}", s.c1.dot(s.c2));
+    assert!(
+        approx(s.c0.dot(s.c1), 0.0, 1e-5),
+        "c0.c1 {}",
+        s.c0.dot(s.c1)
+    );
+    assert!(
+        approx(s.c0.dot(s.c2), 0.0, 1e-5),
+        "c0.c2 {}",
+        s.c0.dot(s.c2)
+    );
+    assert!(
+        approx(s.c1.dot(s.c2), 0.0, 1e-5),
+        "c1.c2 {}",
+        s.c1.dot(s.c2)
+    );
 
     // The degenerate fallback the body takes when either length is <= 1e-30 (0x18cf28590): the
     // canonical basis, not NaN.
-    let d = orthonormalize(float3x3::new(
-        float3::zero,
-        float3::zero,
-        float3::zero,
-    ));
+    let d = orthonormalize(float3x3::new(float3::zero, float3::zero, float3::zero));
     assert!(v3_close(d.c0, float3::new(1.0, 0.0, 0.0), 0.0), "{d:?}");
     assert!(v3_close(d.c1, float3::new(0.0, 1.0, 0.0), 0.0), "{d:?}");
     assert!(v3_close(d.c2, float3::new(0.0, 0.0, 1.0), 0.0), "{d:?}");
@@ -415,10 +460,7 @@ fn shuffles_use_the_component_indices_the_interleave_bodies_pass() {
     // select_shuffle_component_9 @ 0x928c370 switches 0-3 on `left` and 4-7 on `right`.
     let a = float4::new(0.0, 1.0, 2.0, 3.0);
     let b = float4::new(10.0, 11.0, 12.0, 13.0);
-    assert_eq!(
-        select_shuffle_component(a, b, ShuffleComponent::LeftW),
-        3.0
-    );
+    assert_eq!(select_shuffle_component(a, b, ShuffleComponent::LeftW), 3.0);
     assert_eq!(
         select_shuffle_component(a, b, ShuffleComponent::RightX),
         10.0

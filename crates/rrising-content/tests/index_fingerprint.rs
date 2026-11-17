@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use rrising_content::{GameContent, list_archives};
+use rrising_content::{list_archives, GameContent};
 
 /// FNV-1a, 64-bit: enough to notice a change, and reproducible without a hashing dependency.
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -34,7 +34,8 @@ fn content_index_fingerprint_is_stable() {
     };
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let tpk = root.join("assets/typetrees.tpk");
-    let content = GameContent::open(&data, &all, &tpk).expect("open the install's content archives");
+    let content =
+        GameContent::open(&data, &all, &tpk).expect("open the install's content archives");
 
     // One line per indexed object: location, class id, class name, stored name. Sorted so the hash
     // does not depend on the order archives were opened in.
@@ -54,7 +55,7 @@ fn content_index_fingerprint_is_stable() {
 
     let record = root.join("evidence/index_fingerprint.txt");
     if !record.exists() {
-        print!("{got}\n");
+        println!("{got}");
         panic!(
             "no recorded fingerprint at {}; the block above is what this run computed",
             record.display()

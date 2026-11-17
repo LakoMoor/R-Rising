@@ -145,7 +145,12 @@ pub struct BufferEntityPatchInfo {
 /// The six special `TypeIndex` slots CreateArchetype compares against. `EntityComponentStore` holds
 /// them at `+0x1ac … +0x1c8` (`dump.cs`); a type equal to one of these sets the matching
 /// `ArchetypeFlags` bit.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+///
+/// There is deliberately no derived all-zero `Default`: `TypeIndex(0)` is a real type (the reserved
+/// null / first registered type) and would make every slot alias it, setting Disabled/Prefab/...
+/// flags on every archetype. [`SpecialTypes::new`] and `Default` leave every slot at
+/// [`SpecialTypes::UNSET`] (`TypeIndex(-1)`, matching no registered type).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpecialTypes {
     /// `TypeIndex m_ChunkHeaderType; // 0x1ac` → `HasChunkHeader`
     pub chunk_header: TypeIndex,
@@ -163,6 +168,37 @@ pub struct SpecialTypes {
     pub entity_type: TypeIndex,
     /// `TypeIndex m_SystemInstanceType; // 0x1c8` → `HasSystemInstanceComponents`
     pub system_instance: TypeIndex,
+}
+
+impl SpecialTypes {
+    /// A slot that matches no registered type (negative values are never valid `TypeIndex`es).
+    pub const UNSET: TypeIndex = TypeIndex { value: -1 };
+
+    /// Only the Entity type is known; every other special slot is [`Self::UNSET`].
+    pub const fn new(entity_type: TypeIndex) -> Self {
+        Self {
+            chunk_header: Self::UNSET,
+            prefab: Self::UNSET,
+            spawn_tag: Self::UNSET,
+            destroy_tag: Self::UNSET,
+            cleanup_entity: Self::UNSET,
+            disabled: Self::UNSET,
+            entity_type,
+            system_instance: Self::UNSET,
+        }
+    }
+
+    /// True when the Entity slot was never set (the store refuses such a configuration).
+    pub const fn entity_type_is_set(&self) -> bool {
+        self.entity_type.value >= 0
+    }
+}
+
+impl Default for SpecialTypes {
+    /// All slots [`Self::UNSET`], including `entity_type`, which must be set before use.
+    fn default() -> Self {
+        Self::new(Self::UNSET)
+    }
 }
 
 /// `align64` — CreateArchetype calls `CollectionHelper.CheckIntPositivePowerOfTwo(0x40)` and then
@@ -745,31 +781,41 @@ impl Archetype {
     /// `Archetype.HasBlobAssetRefs` — src: `get_HasBlobAssetRefs_7`, bit 32.
     #[inline]
     pub const fn has_blob_asset_refs(&self) -> bool {
-        self.data.flags.contains(ArchetypeFlags::HAS_BLOB_ASSET_REFS)
+        self.data
+            .flags
+            .contains(ArchetypeFlags::HAS_BLOB_ASSET_REFS)
     }
 
     /// `Archetype.HasManagedEntityRefs` — src: `get_HasManagedEntityRefs_8`, bit 512.
     #[inline]
     pub const fn has_managed_entity_refs(&self) -> bool {
-        self.data.flags.contains(ArchetypeFlags::HAS_MANAGED_ENTITY_REFS)
+        self.data
+            .flags
+            .contains(ArchetypeFlags::HAS_MANAGED_ENTITY_REFS)
     }
 
     /// `Archetype.HasCompanionComponents` — src: `get_HasCompanionComponents_9`, bit 64.
     #[inline]
     pub const fn has_companion_components(&self) -> bool {
-        self.data.flags.contains(ArchetypeFlags::HAS_COMPANION_COMPONENTS)
+        self.data
+            .flags
+            .contains(ArchetypeFlags::HAS_COMPANION_COMPONENTS)
     }
 
     /// `Archetype.HasWeakAssetRefs` — src: `get_HasWeakAssetRefs_10`, bit 1024.
     #[inline]
     pub const fn has_weak_asset_refs(&self) -> bool {
-        self.data.flags.contains(ArchetypeFlags::HAS_WEAK_ASSET_REFS)
+        self.data
+            .flags
+            .contains(ArchetypeFlags::HAS_WEAK_ASSET_REFS)
     }
 
     /// `Archetype.HasSystemInstanceComponents` — src: `get_HasSystemInstanceComponents_11`, bit 2048.
     #[inline]
     pub const fn has_system_instance_components(&self) -> bool {
-        self.data.flags.contains(ArchetypeFlags::HAS_SYSTEM_INSTANCE_COMPONENTS)
+        self.data
+            .flags
+            .contains(ArchetypeFlags::HAS_SYSTEM_INSTANCE_COMPONENTS)
     }
 
     /// `Archetype.HasChunkComponents` — src: `get_HasChunkComponents_25`:
@@ -783,9 +829,17 @@ impl Archetype {
     /// system-instance bits ORed together.
     #[inline]
     pub const fn is_managed(&self) -> bool {
-        self.data.flags.contains(ArchetypeFlags::HAS_MANAGED_COMPONENTS)
-            || self.data.flags.contains(ArchetypeFlags::HAS_COMPANION_COMPONENTS)
-            || self.data.flags.contains(ArchetypeFlags::HAS_SYSTEM_INSTANCE_COMPONENTS)
+        self.data
+            .flags
+            .contains(ArchetypeFlags::HAS_MANAGED_COMPONENTS)
+            || self
+                .data
+                .flags
+                .contains(ArchetypeFlags::HAS_COMPANION_COMPONENTS)
+            || self
+                .data
+                .flags
+                .contains(ArchetypeFlags::HAS_SYSTEM_INSTANCE_COMPONENTS)
     }
 
     /// `Archetype.CompareMask` — src: `CompareMask_35` @ 0x911cc50:
@@ -847,8 +901,9 @@ impl Archetype {
         {
             return None;
         }
-        let displaced =
-            self.chunks_with_empty_slots.swap_remove(position_in_empty_list as usize);
+        let displaced = self
+            .chunks_with_empty_slots
+            .swap_remove(position_in_empty_list as usize);
         if (position_in_empty_list as usize) < self.chunks_with_empty_slots.len() {
             Some(displaced)
         } else {

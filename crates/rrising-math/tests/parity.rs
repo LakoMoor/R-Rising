@@ -66,11 +66,11 @@ fn quaternion_half_angle_construction() {
     assert!(q_close(
         q,
         quaternion::new(
-        core::f32::consts::FRAC_1_SQRT_2,
-        0.0,
-        0.0,
-        core::f32::consts::FRAC_1_SQRT_2,
-    ),
+            core::f32::consts::FRAC_1_SQRT_2,
+            0.0,
+            0.0,
+            core::f32::consts::FRAC_1_SQRT_2,
+        ),
         1e-6
     ));
 }
@@ -152,13 +152,9 @@ fn matrix_inverse_round_trips() {
     for i in 0..4 {
         let r = id.row(i);
         let got = [r.x, r.y, r.z, r.w];
-        for j in 0..4 {
+        for (j, &g) in got.iter().enumerate() {
             let want = if i == j { 1.0 } else { 0.0 };
-            assert!(
-                approx(got[j], want, 1e-3),
-                "row {i} col {j}: {} vs {want}",
-                got[j]
-            );
+            assert!(approx(g, want, 1e-3), "row {i} col {j}: {} vs {want}", g);
         }
     }
     // A singular matrix inverts to zero, as the original's guard does.

@@ -115,10 +115,20 @@ fn install() -> std::path::PathBuf {
 fn mean_of(name: &str) -> Option<(String, u32, u32, i64, [f32; 3])> {
     let dir = install().join("StreamingAssets/ContentArchives");
     let all = rrising_content::list_archives(&dir).ok()?;
-    let content = GameContent::open(&install(), &all, &install().join("../R-Rising/assets/typetrees.tpk")).ok()?;
-    let entry = content.entries().iter().find(|e| e.class == "Texture2D" && e.name == name)?;
+    let content = GameContent::open(
+        &install(),
+        &all,
+        &install().join("../R-Rising/assets/typetrees.tpk"),
+    )
+    .ok()?;
+    let entry = content
+        .entries()
+        .iter()
+        .find(|e| e.class == "Texture2D" && e.name == name)?;
     let tex = content.read_texture(&entry.object).ok()?;
-    let Ok((format, levels)) = tex.levels() else { return None };
+    let Ok((format, levels)) = tex.levels() else {
+        return None;
+    };
     let mean = match format {
         unity_formats::texture::TextureFormat::Dxt1 => mean_bc1(&levels[0]),
         unity_formats::texture::TextureFormat::Dxt5 => mean_bc3(&levels[0]),
@@ -127,13 +137,23 @@ fn mean_of(name: &str) -> Option<(String, u32, u32, i64, [f32; 3])> {
             return None;
         }
     };
-    Some((format!("{format:?}"), tex.width, tex.height, tex.format, mean))
+    Some((
+        format!("{format:?}"),
+        tex.width,
+        tex.height,
+        tex.format,
+        mean,
+    ))
 }
 
 #[test]
 fn base_colour_maps_decode_to_colour() {
     let mut checked = 0;
-    for name in ["OnionPlant01_bc", "ResearchStationCloth01_bc", "TornCloak01_bc"] {
+    for name in [
+        "OnionPlant01_bc",
+        "ResearchStationCloth01_bc",
+        "TornCloak01_bc",
+    ] {
         let Some((format, w, h, raw, mean)) = mean_of(name) else {
             println!("{name}: not found in the indexed content");
             continue;
@@ -145,10 +165,7 @@ fn base_colour_maps_decode_to_colour() {
         );
         // A base colour map with no channel spread at all is a mask, not art — and a grey frame
         // with such a texture bound is the art's doing, not the sampler's.
-        assert!(
-            spread >= 0.0,
-            "{name}: mean rgb is not finite: {mean:?}"
-        );
+        assert!(spread >= 0.0, "{name}: mean rgb is not finite: {mean:?}");
         checked += 1;
     }
     assert!(checked > 0, "none of the named textures were found");

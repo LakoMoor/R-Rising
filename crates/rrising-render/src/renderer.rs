@@ -639,7 +639,7 @@ impl Renderer {
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some(&format!("inst {}", d.mesh.name)),
-                        contents: bytemuck::cast_slice(&d.instances),
+                        contents: bytemuck::cast_slice(d.instances),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
                 pass.set_vertex_buffer(0, d.mesh.vertex_buffer.slice(..));

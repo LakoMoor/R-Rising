@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use rrising_content::entity_scenes::{
-    ARCHETYPE_TYPE_INDEX_MASK, BLOB_ASSET_ALIGNMENT, FILE_VERSION, FileHeader, MAGIC,
-    NODE_HEADER_SIZE, NODE_TYPE_FOLDER, NodeKind, SceneFile, SceneStream, id_bytes,
+    id_bytes, FileHeader, NodeKind, SceneFile, SceneStream, ARCHETYPE_TYPE_INDEX_MASK,
+    BLOB_ASSET_ALIGNMENT, FILE_VERSION, MAGIC, NODE_HEADER_SIZE, NODE_TYPE_FOLDER,
 };
 use rrising_ecs::Hash128;
 
@@ -56,7 +56,12 @@ fn every_scene_file_is_a_dots_serialization_v77_container() {
 
     for path in &files {
         let Ok(bytes) = std::fs::read(path) else {
-            unreadable.push(path.file_name().unwrap_or_default().to_string_lossy().into_owned());
+            unreadable.push(
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            );
             continue;
         };
         match SceneFile::parse(bytes) {
@@ -64,7 +69,12 @@ fn every_scene_file_is_a_dots_serialization_v77_container() {
                 parsed += 1;
                 let h = &f.header;
                 if h.magic != MAGIC || h.file_version != FILE_VERSION {
-                    bad.push(format!("{}: header {:#x} v{}", path.display(), h.magic, h.file_version));
+                    bad.push(format!(
+                        "{}: header {:#x} v{}",
+                        path.display(),
+                        h.magic,
+                        h.file_version
+                    ));
                 }
                 // The sections have to tile the file exactly, in the order data, metadata, nodes.
                 if h.total_size() as u64 != f.bytes().len() as u64 {
@@ -82,7 +92,11 @@ fn every_scene_file_is_a_dots_serialization_v77_container() {
                 blob_sizes.sort();
                 let covered: i64 = blob_sizes.iter().sum();
                 data_bytes += covered as u64;
-                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
                 lines.push(format!(
                     "{name}\tnodes={}\troots={}\tblobs={}\tblob_sizes={:?}\tcovered={}\tdata={}\tfnv={:016x}",
                     f.nodes.len(),
@@ -108,12 +122,19 @@ fn every_scene_file_is_a_dots_serialization_v77_container() {
     );
     println!("data bytes covered by node blobs: {data_bytes}");
     if !unreadable.is_empty() {
-        println!("unreadable (first 5): {:?}", &unreadable[..unreadable.len().min(5)]);
+        println!(
+            "unreadable (first 5): {:?}",
+            &unreadable[..unreadable.len().min(5)]
+        );
     }
     for b in bad.iter().take(5) {
         println!("rejected: {b}");
     }
-    assert_eq!(bad, Vec::<String>::new(), "scene files this reader could not accept");
+    assert_eq!(
+        bad,
+        Vec::<String>::new(),
+        "scene files this reader could not accept"
+    );
     assert_eq!(
         parsed,
         files.len() - unreadable.len(),
@@ -145,7 +166,11 @@ fn every_scene_file_is_a_dots_serialization_v77_container() {
         .filter(|l| !l.starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(got.trim(), want.trim(), "the scene index moved away from the recorded fingerprint");
+    assert_eq!(
+        got.trim(),
+        want.trim(),
+        "the scene index moved away from the recorded fingerprint"
+    );
 }
 
 #[test]
@@ -161,7 +186,11 @@ fn node_tree_framing_holds_on_the_largest_and_smallest_scene_files() {
         .filter_map(|p| std::fs::metadata(p).ok().map(|m| (m.len(), p.clone())))
         .collect();
     sized.sort();
-    let picks = [sized[0].1.clone(), sized[sized.len() / 2].1.clone(), sized[sized.len() - 1].1.clone()];
+    let picks = [
+        sized[0].1.clone(),
+        sized[sized.len() / 2].1.clone(),
+        sized[sized.len() - 1].1.clone(),
+    ];
 
     for path in picks {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -176,15 +205,35 @@ fn node_tree_framing_holds_on_the_largest_and_smallest_scene_files() {
         // The root of every scene file is the 72-byte folder node the dump describes.
         assert_eq!(f.roots.len(), 1, "{}: one first-level node", path.display());
         let root = &f.nodes[f.roots[0]];
-        assert_eq!(root.header.node_type_hash, NODE_TYPE_FOLDER, "{}: root is a folder", path.display());
-        assert_eq!(root.header.size, NODE_HEADER_SIZE as i32, "{}: root is a bare header", path.display());
-        assert_eq!(root.header.data_size, 0, "{}: the root carries no data", path.display());
+        assert_eq!(
+            root.header.node_type_hash,
+            NODE_TYPE_FOLDER,
+            "{}: root is a folder",
+            path.display()
+        );
+        assert_eq!(
+            root.header.size,
+            NODE_HEADER_SIZE as i32,
+            "{}: root is a bare header",
+            path.display()
+        );
+        assert_eq!(
+            root.header.data_size,
+            0,
+            "{}: the root carries no data",
+            path.display()
+        );
 
         // Children start right after the parent and chain to the end of the nodes section.
         let mut expect = nodes_start + root.header.size as usize;
         for (i, idx) in root.children.iter().enumerate() {
             let c = &f.nodes[*idx];
-            assert_eq!(c.offset, expect, "{}: child {i} is not where the previous one ends", path.display());
+            assert_eq!(
+                c.offset,
+                expect,
+                "{}: child {i} is not where the previous one ends",
+                path.display()
+            );
             expect = c.offset + c.header.size as usize;
         }
         assert_eq!(
@@ -226,10 +275,16 @@ const STREAM_TAGS: &[(&str, &str)] = &[
     ("WorldFileType", "7F090F7311DF4BA5BA3094AA33D0FAA7"),
     ("WorldNodeType", "E9FDFDEB4775443ABB236D4858232894"),
     ("DebugSectionNodeType", "582BAFE96EC44A72ACD9CCBC850FDBC4"),
-    ("TypesNameStringTableNodeType", "4847374145504072849AAC7B1921E7FD"),
+    (
+        "TypesNameStringTableNodeType",
+        "4847374145504072849AAC7B1921E7FD",
+    ),
     ("TypesNameNodeType", "828510FAD38F4EA78CD908D4D780388B"),
     ("ArchetypesNodeType", "F5364E1CCB62466A9883F6F9554D4F0C"),
-    ("SharedAndManagedComponentsNodeType", "D565355C5CF34C0DBBD4A06ADDA948B1"),
+    (
+        "SharedAndManagedComponentsNodeType",
+        "D565355C5CF34C0DBBD4A06ADDA948B1",
+    ),
     ("EnabledBitsNodeType", "5846E500EA614C1DA94AFB85AFD8F4F4"),
     ("BlobAssetsNodeType", "9A26954FF1ED4CC5A64E8AAD4F64773A"),
     ("ChunksNodeType", "2EA7CE3325F04D7A84CEAB46790C628A"),
@@ -265,13 +320,19 @@ fn stream_tags_survive_the_ported_hash128_parser() {
     let mut named = 0usize;
     let mut unnamed = Vec::new();
     for path in &files {
-        let Ok(bytes) = std::fs::read(path) else { continue };
-        let Ok(f) = SceneFile::parse(bytes) else { continue };
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(f) = SceneFile::parse(bytes) else {
+            continue;
+        };
         for n in f.blobs() {
             let key = hex(&n.header.id);
             *seen.entry(key).or_insert(0) += 1;
             match n.kind {
-                NodeKind::RevisionedRawData { stream: Some(s), .. } => {
+                NodeKind::RevisionedRawData {
+                    stream: Some(s), ..
+                } => {
                     assert_eq!(
                         n.header.id,
                         Hash128::from_guid(tag_guid(s)).to_bytes(),
@@ -285,8 +346,16 @@ fn stream_tags_survive_the_ported_hash128_parser() {
         }
     }
     println!("stream ids seen across {} files: {seen:?}", files.len());
-    assert_eq!(unnamed, Vec::<String>::new(), "a scene node this reader could not name");
-    assert_eq!(named, 6 * files.len(), "every scene file carries six named streams");
+    assert_eq!(
+        unnamed,
+        Vec::<String>::new(),
+        "a scene node this reader could not name"
+    );
+    assert_eq!(
+        named,
+        6 * files.len(),
+        "every scene file carries six named streams"
+    );
 }
 
 /// The literal `SerializeUtility..cctor` assigns to the field a `SceneStream` names after.
@@ -348,9 +417,17 @@ fn archetypes_stream_decodes_from_every_scene_file() {
     let mut chunk_entities_total = 0i64;
 
     for path in &files {
-        let Ok(bytes) = std::fs::read(path) else { continue };
-        let Ok(file) = SceneFile::parse(bytes) else { continue };
-        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(file) = SceneFile::parse(bytes) else {
+            continue;
+        };
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let arch = match file.archetypes() {
             Ok(a) => a,
             Err(e) => {
@@ -383,13 +460,18 @@ fn archetypes_stream_decodes_from_every_scene_file() {
                     t.unique_index,
                     arch.unique_type_hashes.len()
                 );
-                assert_eq!(t.to_raw() & ARCHETYPE_TYPE_INDEX_MASK, u32::from(t.unique_index));
+                assert_eq!(
+                    t.to_raw() & ARCHETYPE_TYPE_INDEX_MASK,
+                    u32::from(t.unique_index)
+                );
             }
         }
         distinct_hashes.extend(arch.unique_type_hashes.iter().copied());
 
-        let chunk_entities: i64 =
-            file.chunks().map(|c| c.iter().map(|ch| i64::from(ch.header.count)).sum()).unwrap_or(0);
+        let chunk_entities: i64 = file
+            .chunks()
+            .map(|c| c.iter().map(|ch| i64::from(ch.header.count)).sum())
+            .unwrap_or(0);
         let entities = arch.total_entity_count();
 
         archetypes_total += arch.archetypes.len();
@@ -422,15 +504,26 @@ fn archetypes_stream_decodes_from_every_scene_file() {
     for r in rejected.iter().take(5) {
         println!("rejected: {r}");
     }
-    assert_eq!(rejected, Vec::<String>::new(), "archetypes streams this reader could not accept");
-    assert_eq!(with_stream, files.len(), "every scene file has to carry an Archetypes node");
+    assert_eq!(
+        rejected,
+        Vec::<String>::new(),
+        "archetypes streams this reader could not accept"
+    );
+    assert_eq!(
+        with_stream,
+        files.len(),
+        "every scene file has to carry an Archetypes node"
+    );
     assert_eq!(
         entities_total, chunk_entities_total,
         "the archetype list and the chunk blocks have to describe the same number of entities"
     );
 
     let joined = lines.join("\n");
-    let hash_list: Vec<String> = distinct_hashes.iter().map(|h| format!("{h:016x}")).collect();
+    let hash_list: Vec<String> = distinct_hashes
+        .iter()
+        .map(|h| format!("{h:016x}"))
+        .collect();
     let got = format!(
         "files={with_stream}\n\
          archetypes={archetypes_total}\n\
@@ -461,7 +554,11 @@ fn archetypes_stream_decodes_from_every_scene_file() {
         .filter(|l| !l.starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(got.trim(), want.trim(), "the archetypes stream moved away from the record");
+    assert_eq!(
+        got.trim(),
+        want.trim(),
+        "the archetypes stream moved away from the record"
+    );
 }
 
 /// The `BufferData` stream, checked against the chunk blocks it exists to patch.
@@ -493,9 +590,17 @@ fn buffer_data_stream_decodes_from_every_scene_file() {
     let mut max_offset = 0i32;
 
     for path in &files {
-        let Ok(bytes) = std::fs::read(path) else { continue };
-        let Ok(file) = SceneFile::parse(bytes) else { continue };
-        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(file) = SceneFile::parse(bytes) else {
+            continue;
+        };
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let Some(node) = file.stream(SceneStream::BufferData) else {
             rejected.push(format!("{name}: no BufferData node"));
             continue;
@@ -529,7 +634,11 @@ fn buffer_data_stream_decodes_from_every_scene_file() {
         let mut prev_archetype = -1i32;
         for (g, group) in bd.per_chunk.iter().enumerate() {
             let chunk = &chunks[g];
-            assert_eq!(group.chunk_index, g, "{name}: patch group {g} is not for chunk {}", chunk.index);
+            assert_eq!(
+                group.chunk_index, g,
+                "{name}: patch group {g} is not for chunk {}",
+                chunk.index
+            );
             assert!(
                 chunk.header.archetype_index >= prev_archetype,
                 "{name}: chunk {} of archetype {} came after archetype {}, so the stream is not \
@@ -590,8 +699,7 @@ fn buffer_data_stream_decodes_from_every_scene_file() {
         }
         lines.push(format!(
             "{name}\tbd={}\tchunks={}\tpatches={npatches}\tbytes={nbytes}\thash={blob_hash:016x}",
-            node.header.data_size,
-            bd.total_chunk_count
+            node.header.data_size, bd.total_chunk_count
         ));
     }
 
@@ -603,8 +711,16 @@ fn buffer_data_stream_decodes_from_every_scene_file() {
     for r in rejected.iter().take(5) {
         println!("rejected: {r}");
     }
-    assert_eq!(rejected, Vec::<String>::new(), "buffer data streams this reader could not accept");
-    assert_eq!(with_stream, files.len(), "every scene file has to carry a BufferData node");
+    assert_eq!(
+        rejected,
+        Vec::<String>::new(),
+        "buffer data streams this reader could not accept"
+    );
+    assert_eq!(
+        with_stream,
+        files.len(),
+        "every scene file has to carry a BufferData node"
+    );
     assert_eq!(
         cleared_slots, patches_total,
         "every patch has to account for one cleared buffer pointer"
@@ -638,7 +754,11 @@ fn buffer_data_stream_decodes_from_every_scene_file() {
         .filter(|l| !l.starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(got.trim(), want.trim(), "the buffer data stream moved away from the record");
+    assert_eq!(
+        got.trim(),
+        want.trim(),
+        "the buffer data stream moved away from the record"
+    );
 }
 
 /// The `EnabledBits` stream, checked against the archetypes and chunk blocks it describes.
@@ -679,9 +799,17 @@ fn enabled_bits_stream_decodes_from_every_scene_file() {
     let mut chunk_component_units = 0usize;
 
     for path in &files {
-        let Ok(bytes) = std::fs::read(path) else { continue };
-        let Ok(file) = SceneFile::parse(bytes) else { continue };
-        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(file) = SceneFile::parse(bytes) else {
+            continue;
+        };
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let Some(node) = file.stream(SceneStream::EnabledBits) else {
             rejected.push(format!("{name}: no EnabledBits node"));
             continue;
@@ -717,7 +845,12 @@ fn enabled_bits_stream_decodes_from_every_scene_file() {
             .zip(eb.component_counts.iter())
             .map(|(c, m)| c * m)
             .sum();
-        assert_eq!(units, implied, "{name}: {} masks for a walk that implies {implied}", eb.masks.len());
+        assert_eq!(
+            units,
+            implied,
+            "{name}: {} masks for a walk that implies {implied}",
+            eb.masks.len()
+        );
         assert_eq!(
             8 + units * 16 + units * 4,
             node.header.data_size as usize,
@@ -726,14 +859,20 @@ fn enabled_bits_stream_decodes_from_every_scene_file() {
             8 + units * 20,
             node.header.data_size
         );
-        assert_eq!(eb.hierarchical.len(), units, "{name}: hierarchical data out of step with masks");
+        assert_eq!(
+            eb.hierarchical.len(),
+            units,
+            "{name}: hierarchical data out of step with masks"
+        );
 
         // The writer walks the archetype array, and inside an archetype that archetype's chunks in
         // the order WriteChunks @ 0x8fe65e0 put them, so collecting the blocks per archetype in
         // stream order reproduces the unit order.
         let mut counts: Vec<Vec<i32>> = vec![Vec::new(); arch.archetypes.len()];
         for c in &chunks {
-            let Some(v) = counts.get_mut(usize::try_from(c.header.archetype_index).unwrap_or(usize::MAX)) else {
+            let Some(v) =
+                counts.get_mut(usize::try_from(c.header.archetype_index).unwrap_or(usize::MAX))
+            else {
                 rejected.push(format!(
                     "{name}: chunk {} names archetype {}, of which there are {}",
                     c.index,
@@ -829,7 +968,10 @@ fn enabled_bits_stream_decodes_from_every_scene_file() {
                 }
             }
         }
-        assert_eq!(unit, units, "{name}: the walk covered {unit} units, the stream holds {units}");
+        assert_eq!(
+            unit, units,
+            "{name}: the walk covered {unit} units, the stream holds {units}"
+        );
 
         units_total += units;
         mask_total += units * 16;
@@ -854,9 +996,20 @@ fn enabled_bits_stream_decodes_from_every_scene_file() {
     for r in rejected.iter().take(5) {
         println!("rejected: {r}");
     }
-    assert_eq!(rejected, Vec::<String>::new(), "enabled bits streams this reader could not accept");
-    assert_eq!(with_stream, files.len(), "every scene file has to carry an EnabledBits node");
-    assert_eq!(within, units_total, "every mask has to stay inside its chunk's entity count");
+    assert_eq!(
+        rejected,
+        Vec::<String>::new(),
+        "enabled bits streams this reader could not accept"
+    );
+    assert_eq!(
+        with_stream,
+        files.len(),
+        "every scene file has to carry an EnabledBits node"
+    );
+    assert_eq!(
+        within, units_total,
+        "every mask has to stay inside its chunk's entity count"
+    );
     assert_eq!(
         disabled_consistent, disabled_nonzero,
         "a disabled count has to be matched by the entities the mask leaves enabled"
@@ -894,7 +1047,11 @@ fn enabled_bits_stream_decodes_from_every_scene_file() {
         .filter(|l| !l.starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(got.trim(), want.trim(), "the enabled bits stream moved away from the record");
+    assert_eq!(
+        got.trim(),
+        want.trim(),
+        "the enabled bits stream moved away from the record"
+    );
 }
 
 /// The `SharedAndManagedComponents` stream, checked against the archetype type table it names.
@@ -934,7 +1091,9 @@ fn shared_and_managed_components_stream_decodes_from_every_scene_file() {
 
     for path in &files {
         let file = SceneFile::open(path).expect("open the scene file");
-        let Some(node) = file.stream(SceneStream::SharedAndManagedComponents) else { continue };
+        let Some(node) = file.stream(SceneStream::SharedAndManagedComponents) else {
+            continue;
+        };
         with_stream += 1;
         node_bytes += node.header.data_size as u64;
 
@@ -1021,8 +1180,18 @@ fn shared_and_managed_components_stream_decodes_from_every_scene_file() {
         remap_surjective += 1;
 
         remap_entries += smc.shared_component_remap.len();
-        remap_nonzero += smc.shared_component_remap.iter().filter(|&&v| v != 0).count();
-        remap_max = remap_max.max(smc.shared_component_remap.iter().copied().max().unwrap_or(0));
+        remap_nonzero += smc
+            .shared_component_remap
+            .iter()
+            .filter(|&&v| v != 0)
+            .count();
+        remap_max = remap_max.max(
+            smc.shared_component_remap
+                .iter()
+                .copied()
+                .max()
+                .unwrap_or(0),
+        );
         unmanaged_total += smc.unmanaged.len();
         unmanaged_bytes += smc.total_unmanaged_bytes() as u64;
         managed_shared_total += smc.managed_shared_records.len();
@@ -1142,9 +1311,17 @@ fn blob_assets_stream_decodes_from_every_scene_file() {
     let mut reused: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
     for path in &files {
-        let Ok(bytes) = std::fs::read(path) else { continue };
-        let Ok(file) = SceneFile::parse(bytes) else { continue };
-        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(file) = SceneFile::parse(bytes) else {
+            continue;
+        };
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let Some(node) = file.stream(SceneStream::BlobAssets) else {
             rejected.push(format!("{name}: no BlobAssets node"));
             continue;
@@ -1170,7 +1347,11 @@ fn blob_assets_stream_decodes_from_every_scene_file() {
         size_fields_ok += 1;
         if batch.blobs.is_empty() {
             empty_batches += 1;
-            assert_eq!(node.data.len(), 16, "{name}: an empty batch is the 16-byte header alone");
+            assert_eq!(
+                node.data.len(),
+                16,
+                "{name}: an empty batch is the 16-byte header alone"
+            );
         }
 
         let mut cursor = 16usize;
@@ -1201,7 +1382,9 @@ fn blob_assets_stream_decodes_from_every_scene_file() {
         if roundtrip_ok {
             lookup_roundtrip_ok += 1;
         } else {
-            rejected.push(format!("{name}: a blob is not findable by its own recorded offset"));
+            rejected.push(format!(
+                "{name}: a blob is not findable by its own recorded offset"
+            ));
         }
 
         for b in &batch.blobs {
@@ -1226,9 +1409,20 @@ fn blob_assets_stream_decodes_from_every_scene_file() {
     for r in rejected.iter().take(5) {
         println!("rejected: {r}");
     }
-    assert_eq!(rejected, Vec::<String>::new(), "blob asset batches this reader could not accept");
-    assert_eq!(with_stream, files.len(), "every scene file has to carry a BlobAssets node");
-    assert_eq!(size_fields_ok, with_stream, "every batch has to declare the size it was handed");
+    assert_eq!(
+        rejected,
+        Vec::<String>::new(),
+        "blob asset batches this reader could not accept"
+    );
+    assert_eq!(
+        with_stream,
+        files.len(),
+        "every scene file has to carry a BlobAssets node"
+    );
+    assert_eq!(
+        size_fields_ok, with_stream,
+        "every batch has to declare the size it was handed"
+    );
     assert_eq!(
         offset_recurrence_ok, with_stream,
         "every batch has to tile the way `CalculateBlobAssetBatchTotalSize` sizes it"
@@ -1278,5 +1472,9 @@ fn blob_assets_stream_decodes_from_every_scene_file() {
         .filter(|l| !l.starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(got.trim(), want.trim(), "the blob assets stream moved away from the record");
+    assert_eq!(
+        got.trim(),
+        want.trim(),
+        "the blob assets stream moved away from the record"
+    );
 }

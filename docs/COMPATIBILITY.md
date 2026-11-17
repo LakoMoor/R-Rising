@@ -10,11 +10,11 @@ original assets, executables or decompiled sources should be distributed.
 | Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Catalog read and wired into native startup; request scheduling remains |
 | Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | Reader tests only | 9 scene tests passed against local install | Build runtime world and resolve components |
 | Math | Broad API coverage | Showcase transforms | 58 regression/unit tests passed | Original-runtime differential oracle; rounding deviations in PORT.md |
-| ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query | Unit tests only; not wired into a running game world | Port-side unit tests derived from decompiled bodies (`store.rs`); no native-replay oracle (functions are not pure leaves) | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, system scheduling |
+| ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Unit tests only; not wired into a running game world | Port-side unit tests derived from decompiled bodies (`store.rs`); no native-replay oracle (functions are not pure leaves) | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, system scheduling |
 | Rendering | Basic lit meshes | Native showcase | GPU triangle test; screenshots/native-content.png | Original scenes, animation, HDRP and visual comparisons |
 | Gameplay / HUD / physics / sound / networking / saves | Not implemented | None | No end-to-end parity cases | First original-scene playable slice |
 | Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, mobile texture fallback, game world |
-| Performance | Unmeasured | None | No comparable original-runtime benchmark | Same-scene release measurements on both runtimes |
+| Performance | Rust-only absolute timings (see Performance measurement) | None | No comparable original-runtime benchmark | Same-scene release measurements on both runtimes |
 
 ## Metrics
 
@@ -183,3 +183,23 @@ archetypes / 7,895 chunks contain one of the 64 identity-only types and stay
 refused. An experiment storing managed components as a 4-byte chunk slot passed
 until one archetype's buffer offsets diverged (also tried 0, 1, 2, 8, 16), so it
 was not adopted: managed per-entity storage remains unrecovered.
+
+## Performance measurement (Rust only)
+
+Reproduce: `cargo run --locked --release -p rrising-app -- --data <VRising_Data> --bench --archives 100000 --frames 60`.
+Measured 2026-11-17 on an Apple M4 (25.8 GB RAM), macOS 27.2.1, Rust 1.99.0 release build, wgpu/Metal, single run:
+
+| Stage | Result |
+| --- | --- |
+| RuntimeContentCatalog load | 0.002 s (4,409 physical archives) |
+| Archive indexing | 3.32 s (4,409 archives, 188,063 objects) |
+| Decode of all scenes (container, chunks, archetypes, buffers, enabled bits, shared components, blob assets) | 1.31 s (1,183 / 1,183 fully decoded, 31,723 chunks, 2,198 MiB) |
+| Offscreen frame, 1280x720, 24-item showcase | median 1.42 ms, min 1.28 ms over 60 frames (includes GPU readback; warm-up frame excluded) |
+
+These are absolute numbers for the Rust port alone. **There is no original-game comparison**, so
+nothing here shows the port is faster or slower than V Rising. An original comparison is not
+currently feasible: the original has no equivalent headless "index/decode" entry points to time, its
+frame time depends on a full world (not implemented here), and the showcase scene is not a scene the
+original renders. A meaningful comparison needs the same scene on both runtimes with GPU capture,
+which requires the original-runtime scenarios that do not yet exist. Page cache state was not
+controlled; indexing/decode times are warm-cache-dependent.

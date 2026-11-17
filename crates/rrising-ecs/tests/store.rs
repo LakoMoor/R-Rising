@@ -21,7 +21,13 @@ fn world() -> W {
     let a = tm.register(TypeSpec::component_data("A", 4, 4)).unwrap();
     let b = tm.register(TypeSpec::component_data("B", 8, 8)).unwrap();
     let tag = tm.register(TypeSpec::tag("Tag")).unwrap();
-    W { tm, entity, a, b, tag }
+    W {
+        tm,
+        entity,
+        a,
+        b,
+        tag,
+    }
 }
 
 fn store(w: &W, cap: i32) -> EntityComponentStore {
@@ -50,7 +56,10 @@ fn allocation_hands_out_sequential_indices_with_version_one() {
     let mut s = store(&w, 4);
     let arch = s.get_or_create_archetype(&w.tm, &[w.a]).unwrap();
     let es = s.create_entities(arch, 3).unwrap();
-    assert_eq!(es, vec![Entity::new(0, 1), Entity::new(1, 1), Entity::new(2, 1)]);
+    assert_eq!(
+        es,
+        vec![Entity::new(0, 1), Entity::new(1, 1), Entity::new(2, 1)]
+    );
     assert!(es.iter().all(|e| s.exists(*e).unwrap()));
     assert_eq!(s.next_free_entity_index(), 3);
 }
@@ -89,7 +98,10 @@ fn allocating_the_last_slot_doubles_capacity() {
     let mut s = store(&w, 1);
     let arch = s.get_or_create_archetype(&w.tm, &[w.a]).unwrap();
     let e0 = s.create_entity(arch).unwrap();
-    assert_eq!((e0, s.capacity(), s.next_free_entity_index()), (Entity::new(0, 1), 2, 1));
+    assert_eq!(
+        (e0, s.capacity(), s.next_free_entity_index()),
+        (Entity::new(0, 1), 2, 1)
+    );
     s.destroy_entity(e0).unwrap();
     assert_eq!(s.create_entity(arch).unwrap(), Entity::new(0, 2));
     assert_eq!(s.create_entity(arch).unwrap(), Entity::new(1, 1));
@@ -99,7 +111,10 @@ fn allocating_the_last_slot_doubles_capacity() {
 #[test]
 fn capacity_limit_is_enforced() {
     let w = world();
-    let sp = SpecialTypes { entity_type: w.entity, ..Default::default() };
+    let sp = SpecialTypes {
+        entity_type: w.entity,
+        ..Default::default()
+    };
     assert!(EntityComponentStore::new(0, sp).is_err());
     assert!(EntityComponentStore::new(0x800_0001, sp).is_err());
 }
@@ -111,13 +126,20 @@ fn swap_back_moves_tail_entity_and_component_bytes() {
     let arch = s.get_or_create_archetype(&w.tm, &[w.a, w.b]).unwrap();
     let es = s.create_entities(arch, 4).unwrap();
     for (i, e) in es.iter().enumerate() {
-        s.set_component_bytes(*e, w.a, &(100 + i as u32).to_le_bytes()).unwrap();
+        s.set_component_bytes(*e, w.a, &(100 + i as u32).to_le_bytes())
+            .unwrap();
     }
     s.destroy_entity(es[1]).unwrap();
     // tail entity (3) moved into slot 1
     assert_eq!(s.entity_in_chunk(3).unwrap().index_in_chunk, 1);
-    assert_eq!(s.component_bytes(es[3], w.a).unwrap(), &103u32.to_le_bytes());
-    assert_eq!(s.component_bytes(es[2], w.a).unwrap(), &102u32.to_le_bytes());
+    assert_eq!(
+        s.component_bytes(es[3], w.a).unwrap(),
+        &103u32.to_le_bytes()
+    );
+    assert_eq!(
+        s.component_bytes(es[2], w.a).unwrap(),
+        &102u32.to_le_bytes()
+    );
     let c = s.entity_in_chunk(0).unwrap().chunk;
     assert_eq!(s.chunk_entities(c).unwrap(), vec![es[0], es[3], es[2]]);
     assert_eq!(s.archetypes()[arch].archetype.entity_count, 3);
@@ -171,7 +193,10 @@ fn query_include_and_exclude() {
     assert_eq!(s.query_entities(&all_a).unwrap(), vec![e1, e2, e3]);
     let a_not_b = EntityQuery::new(&[ComponentType::read_only(w.a), ComponentType::exclude(w.b)]);
     assert_eq!(s.query_entities(&a_not_b).unwrap(), vec![e1, e3]);
-    let a_and_b = EntityQuery::new(&[ComponentType::read_write(w.a), ComponentType::read_write(w.b)]);
+    let a_and_b = EntityQuery::new(&[
+        ComponentType::read_write(w.a),
+        ComponentType::read_write(w.b),
+    ]);
     assert_eq!(s.query_entities(&a_and_b).unwrap(), vec![e2]);
     // same type set resolves to the same archetype regardless of order
     assert_eq!(s.get_or_create_archetype(&w.tm, &[w.b, w.a]).unwrap(), ab);

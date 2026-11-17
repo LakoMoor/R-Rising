@@ -98,12 +98,36 @@ fn each_quaternion_order_is_the_documented_product_of_axis_rotations() {
 fn the_scalar_overloads_match_the_vector_ones() {
     for (x, y, z) in ANGLES {
         let v = float3::new(x, y, z);
-        assert!(q_close(quaternion::euler_xyz_3(x, y, z), quaternion::euler_xyz(v), 0.0));
-        assert!(q_close(quaternion::euler_xzy_3(x, y, z), quaternion::euler_xzy(v), 0.0));
-        assert!(q_close(quaternion::euler_yxz_3(x, y, z), quaternion::euler_yxz(v), 0.0));
-        assert!(q_close(quaternion::euler_yzx_3(x, y, z), quaternion::euler_yzx(v), 0.0));
-        assert!(q_close(quaternion::euler_zxy_3(x, y, z), quaternion::euler_zxy(v), 0.0));
-        assert!(q_close(quaternion::euler_zyx_3(x, y, z), quaternion::euler_zyx(v), 0.0));
+        assert!(q_close(
+            quaternion::euler_xyz_3(x, y, z),
+            quaternion::euler_xyz(v),
+            0.0
+        ));
+        assert!(q_close(
+            quaternion::euler_xzy_3(x, y, z),
+            quaternion::euler_xzy(v),
+            0.0
+        ));
+        assert!(q_close(
+            quaternion::euler_yxz_3(x, y, z),
+            quaternion::euler_yxz(v),
+            0.0
+        ));
+        assert!(q_close(
+            quaternion::euler_yzx_3(x, y, z),
+            quaternion::euler_yzx(v),
+            0.0
+        ));
+        assert!(q_close(
+            quaternion::euler_zxy_3(x, y, z),
+            quaternion::euler_zxy(v),
+            0.0
+        ));
+        assert!(q_close(
+            quaternion::euler_zyx_3(x, y, z),
+            quaternion::euler_zyx(v),
+            0.0
+        ));
     }
 }
 
@@ -184,7 +208,10 @@ fn the_shipped_rotation_order_enum_starts_at_zero_and_defaults_to_zxy() {
     // `Euler(float3 xyz, math.RotationOrder order = 4)`.
     assert_eq!(RotationOrder::XYZ as i32, 0);
     assert_eq!(RotationOrder::ZYX as i32, 5);
-    assert_eq!(rrising_math::math::DEFAULT_ROTATION_ORDER, RotationOrder::ZXY);
+    assert_eq!(
+        rrising_math::math::DEFAULT_ROTATION_ORDER,
+        RotationOrder::ZXY
+    );
     let v = float3::new(0.4, -0.9, 1.2);
     assert!(q_close(quaternion::euler(v), quaternion::euler_zxy(v), 0.0));
     assert!(q_close(

@@ -49,7 +49,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
 /// `DotsSerialization.FileHeader.MagicValue` — the eight bytes `DOTSBIN!`.
 pub const MAGIC: u64 = 0x214e_4942_5354_4f44;
@@ -79,7 +79,8 @@ pub const WORLD_FILE_TYPE: [u8; 16] = id_bytes("7F090F7311DF4BA5BA3094AA33D0FAA7
 /// `SerializeUtility.DebugSectionNodeType` @ 0x20.
 pub const DEBUG_SECTION_NODE_TYPE: [u8; 16] = id_bytes("582BAFE96EC44A72ACD9CCBC850FDBC4");
 /// `SerializeUtility.TypesNameStringTableNodeType` @ 0x30.
-pub const TYPES_NAME_STRING_TABLE_NODE_TYPE: [u8; 16] = id_bytes("4847374145504072849AAC7B1921E7FD");
+pub const TYPES_NAME_STRING_TABLE_NODE_TYPE: [u8; 16] =
+    id_bytes("4847374145504072849AAC7B1921E7FD");
 /// `SerializeUtility.TypesNameNodeType` @ 0x40.
 pub const TYPES_NAME_NODE_TYPE: [u8; 16] = id_bytes("828510FAD38F4EA78CD908D4D780388B");
 /// `SerializeUtility.ArchetypesNodeType` @ 0x50.
@@ -151,17 +152,17 @@ pub enum SceneStream {
 
 /// Name a stream from its tag, or `None` for a tag this build never writes.
 pub const fn stream_of_id(id: &[u8; 16]) -> Option<SceneStream> {
-    match id {
-        &ARCHETYPES_NODE_TYPE => Some(SceneStream::Archetypes),
-        &BLOB_ASSETS_NODE_TYPE => Some(SceneStream::BlobAssets),
-        &SHARED_AND_MANAGED_COMPONENTS_NODE_TYPE => Some(SceneStream::SharedAndManagedComponents),
-        &ENABLED_BITS_NODE_TYPE => Some(SceneStream::EnabledBits),
-        &CHUNKS_NODE_TYPE => Some(SceneStream::Chunks),
-        &BUFFER_DATA_NODE_TYPE => Some(SceneStream::BufferData),
-        &PREFAB_NODE_TYPE => Some(SceneStream::Prefab),
-        &TYPES_NAME_NODE_TYPE => Some(SceneStream::TypeNames),
-        &TYPES_NAME_STRING_TABLE_NODE_TYPE => Some(SceneStream::TypeNamesStringTable),
-        &DEBUG_SECTION_NODE_TYPE => Some(SceneStream::DebugSection),
+    match *id {
+        ARCHETYPES_NODE_TYPE => Some(SceneStream::Archetypes),
+        BLOB_ASSETS_NODE_TYPE => Some(SceneStream::BlobAssets),
+        SHARED_AND_MANAGED_COMPONENTS_NODE_TYPE => Some(SceneStream::SharedAndManagedComponents),
+        ENABLED_BITS_NODE_TYPE => Some(SceneStream::EnabledBits),
+        CHUNKS_NODE_TYPE => Some(SceneStream::Chunks),
+        BUFFER_DATA_NODE_TYPE => Some(SceneStream::BufferData),
+        PREFAB_NODE_TYPE => Some(SceneStream::Prefab),
+        TYPES_NAME_NODE_TYPE => Some(SceneStream::TypeNames),
+        TYPES_NAME_STRING_TABLE_NODE_TYPE => Some(SceneStream::TypeNamesStringTable),
+        DEBUG_SECTION_NODE_TYPE => Some(SceneStream::DebugSection),
         _ => None,
     }
 }
@@ -229,7 +230,11 @@ impl FileHeader {
     /// Read the header of a `DOTSBIN!` file.
     pub fn read(b: &[u8]) -> Result<Self> {
         if b.len() < HEADER_SIZE {
-            bail!("file is {} bytes, shorter than the {}-byte header", b.len(), HEADER_SIZE);
+            bail!(
+                "file is {} bytes, shorter than the {}-byte header",
+                b.len(),
+                HEADER_SIZE
+            );
         }
         let magic = u64_at(b, 0x0);
         if magic != MAGIC {
@@ -243,7 +248,11 @@ impl FileHeader {
         }
         let mut out = String::new();
         for &c in &b[0x22..0x22 + len] {
-            out.push(if c.is_ascii_graphic() || c == b' ' { c as char } else { '\u{fffd}' });
+            out.push(if c.is_ascii_graphic() || c == b' ' {
+                c as char
+            } else {
+                '\u{fffd}'
+            });
         }
         Ok(Self {
             magic,
@@ -389,8 +398,8 @@ pub struct SceneFile {
 impl SceneFile {
     /// Parse a scene file that is already in memory.
     pub fn parse(bytes: Vec<u8>) -> Result<Self> {
-        let header = FileHeader::read(&bytes)
-            .context("reading the DotsSerialization file header")?;
+        let header =
+            FileHeader::read(&bytes).context("reading the DotsSerialization file header")?;
         if header.file_version != FILE_VERSION {
             bail!(
                 "scene file version {} is not the {} this reader implements",
@@ -402,7 +411,12 @@ impl SceneFile {
         if nodes_start >= bytes.len() {
             bail!("nodes section offset {nodes_start} is past the end of the file");
         }
-        let mut file = Self { header, nodes: Vec::new(), roots: Vec::new(), bytes };
+        let mut file = Self {
+            header,
+            nodes: Vec::new(),
+            roots: Vec::new(),
+            bytes,
+        };
         // The first-level nodes are the first `FirstLevelNodesCount` siblings of the chain that
         // starts at the head of the nodes section.
         let mut at = nodes_start;
@@ -421,28 +435,35 @@ impl SceneFile {
 
     /// Read and parse one `.entities` file.
     pub fn open(path: &Path) -> Result<Self> {
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
         Self::parse(bytes).with_context(|| format!("parsing {}", path.display()))
     }
 
     fn walk_node(&mut self, at: usize, nodes_start: usize) -> Result<usize> {
         let header = NodeHeader::read(&self.bytes, at)?;
         if header.size < NODE_HEADER_SIZE as i32 {
-            bail!("node at {at} claims a size of {}, below the {}-byte header",
-                header.size, NODE_HEADER_SIZE);
+            bail!(
+                "node at {at} claims a size of {}, below the {}-byte header",
+                header.size,
+                NODE_HEADER_SIZE
+            );
         }
         let end = at + header.size as usize;
         if end > self.bytes.len() {
-            bail!("node at {at} runs to {end}, past the end of {} bytes", self.bytes.len());
+            bail!(
+                "node at {at} runs to {end}, past the end of {} bytes",
+                self.bytes.len()
+            );
         }
         let kind = classify(&header, &self.bytes[at + NODE_HEADER_SIZE..end]);
         let data = if header.data_size > 0 {
             let s = header.data_starting_offset as usize;
             let e = s + header.data_size as usize;
             if e > self.bytes.len() {
-                bail!("node at {at} points at data {s}..{e}, past the end of {} bytes",
-                    self.bytes.len());
+                bail!(
+                    "node at {at} points at data {s}..{e}, past the end of {} bytes",
+                    self.bytes.len()
+                );
             }
             self.bytes[s..e].to_vec()
         } else {
@@ -450,7 +471,13 @@ impl SceneFile {
         };
         let children_start = at + header.size as usize;
         let index = self.nodes.len();
-        self.nodes.push(SceneNode { offset: at, header, kind, children: Vec::new(), data });
+        self.nodes.push(SceneNode {
+            offset: at,
+            header,
+            kind,
+            children: Vec::new(),
+            data,
+        });
         if header.children_count > 0 {
             let mut child = children_start;
             for _ in 0..header.children_count {
@@ -496,18 +523,22 @@ impl SceneFile {
     /// `CountForSerialization` in `0..=4088`, every `Flags` one of the four `ChunkFlags` values,
     /// 1385671 entities described in total. See `evidence/scene_chunks.txt`.
     pub fn chunks(&self) -> Result<Vec<SceneChunk<'_>>> {
-        let Some(node) = self.stream(SceneStream::Chunks) else { return Ok(Vec::new()) };
+        let Some(node) = self.stream(SceneStream::Chunks) else {
+            return Ok(Vec::new());
+        };
         let base = node.header.data_starting_offset as usize;
         let len = node.header.data_size as usize;
         if base + len > self.bytes.len() {
             bail!("chunks stream at {base} claims {len} bytes, past the end of the file");
         }
-        if len % rrising_ecs::K_CHUNK_SIZE != 0 {
+        if !len.is_multiple_of(rrising_ecs::K_CHUNK_SIZE) {
             bail!(
                 "chunks stream is {len} bytes, not a multiple of the {}-byte chunk size",
                 rrising_ecs::K_CHUNK_SIZE
             );
         }
+        // Block slices feed a slice-based header reader; array chunks would add nothing.
+        #[allow(clippy::chunks_exact_to_as_chunks)]
         let blocks = self.bytes[base..base + len].chunks_exact(rrising_ecs::K_CHUNK_SIZE);
         let mut out = Vec::with_capacity(blocks.len());
         for (i, block) in blocks.enumerate() {
@@ -521,7 +552,11 @@ impl SceneFile {
                     rrising_ecs::K_MAXIMUM_ENTITIES_PER_CHUNK
                 );
             }
-            out.push(SceneChunk { index: i, header, buffer: &block[rrising_ecs::K_BUFFER_OFFSET..] });
+            out.push(SceneChunk {
+                index: i,
+                header,
+                buffer: &block[rrising_ecs::K_BUFFER_OFFSET..],
+            });
         }
         Ok(out)
     }
@@ -590,12 +625,21 @@ impl SceneFile {
                     chunk_component: raw & ARCHETYPE_TYPE_CHUNK_COMPONENT != 0,
                 });
             }
-            archetypes.push(SceneArchetype { entity_count, types });
+            archetypes.push(SceneArchetype {
+                entity_count,
+                types,
+            });
         }
         if !c.at_end() {
-            bail!("archetypes stream leaves {} bytes after the last archetype", c.remaining());
+            bail!(
+                "archetypes stream leaves {} bytes after the last archetype",
+                c.remaining()
+            );
         }
-        Ok(SceneArchetypes { unique_type_hashes, archetypes })
+        Ok(SceneArchetypes {
+            unique_type_hashes,
+            archetypes,
+        })
     }
 
     /// The `BufferData` stream: the `DynamicBuffer` contents the chunk blocks leave out.
@@ -647,9 +691,7 @@ impl SceneFile {
             for j in 0..patch_count {
                 let chunk_offset = c.i32()?;
                 let alloc_size_bytes = c.i32()?;
-                if chunk_offset < 0
-                    || chunk_offset as usize + 8 > rrising_ecs::K_BUFFER_SIZE
-                {
+                if chunk_offset < 0 || chunk_offset as usize + 8 > rrising_ecs::K_BUFFER_SIZE {
                     bail!(
                         "chunk {} patch {j} points at buffer offset {chunk_offset}, outside the \
                          {} bytes a chunk buffer holds",
@@ -674,14 +716,27 @@ impl SceneFile {
                 }
                 let data = &node.data[c.at..c.at + len];
                 c.at += len;
-                patches.push(BufferPatch { chunk_offset, alloc_size_bytes, data });
+                patches.push(BufferPatch {
+                    chunk_offset,
+                    alloc_size_bytes,
+                    data,
+                });
             }
-            per_chunk.push(ChunkBufferData { chunk_index: chunk.index, patches });
+            per_chunk.push(ChunkBufferData {
+                chunk_index: chunk.index,
+                patches,
+            });
         }
         if !c.at_end() {
-            bail!("buffer data stream leaves {} bytes after the last chunk", c.remaining());
+            bail!(
+                "buffer data stream leaves {} bytes after the last chunk",
+                c.remaining()
+            );
         }
-        Ok(SceneBufferData { total_chunk_count, per_chunk })
+        Ok(SceneBufferData {
+            total_chunk_count,
+            per_chunk,
+        })
     }
 
     /// The `EnabledBits` stream: which entity each component is enabled for, chunk by chunk.
@@ -725,7 +780,11 @@ impl SceneFile {
         let mut chunk_counts = vec![0usize; arch.archetypes.len()];
         for c in &chunks {
             let i = usize::try_from(c.header.archetype_index).map_err(|_| {
-                anyhow::anyhow!("chunk {} names archetype {}", c.index, c.header.archetype_index)
+                anyhow::anyhow!(
+                    "chunk {} names archetype {}",
+                    c.index,
+                    c.header.archetype_index
+                )
             })?;
             let Some(slot) = chunk_counts.get_mut(i) else {
                 bail!(
@@ -744,7 +803,9 @@ impl SceneFile {
         }
         let mut c = Cursor::new(&node.data, "enabled bits stream");
         let total_enabled_bits_size = c.i32()?;
-        let mask_bytes = units.checked_mul(16).ok_or_else(|| anyhow::anyhow!("{units} component-chunk units overflow"))?;
+        let mask_bytes = units
+            .checked_mul(16)
+            .ok_or_else(|| anyhow::anyhow!("{units} component-chunk units overflow"))?;
         if total_enabled_bits_size < 0 || total_enabled_bits_size as usize != mask_bytes {
             bail!(
                 "enabled bits stream claims {total_enabled_bits_size} bytes of masks, the {} chunk \
@@ -756,10 +817,15 @@ impl SceneFile {
         }
         let mut masks = Vec::with_capacity(units);
         for _ in 0..units {
-            masks.push(ChunkEnabledMask { low: c.u64()?, high: c.u64()? });
+            masks.push(ChunkEnabledMask {
+                low: c.u64()?,
+                high: c.u64()?,
+            });
         }
         let total_hierarchical_size = c.i32()?;
-        let hier_bytes = units.checked_mul(4).ok_or_else(|| anyhow::anyhow!("{units} component-chunk units overflow"))?;
+        let hier_bytes = units
+            .checked_mul(4)
+            .ok_or_else(|| anyhow::anyhow!("{units} component-chunk units overflow"))?;
         if total_hierarchical_size < 0 || total_hierarchical_size as usize != hier_bytes {
             bail!(
                 "enabled bits stream claims {total_hierarchical_size} bytes of hierarchical data, \
@@ -773,9 +839,17 @@ impl SceneFile {
             hierarchical.push(c.i32()?);
         }
         if !c.at_end() {
-            bail!("enabled bits stream leaves {} bytes after the last unit", c.remaining());
+            bail!(
+                "enabled bits stream leaves {} bytes after the last unit",
+                c.remaining()
+            );
         }
-        Ok(SceneEnabledBits { chunk_counts, component_counts, masks, hierarchical })
+        Ok(SceneEnabledBits {
+            chunk_counts,
+            component_counts,
+            masks,
+            hierarchical,
+        })
     }
 
     /// The `SharedAndManagedComponents` stream: the shared component values and the managed
@@ -854,7 +928,10 @@ impl SceneFile {
         if unmanaged_total < 0 {
             bail!("stream claims {unmanaged_total} bytes of unmanaged shared component values");
         }
-        let summed: i64 = unmanaged_meta.iter().map(|r| i64::from(r.component_size)).sum();
+        let summed: i64 = unmanaged_meta
+            .iter()
+            .map(|r| i64::from(r.component_size))
+            .sum();
         if summed != i64::from(unmanaged_total) {
             bail!(
                 "the {unmanaged_count} unmanaged shared component records total {summed} bytes, the \
@@ -1028,9 +1105,7 @@ impl SceneFile {
                 );
             }
             if tail_padding != 0 {
-                bail!(
-                    "blob asset {i} carries {tail_padding:#018x} in its eight padding bytes"
-                );
+                bail!("blob asset {i} carries {tail_padding:#018x} in its eight padding bytes");
             }
             let offset = c.at;
             let data = c.take(length as usize)?;
@@ -1091,7 +1166,10 @@ impl SceneArchetypes {
     /// The entities the stream describes, which is the value `ReadArchetypes` @ 0x8fe0fa0
     /// accumulates into its `out int` parameter as it walks the archetypes.
     pub fn total_entity_count(&self) -> i64 {
-        self.archetypes.iter().map(|a| i64::from(a.entity_count)).sum()
+        self.archetypes
+            .iter()
+            .map(|a| i64::from(a.entity_count))
+            .sum()
     }
 }
 
@@ -1119,7 +1197,11 @@ impl SerializedArchetypeType {
     /// The int the stream stores for this slot, for writing a scene back out.
     pub fn to_raw(self) -> u32 {
         u32::from(self.unique_index)
-            | if self.chunk_component { ARCHETYPE_TYPE_CHUNK_COMPONENT } else { 0 }
+            | if self.chunk_component {
+                ARCHETYPE_TYPE_CHUNK_COMPONENT
+            } else {
+                0
+            }
     }
 }
 
@@ -1143,7 +1225,11 @@ impl SceneBufferData<'_> {
 
     /// The bytes of `DynamicBuffer` contents across all patches.
     pub fn total_data_bytes(&self) -> usize {
-        self.per_chunk.iter().flat_map(|c| c.patches.iter()).map(|p| p.data.len()).sum()
+        self.per_chunk
+            .iter()
+            .flat_map(|c| c.patches.iter())
+            .map(|p| p.data.len())
+            .sum()
     }
 }
 
@@ -1204,15 +1290,23 @@ impl SceneEnabledBits {
     ///
     /// `slot` counts the archetype's `TypesCount` slots, so slot 0 is the `Entity`
     /// entry the `Archetypes` stream leaves out and `slot - 1` indexes its `types` list.
-    pub fn mask_for(&self, archetype: usize, chunk_ordinal: usize, slot: usize) -> Option<ChunkEnabledMask> {
+    pub fn mask_for(
+        &self,
+        archetype: usize,
+        chunk_ordinal: usize,
+        slot: usize,
+    ) -> Option<ChunkEnabledMask> {
         let chunks = *self.chunk_counts.get(archetype)?;
         let components = *self.component_counts.get(archetype)?;
         if chunk_ordinal >= chunks || slot >= components {
             return None;
         }
-        let base: usize =
-            (0..archetype).map(|i| self.chunk_counts[i] * self.component_counts[i]).sum();
-        self.masks.get(base + chunk_ordinal * components + slot).copied()
+        let base: usize = (0..archetype)
+            .map(|i| self.chunk_counts[i] * self.component_counts[i])
+            .sum();
+        self.masks
+            .get(base + chunk_ordinal * components + slot)
+            .copied()
     }
 }
 
@@ -1468,7 +1562,10 @@ fn read_shared_component_record(c: &mut Cursor<'_>, index: i32) -> Result<Shared
     if pad != 0 {
         bail!("shared component record {index} carries {pad:#010x} in its four padding bytes");
     }
-    Ok(SharedComponentRecord { stable_type_hash, component_size })
+    Ok(SharedComponentRecord {
+        stable_type_hash,
+        component_size,
+    })
 }
 
 /// A bounds-checked little-endian cursor over one node's data blob.
@@ -1485,7 +1582,12 @@ impl<'a> Cursor<'a> {
 
     fn need(&mut self, n: usize) -> Result<()> {
         if self.at + n > self.bytes.len() {
-            bail!("{} ends {} bytes short at offset {:#x}", self.what, self.at + n - self.bytes.len(), self.at);
+            bail!(
+                "{} ends {} bytes short at offset {:#x}",
+                self.what,
+                self.at + n - self.bytes.len(),
+                self.at
+            );
         }
         Ok(())
     }
@@ -1544,7 +1646,10 @@ fn classify(header: &NodeHeader, tail: &[u8]) -> NodeKind {
                 None
             };
             if h == NODE_TYPE_RAW_DATA {
-                NodeKind::RevisionedRawData { revision: extra.unwrap_or(0), stream: stream_of_id(&header.id) }
+                NodeKind::RevisionedRawData {
+                    revision: extra.unwrap_or(0),
+                    stream: stream_of_id(&header.id),
+                }
             } else {
                 NodeKind::Unknown { hash: h, extra }
             }
