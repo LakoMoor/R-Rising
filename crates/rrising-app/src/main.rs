@@ -1291,6 +1291,8 @@ fn main() -> Result<()> {
     let opt = parse_args()?;
     if let Some(path) = &opt.inspect_save {
         let save = rrising_content::persistence::PersistentSave::open(path)?;
+        let header = save.header()?;
+        let linked_entities: usize = header.prefabs.iter().map(|p| p.linked_entities.len()).sum();
         let members: Vec<_> = save
             .members()
             .iter()
@@ -1306,6 +1308,19 @@ fn main() -> Result<()> {
                 "kind": "save-container-inspection", "container_version": 2,
                 "uncompressed_bytes": save.uncompressed_bytes(),
                 "table_bytes": save.table_bytes(), "members": members,
+                "header": {
+                    "serialization_format_version": header.serialization_format_version,
+                    "persistence_version": header.persistence_version,
+                    "game_version": header.game_version,
+                    "application_type": header.application_type,
+                    "conversion_target": header.conversion_target,
+                    "prefab_conversion_method": header.prefab_conversion_method,
+                    "using_server_only_subscenes": header.using_server_only_subscenes,
+                    "prefab_count": header.prefabs.len(), "linked_entity_count": linked_entities,
+                    "persistent_component_count": header.persistent_components.len(),
+                    "required_component_count": header.required_components.len(),
+                    "blob_count": header.blobs.len(),
+                },
                 "world_restored": false,
             }))?
         );

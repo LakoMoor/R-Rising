@@ -28,7 +28,7 @@ performance improvement has been demonstrated.
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |
 | Original-game scenarios | 0 | Game parity **unmeasured**; 95 distinct native function addresses have replay tests (sqrt stub; steering isolates five ECS accessors); see [oracle evidence](evidence/original_leaf_oracles.md) |
 | Original runtime reference | Dedicated server boots through CrossOver; six autosaves captured | [Measured startup/save evidence](evidence/crossover_runtime.md); no deterministic Rust comparison yet |
-| Save container | Reads both captured original autosaves, all 14 member fingerprints match | [Outer version-2 container only](evidence/save_container.md); no restored World |
+| Saves | Container + header read from both original autosaves; 14 member fingerprints and complete 821,700-byte headers match | [Saved registry and prefab/blob metadata](evidence/save_header.md); no restored World |
 | Gameplay, HUD, animation, physics, audio, networking | Not implemented | Not playable |
 | Rust-only timings (Apple M4, release) | Index 4,409 archives 3.3 s; decode 1,183 scenes 1.3 s; offscreen 1280x720 frame median 1.4 ms | Absolute numbers only, **no original-game comparison**; see COMPATIBILITY.md |
 

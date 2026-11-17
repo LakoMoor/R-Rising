@@ -5,8 +5,8 @@
 //! then member payloads in table order. ReadVersion2 RVA 0x7f1e9e0;
 //! WriteAndZipToDiskJob.Execute 0x7f31d70, WriteFileEntry 0x7f32cb0.
 //! Two actual original autosaves establish the 172-byte table, seven members and
-//! valid empty fourth serialization job. Header/world/system/job contents stay
-//! opaque here. Unlike the original reader, this diagnostic rejects incomplete
+//! valid empty fourth serialization job. The header decoder is separate;
+//! world/system/job contents stay opaque. This diagnostic rejects incomplete
 //! payloads, trailing data and invalid UTF-8, and bounds decompression explicitly.
 
 use std::collections::BTreeSet;
@@ -15,6 +15,11 @@ use std::path::Path;
 
 use anyhow::{ensure, Context, Result};
 use flate2::bufread::GzDecoder;
+
+mod header;
+pub use header::{
+    PersistenceHeader, PersistentBlob, PersistentComponent, PrefabReference, RequiredComponent,
+};
 
 /// Diagnostic allocation limit, not a limit observed in the original game.
 pub const DEFAULT_MAX_DECOMPRESSED_BYTES: usize = 512 * 1024 * 1024;
@@ -136,6 +141,16 @@ impl PersistentSave {
 
     pub fn uncompressed_bytes(&self) -> usize {
         self.bytes.len()
+    }
+
+    /// Decodes the pinned header schema; this does not restore a runtime World.
+    pub fn header(&self) -> Result<PersistenceHeader> {
+        let index = self
+            .members
+            .iter()
+            .position(|m| m.name == "Header.save")
+            .context("missing Header.save")?;
+        PersistenceHeader::read(self.member_data(index).context("missing header data")?)
     }
 
     /// Keeps table order; no member is written to disk.

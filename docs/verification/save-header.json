@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-17",
+  "reference": "reference.server.lock.json",
+  "kind": "persistence-header-reader-validation",
+  "golden": "../../evidence/oracles/save_header.json",
+  "actual_original_headers_read": 2,
+  "original_bytes_verified_per_header": 821700,
+  "verification": "test-only canonical encoding of every parsed field equals the captured original bytes",
+  "persistent_components_joined_to_saved_names": 1542,
+  "movement_component_layouts_confirmed": 6,
+  "portable_header_tests_passed": 3,
+  "original_data_header_test_passed": 1,
+  "actual_cli_headers_checked": 2,
+  "workspace_passed": 150,
+  "workspace_failed": 0,
+  "workspace_ignored": 11,
+  "gpu_tests_excluded": [
+    "draws_a_hand_built_triangle",
+    "serialized_transfer_matches_direct_gpu_upload"
+  ],
+  "strict_clippy": "passed",
+  "world_restored": false,
+  "gameplay_parity_percent": null
+}

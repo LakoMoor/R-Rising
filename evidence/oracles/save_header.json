@@ -1,0 +1,93 @@
+{
+  "original_save_files": [
+    "AutoSave_4.save.gz",
+    "AutoSave_5.save.gz"
+  ],
+  "bytes": 821700,
+  "sha256": "d5b5de36ea97da62fa2f0c897785c16f83a1ff9164ff1ecde7caf162dbc23971",
+  "fnv1a64": "48dc5dfcbf907e34",
+  "serialization_format_version": 7,
+  "persistence_version": 4,
+  "game_version": [
+    1,
+    1,
+    13,
+    99712
+  ],
+  "application_type": 1,
+  "conversion_target": 2,
+  "prefab_conversion_method": 0,
+  "using_server_only_subscenes": false,
+  "prefab_count": 23583,
+  "linked_entity_count": 19394,
+  "persistent_component_count": 1542,
+  "required_component_count": 2240,
+  "blob_count": 4933,
+  "null_blob_addresses": 2003,
+  "persistent_components_joined_to_required": 1542,
+  "sections": [
+    {
+      "name": "metadata",
+      "start": 0,
+      "end": 28
+    },
+    {
+      "name": "prefabs",
+      "start": 28,
+      "end": 532512
+    },
+    {
+      "name": "persistent_components",
+      "start": 532512,
+      "end": 557188
+    },
+    {
+      "name": "required_components",
+      "start": 557188,
+      "end": 663840
+    },
+    {
+      "name": "blobs",
+      "start": 663840,
+      "end": 821700
+    }
+  ],
+  "movement_components": [
+    {
+      "name": "ProjectM.MoveTowardsPositionBuff",
+      "stable_type_hash": "809388619ae080d7",
+      "component_size": 40,
+      "saved_type_index": 134118
+    },
+    {
+      "name": "ProjectM.Buff",
+      "stable_type_hash": "5c0689788602b4e5",
+      "component_size": 32,
+      "saved_type_index": 4117
+    },
+    {
+      "name": "ProjectM.MapCollision",
+      "stable_type_hash": "179eefa3019ca077",
+      "component_size": 20,
+      "saved_type_index": 135318
+    },
+    {
+      "name": "ProjectM.Velocity",
+      "stable_type_hash": "8da56f730a0264b0",
+      "component_size": 12,
+      "saved_type_index": 135319
+    },
+    {
+      "name": "ProjectM.EntityInput",
+      "stable_type_hash": "cf49a498d7474572",
+      "component_size": 96,
+      "saved_type_index": 4433
+    },
+    {
+      "name": "Unity.Transforms.Translation",
+      "stable_type_hash": "a42de7cc0763e5be",
+      "component_size": 12,
+      "saved_type_index": 135892
+    }
+  ]
+}

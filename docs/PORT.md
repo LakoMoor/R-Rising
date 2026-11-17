@@ -609,3 +609,10 @@ range/payload fingerprint comparisons; empty jobs and exact table order are reta
 uses the already-pinned flate2 dependency with its Rust backend. Its bounded, strict malformed-file
 policy differs from native ReadBytes/EOF handling and is documented in evidence/save_container.md.
 No entity/component/system restoration or save writing is implemented by this slice.
+
+The next slice decodes format-7/persistence-4 Header.save completely. Original save output
+confirms prefab/link handles, the saved component registry and blob mappings; a test-only
+encoding of all parsed fields matches the 821,700 original bytes in both files. Required names
+use nine-bit lengths followed by alignment, not u16 lengths. Runtime type indices retain flags
+and are not installed into the port registry. See evidence/save_header.md. Serialization-job,
+world and system values still need decoding before a saved world can be restored and compared.
