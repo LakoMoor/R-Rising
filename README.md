@@ -26,7 +26,7 @@ performance improvement has been demonstrated.
 | Scene archetypes with recovered storage shape | 17,579 / 17,579 (31,723 / 31,723 chunks; 1,385,671 entities) | Validated offline by layout/buffer/patch checks; managed components admitted only as 4-byte slots; not world execution |
 | Native showcase | 48 objects, 26 bound textures | Verified on macOS / Metal |
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |
-| Original-game scenarios | 0 | Game parity **unmeasured**; 7 native leaf functions match 1,024 original inputs each |
+| Original-game scenarios | 0 | Game parity **unmeasured**; 92 distinct native function bodies have replay tests (including one sqrt helper stub); see [oracle evidence](evidence/original_leaf_oracles.md) |
 | Gameplay, HUD, animation, physics, audio, networking, saves | Not implemented | Not playable |
 | Rust-only timings (Apple M4, release) | Index 4,409 archives 3.3 s; decode 1,183 scenes 1.3 s; offscreen 1280x720 frame median 1.4 ms | Absolute numbers only, **no original-game comparison**; see COMPATIBILITY.md |
 

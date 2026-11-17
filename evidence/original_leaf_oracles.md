@@ -85,9 +85,37 @@ Mach-O, and runs it under Rosetta with the Windows x64 ABI. Only input/output ro
 | | `hash128.tsv` | Hash128 op_LessThan, op_GreaterThan, CompareTo, GetHashCode, op_Inequality | same |
 | | `archetype_getters.tsv` | 13 Archetype flag predicates and 11 section-count getters | same |
 | | `entity_compare.tsv` | Entity.CompareTo, ChunkIndex lt/gt, ComponentTypeInArchetype >= | same |
+| `capture_math_matrix.py` | `math_matrix.tsv` | quaternion-to-matrix (3x3, 4x4), TRS, Translate, Scale, matrix mul, quaternion mul, quaternion normalize | `rrising-math/tests/oracle_matrix.rs` |
+| `capture_change_versions.py` | `change_versions.tsv` | DidChange, IncrementGlobalSystemVersion | `rrising-ecs/tests/change_versions.rs` |
 
-Total: 75 functions x 2,048 cases (153,600 function evaluations; two TypeIndex getters overlap the earlier
+Initial scalar/ECS group: 77 functions x 2,048 cases (157,696 function evaluations; two TypeIndex getters overlap the earlier
 type_flags oracle). Divergences found and fixed in Rust: `math.clamp(int)` is `max(a, min(b, x))` (differs for
 a > b), `math.abs(int.MinValue)` stays MinValue (Rust overflowed), and `Archetype.HasChunkComponents` is
 `FirstChunkComponent != TypesCount`. Not covered: functions that call out (Hash128.get_IsValid reads statics,
 sinh/frac call helpers) and the archetype layout builder, which is not a leaf.
+
+The eight matrix/quaternion bodies add 16,384 evaluations. Captured calls between the bodies are
+linked in the temporary executable; quaternion normalization's lazy IL2CPP sqrt wrapper is replaced
+by `sqrtss`, so that wrapper's initialization and exceptional-value semantics are not covered.
+See `capture_math_matrix.py` and `docs/COMPATIBILITY.md` for the observed operation-order fixes.
+
+## Change-version filtering — 2026-11-17
+
+Original `ChangeVersionUtility.DidChange` at RVA `0x9072720` and
+`IncrementGlobalSystemVersion` at `0x9072730` each replay 2,048 inputs under Rosetta, with no helper
+stubs. The boundary grid includes zero, adjacent values, the signed half-range, and u32 wrap.
+Only inputs/outputs are retained. `DidChange` forces true when the last system version is zero;
+otherwise it uses a positive signed wrapping difference. Increment skips zero after wrapping.
+
+The prior `FrameContext::did_change` used unsigned `>` and disagreed with 315 / 2,048 original
+outputs, including `(0, 0)` and `(1, 0xffffffff)`. The regression was observed failing before
+the fix. `change_version.rs` now implements the two functions; `FrameContext` and the store call
+them. Both oracle tests pass, plus a transform-hierarchy integration test checks a post-wrap input
+version of 1 against a pre-wrap last-system version of `0xffffffff`.
+
+Across all recorded groups: 92 distinct native function addresses (7 earlier captures, 87 further
+captures with 2 overlapping TypeIndex getters). This is function evidence, not gameplay parity.
+`python3 tools/oracle_inventory.py` regenerates
+[native-oracles.json](../docs/verification/native-oracles.json) directly from the pinned golden headers:
+185,344 function evaluations including repeated captures of the same function. CI checks the report.
+This corrects the earlier scalar/ECS subtotal of 75: the actual captured list has 77 addresses.

@@ -268,6 +268,36 @@ fn transform_system_orders_parents_first_and_skips_unchanged() {
 }
 
 #[test]
+fn transform_filter_observes_low_versions_after_counter_wrap() {
+    let (mut w, tt) = scene();
+    assert_eq!(w.store.global_system_version(), 1);
+    let mut sys = TransformSystem::new(tt);
+    // Current input versions are 1, newer than a system's pre-wrap last version.
+    // An unsigned `1 > u32::MAX` incorrectly skips the entire transform hierarchy.
+    let ctx = FrameContext {
+        frame: 0,
+        delta_ns: 1,
+        elapsed_ns: 0,
+        system_version: 1,
+        last_system_version: u32::MAX,
+    };
+    sys.update(&mut w, &ctx).unwrap();
+    assert_eq!(sys.stats().entities_written(), 3);
+    assert_eq!(
+        ltw_translation(&w, &tt, Entity::new(10, 1)),
+        [11.0, 7.0, 3.0]
+    );
+    let hash = w.state_hash();
+    let ctx = FrameContext {
+        last_system_version: 1,
+        ..ctx
+    };
+    sys.update(&mut w, &ctx).unwrap();
+    assert_eq!(sys.stats().entities_written(), 0);
+    assert_eq!(w.state_hash(), hash);
+}
+
+#[test]
 fn transform_system_leaves_unresolved_parents_untouched() {
     let (mut w, tt) = scene();
     // child 11 now names a parent that does not exist

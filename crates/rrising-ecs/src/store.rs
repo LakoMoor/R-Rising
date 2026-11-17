@@ -789,8 +789,7 @@ impl EntityComponentStore {
     /// compare newer than that system's recorded version). Port-side scheduling helper; the
     /// schedule calls it, not user code.
     pub fn increment_global_system_version(&mut self) {
-        // Unity skips 0 on wrap-around; 0 means "never changed".
-        self.global_system_version = self.global_system_version.wrapping_add(1).max(1);
+        crate::change_version::increment_global_system_version(&mut self.global_system_version);
     }
 
     fn chunk_type_slot(&self, c: ChunkIndex, t: TypeIndex) -> Result<(usize, usize, usize, usize)> {
@@ -836,7 +835,8 @@ impl EntityComponentStore {
         Ok(&mut self.chunk_mut(c)?.buffer[off..off + len])
     }
 
-    /// Change version of one component in one chunk (`DidChange(v) == version > v`).
+    /// Change version of one component in one chunk. Compare through
+    /// [`crate::change_version::did_change`] to handle the zero sentinel and wrapping.
     pub fn chunk_change_version(&self, c: ChunkIndex, t: TypeIndex) -> Result<u32> {
         let (arch, ti, _, _) = self.chunk_type_slot(c, t)?;
         let li = self.chunk(c).unwrap().list_index as usize;

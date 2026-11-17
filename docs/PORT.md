@@ -561,3 +561,20 @@ external-allocation checks (6,542 chunks). The other archetypes stay unresolved.
 `rrising-app --inspect-scene file.entities --type-layouts report.json` wires this
 path into the executable and reports counts plus up to eight original transform
 samples. It is explicitly read-only and has no simulation/world claim.
+
+## 2026-11-17 continuation after Claude's implementation
+
+Reviewed commits through `b9e6da0`; current architecture, scene-World, transform and render
+evidence supersede the historical counts/limitations above. The finished `--scene-sim` viewer
+integration and `--compare` evidence are in COMPATIBILITY.md and
+`docs/verification/scene-transform-render.json`. Portable tests and the original-data transform
+scenario were rerun; empty GPU comparisons are now refused.
+
+Recovered and replayed the two original ChangeVersionUtility bodies before correcting the new
+schedule's unsigned comparison. The wrapping signed difference and zero sentinel now match
+all 2,048 original cases each, with an actual transform-hierarchy regression. Golden inventory
+is reproducible with `tools/oracle_inventory.py`; it counts 92 distinct addresses and explicitly
+records the normalization sqrt stub. These are bounded function checks, not game completion.
+The full port goal remains active. Next acceptance: more original runtime system behavior and
+live world/input/render integration, followed by a reproducible original-game scenario. Gameplay,
+physics, audio, networking, saves and full-game performance comparison remain unimplemented.

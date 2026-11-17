@@ -14,6 +14,8 @@ jobs:
       - run: cargo test --locked -p rrising-content --test catalog --test type_layouts
       - run: python3 tools/port_coverage.py --json > /tmp/progress.json
       - run: diff -u docs/progress.json /tmp/progress.json
+      - run: python3 tools/oracle_inventory.py > /tmp/native-oracles.json
+      - run: diff -u docs/verification/native-oracles.json /tmp/native-oracles.json
   wasm:
     runs-on: ubuntu-latest
     steps:

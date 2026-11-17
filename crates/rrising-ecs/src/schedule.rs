@@ -5,7 +5,8 @@
 //! bodies were not re-read; see `docs/COMPATIBILITY.md`). It borrows the documented Unity
 //! conventions only: systems run in a fixed order, each system remembers the
 //! `GlobalSystemVersion` it last ran at, and a chunk "changed" for it when a component's chunk
-//! change version is greater than that remembered version ([`FrameContext::did_change`]).
+//! change version is newer by signed wrapping difference, or it has never run
+//! ([`FrameContext::did_change`]).
 //!
 //! Determinism rules: groups run in creation order; systems inside a group run in registration
 //! order refined by `update_after` constraints (a stable topological sort, ties broken by
@@ -43,7 +44,7 @@ impl FrameContext {
     /// `ChangeVersionUtility.DidChange`: a chunk stamped `chunk_version` changed since this
     /// system last ran.
     pub fn did_change(&self, chunk_version: u32) -> bool {
-        chunk_version > self.last_system_version
+        crate::change_version::did_change(chunk_version, self.last_system_version)
     }
 }
 

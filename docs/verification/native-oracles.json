@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "metric": "captured_original_function_addresses",
+  "original_sha256": "a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56",
+  "distinct_functions": 92,
+  "function_evaluations_including_overlapping_captures": 185344,
+  "behavioral_parity_percent": null,
+  "warning": "Function replays are not full-game scenarios or a game-completion percentage.",
+  "captures": [
+    {
+      "golden": "tests/golden/material_mesh.tsv",
+      "rvas": [
+        "0x8f46ef0",
+        "0x8f46f00",
+        "0x8f46e70",
+        "0x8f46ed0",
+        "0x8f46e80"
+      ],
+      "cases_per_function": 1024,
+      "helper_stubs": []
+    },
+    {
+      "golden": "tests/golden/type_flags.tsv",
+      "rvas": [
+        "0x8fcda80",
+        "0x8fcda90"
+      ],
+      "cases_per_function": 1024,
+      "helper_stubs": []
+    },
+    {
+      "golden": "evidence/oracles/archetype_getters.tsv",
+      "rvas": [
+        "0x911c330",
+        "0x911c340",
+        "0x911c350",
+        "0x911c360",
+        "0x911c370",
+        "0x911c380",
+        "0x911c390",
+        "0x911c3a0",
+        "0x911c3b0",
+        "0x911c3c0",
+        "0x911c3d0",
+        "0x911c3e0",
+        "0x911c4e0",
+        "0x911c3f0",
+        "0x911c400",
+        "0x911c420",
+        "0x911c440",
+        "0x911c460",
+        "0x911c480",
+        "0x911c490",
+        "0x911c4a0",
+        "0x911c4b0",
+        "0x911c4c0",
+        "0x911c4d0"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": []
+    },
+    {
+      "golden": "evidence/oracles/change_versions.tsv",
+      "rvas": [
+        "0x9072720",
+        "0x9072730"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": []
+    },
+    {
+      "golden": "evidence/oracles/entity_compare.tsv",
+      "rvas": [
+        "0x8fc5a80",
+        "0x8fcdac0",
+        "0x8fcdad0",
+        "0x8fcdae0"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": []
+    },
+    {
+      "golden": "evidence/oracles/hash128.tsv",
+      "rvas": [
+        "0x8fcb7f0",
+        "0x8fcb810",
+        "0x8fcb830",
+        "0x8fcb880",
+        "0x86436f0"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": []
+    },
+    {
+      "golden": "evidence/oracles/math_float.tsv",
+      "rvas": [
+        "0x7654b90",
+        "0x612f520",
+        "0x5b4f850",
+        "0x92b8ac0",
+        "0x92a6a90",
+        "0x92a6e40",
+        "0x92b3230",
+        "0x5b10e60",
+        "0x5b10ed0",
+        "0x1a5fac0",
+        "0x1a5fae0",
+        "0x92b2040"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": []
+    },
+    {
+      "golden": "evidence/oracles/math_int.tsv",
+      "rvas": [
+        "0x92b61e0",
+        "0x92b68b0",
+        "0x4740e90",
+        "0x92b7e80",
+        "0x8e97d30",
+        "0x8e97ce0",
+        "0x92a58e0",
+        "0x92a8830",
+        "0x184efe0",
+        "0x184efd0",
+        "0x1a100f0"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": []
+    },
+    {
+      "golden": "evidence/oracles/math_matrix.tsv",
+      "rvas": [
+        "0x9338770",
+        "0x934f920",
+        "0x9351b90",
+        "0x9351390",
+        "0x9351310",
+        "0x92bfb20",
+        "0x92ccc50",
+        "0x92cc510"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": [
+        "IL2CPP sqrt wrapper replaced by sqrtss for quaternion normalize"
+      ]
+    },
+    {
+      "golden": "evidence/oracles/typeindex_flags.tsv",
+      "rvas": [
+        "0x8fcd9b0",
+        "0x8fcd9c0",
+        "0x8fcd9d0",
+        "0x8fcd9e0",
+        "0x8fcd9f0",
+        "0x8fcda00",
+        "0x8fcda10",
+        "0x8fcda20",
+        "0x8fcda30",
+        "0x8fcda40",
+        "0x8fcda50",
+        "0x8fcda60",
+        "0x8fcda70",
+        "0x8fcdaa0",
+        "0x5b6a0f0",
+        "0x5b6f4b0",
+        "0x5b6f4d0",
+        "0x8fcda80",
+        "0x8fcda90",
+        "0x8fcdab0",
+        "0x25b2500"
+      ],
+      "cases_per_function": 2048,
+      "helper_stubs": []
+    }
+  ]
+}

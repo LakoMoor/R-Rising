@@ -28,6 +28,7 @@
 
 pub mod archetype;
 pub mod buffer;
+pub mod change_version;
 pub mod chunk;
 pub mod chunk_data;
 pub mod entity;

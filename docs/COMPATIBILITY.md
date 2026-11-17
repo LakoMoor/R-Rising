@@ -1,4 +1,4 @@
-# Compatibility status — 2026-11-16
+# Compatibility status — updated 2026-11-17
 
 Target: V Rising v1.1.13.0-r99712-b17 (202605251526), native desktop and browser.
 
@@ -9,9 +9,9 @@ original assets, executables or decompiled sources should be distributed.
 | --- | --- | --- | --- | --- |
 | Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Catalog read and wired into native startup; request scheduling remains |
 | Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | `world_adapter` builds one `World` per scene (opaque special components) | 9 scene tests + `world_adapter` test: all 1,183 scenes, 1,385,671 entities with preserved ids | Shared values, chunk components, managed objects, buffer heap payloads; entity-reference remap is identity-validated (0 dangling), not native-replayed |
-| Math | Broad API coverage | Showcase transforms | 58 regression/unit tests passed | Replay oracle for 23 scalar int/float leaves (`oracle_math.rs`, 2,048 cases each); transcendental rounding deviations in PORT.md are not covered |
-| ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Unit tests only; not wired into a running game world | Port-side unit tests derived from decompiled bodies (`store.rs`); native-replay oracles only for the pure archetype getters, Hash128 compare/hash and Entity/ChunkIndex compares (`oracle_entities.rs`); store/creation functions are not pure leaves and have none | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, system scheduling |
-| Rendering | Basic lit meshes | Native showcase | GPU triangle test; screenshots/native-content.png | Original scenes, animation, HDRP and visual comparisons |
+| Math | Broad API coverage | Scene transforms and transform system | 23 scalar and 8 matrix/quaternion replay targets, 2,048 inputs each; normalization uses a sqrt stub | Remaining overloads, SIMD approximations and transcendental rounding deviations in PORT.md |
+| ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Scene Worlds, deterministic schedule and TransformSystem; `--scene-sim` feeds viewer/export | Store tests derived from decompiled bodies; native replay for pure getters, comparisons and change versions; 372 real-scene transform scenarios | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, original system scheduling |
+| Rendering | Basic lit meshes, sub-meshes and cutout pipeline | Original-scene viewer, optional transform-system output | GPU regressions; native/WebGPU screenshots; stored-vs-simulated Rust image comparison | Animation, HDRP, transparent materials, terrain blending and original-game visual parity |
 | Gameplay / HUD / physics / sound / networking / saves | Not implemented | None | No end-to-end parity cases | First original-scene playable slice |
 | Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, mobile texture fallback, game world |
 | Performance | Rust-only absolute timings (see Performance measurement) | None | No comparable original-runtime benchmark | Same-scene release measurements on both runtimes |
@@ -22,7 +22,7 @@ original assets, executables or decompiled sources should be distributed.
 It measures heuristic **member name matches** only. It can credit unrelated
 identifiers and does not prove overload coverage, correctness, or runtime wiring.
 Behavioral parity and overall game completion are unknown, not 2.7%.
-There are no full-game original-runtime golden scenarios. Original-function replay oracles exist only for pure x86-64 leaf functions executed under Rosetta, not a running game: 7 earlier functions with 1,024 cases each (type flags, MaterialMeshInfo) and 75 further Unity.Mathematics/Unity.Entities leaves with 2,048 cases each (`tools/capture_math_int.py`, `capture_math_float.py`, `capture_entities.py`; goldens in `evidence/oracles/`; see evidence/original_leaf_oracles.md). The replay found and fixed three Rust divergences: integer `clamp` with lo > hi, `abs(i32::MIN)`, and `Archetype.HasChunkComponents` (`!=`, not `> 0`). Reader tests and GPU
+There are no full-game original-runtime golden scenarios. Original-function replay oracles exist only for pure x86-64 leaf functions executed under Rosetta, not a running game: 7 earlier captures with 1,024 cases each (type flags, MaterialMeshInfo) and 87 further captures with 2,048 cases each (including matrix/quaternion and change-version targets; two TypeIndex getters overlap the earlier captures, giving 92 distinct addresses). Matrix capture links calls between captured functions and stubs the sqrt helper. Goldens are in `evidence/oracles/`; see [original_leaf_oracles.md](../evidence/original_leaf_oracles.md). The replay found and fixed three Rust divergences: integer `clamp` with lo > hi, `abs(i32::MIN)`, and `Archetype.HasChunkComponents` (`!=`, not `> 0`). Reader tests and GPU
 regression tests must not be presented as proof of 1:1 compatibility.
 
 ## Validation in this session
@@ -549,3 +549,18 @@ Re-ran the original-data scenario: 372 scene Worlds, 112,177 computed transforms
 recorded counts. Portable workspace tests: 129 passed, 7 ignored original-data tests; both GPU
 regressions passed separately outside the GPU-restricted sandbox. `cargo fmt --check` and strict
 workspace Clippy passed. Original-system execution and original-game performance remain unverified.
+
+### 2026-11-17: original change-version semantics
+
+`change_version.rs` implements `DidChange` (RVA 0x9072720) and
+`IncrementGlobalSystemVersion` (0x9072730) from the pinned binary. Captured original instructions
+ran before the implementation: 2,048 cases per function, no stubs, with zero, wrap-around and the
+signed half-range. The previous unsigned comparison failed 315 cases; the new implementation
+passes all of them. FrameContext delegates to this comparison and the store delegates its
+increment to the shared helper. This fixes first-run handling of version zero and filtering
+when the counter wraps. The transform-hierarchy regression verifies the actual consumer, not just
+the helper. The scenario over 372 original scene Worlds still reproduces the prior exact counts.
+No other original scheduling semantics are claimed by this fix.
+Verification after the fix: 132 portable workspace tests passed (7 original-data tests ignored by
+that command); the 372-scene scenario passed separately, with unchanged transform counts.
+Formatting, strict workspace Clippy, WASM build and both generated-report comparisons passed.
