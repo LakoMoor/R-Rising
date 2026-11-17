@@ -602,3 +602,10 @@ client RVAs are not reused. A fresh bottle, cloned install and local profile are
 tools/probe_crossover_server.py. Raw outputs stay outside Git. See evidence/crossover_runtime.md
 for measured results and the Steam initialization error. This removes the server launch blocker,
 but does not establish deterministic gameplay or save-loading support in Rust.
+
+The following slice decodes the outer version-2 persistence container in rrising-content and
+connects it to the app through --inspect-save. Two original autosaves pass all fourteen member
+range/payload fingerprint comparisons; empty jobs and exact table order are retained. The reader
+uses the already-pinned flate2 dependency with its Rust backend. Its bounded, strict malformed-file
+policy differs from native ReadBytes/EOF handling and is documented in evidence/save_container.md.
+No entity/component/system restoration or save writing is implemented by this slice.

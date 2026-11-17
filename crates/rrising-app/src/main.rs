@@ -35,6 +35,7 @@ struct Options {
     export_web: Option<PathBuf>,
     import_web: Option<PathBuf>,
     inspect_scene: Option<PathBuf>,
+    inspect_save: Option<PathBuf>,
     scene: Option<PathBuf>,
     type_layouts: Option<PathBuf>,
     /// `--scene-sim N`: run fixed steering/transform frames and draw the World's LocalToWorld.
@@ -63,6 +64,7 @@ fn parse_args() -> Result<Options> {
         export_web: None,
         import_web: None,
         inspect_scene: None,
+        inspect_save: None,
         scene: None,
         type_layouts: None,
         scene_sim: None,
@@ -83,6 +85,7 @@ fn parse_args() -> Result<Options> {
             "--width" => opt.width = take()?.parse().context("--width takes a number")?,
             "--height" => opt.height = take()?.parse().context("--height takes a number")?,
             "--inspect-scene" => opt.inspect_scene = Some(PathBuf::from(take()?)),
+            "--inspect-save" => opt.inspect_save = Some(PathBuf::from(take()?)),
             "--scene" => opt.scene = Some(PathBuf::from(take()?)),
             "--scene-sim" => {
                 opt.scene_sim = Some(take()?.parse().context("--scene-sim takes a frame count")?)
@@ -1286,6 +1289,28 @@ fn bench(opt: &Options) -> Result<()> {
 fn main() -> Result<()> {
     env_logger::init();
     let opt = parse_args()?;
+    if let Some(path) = &opt.inspect_save {
+        let save = rrising_content::persistence::PersistentSave::open(path)?;
+        let members: Vec<_> = save
+            .members()
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "name": m.name, "offset": m.offset, "size": m.size,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "kind": "save-container-inspection", "container_version": 2,
+                "uncompressed_bytes": save.uncompressed_bytes(),
+                "table_bytes": save.table_bytes(), "members": members,
+                "world_restored": false,
+            }))?
+        );
+        return Ok(());
+    }
     if opt.bench {
         return bench(&opt);
     }

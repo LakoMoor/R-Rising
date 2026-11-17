@@ -1,0 +1,120 @@
+[
+  {
+    "file": "AutoSave_4.save.gz",
+    "compressed_bytes": 7592269,
+    "sha256": "529ab7f4ae8768e1b091aa6568d848cdb09b21e1b4d78abc4e01435809490215",
+    "uncompressed_bytes": 35990082,
+    "container_version": 2,
+    "table_bytes": 172,
+    "members": [
+      {
+        "name": "SerializationJob_0.save",
+        "size": 15867153,
+        "offset": 172,
+        "sha256": "2339c28eb2f741fe54e06ecaafba1227244555782f3b18c22e53e8704330351d",
+        "fnv1a64": "b7b1cd17cfd4a8dd"
+      },
+      {
+        "name": "SerializationJob_1.save",
+        "size": 12068726,
+        "offset": 15867325,
+        "sha256": "117e9c94c295de5e40af65b0deba724b0856b93dfc06f5268d4457b4226a7745",
+        "fnv1a64": "2acd996bfe290948"
+      },
+      {
+        "name": "SerializationJob_2.save",
+        "size": 578231,
+        "offset": 27936051,
+        "sha256": "62b3dbee7e978ceea9a5347abe8a9dc9d3b2f466afd8109fb80f4dc036fd0ef7",
+        "fnv1a64": "00b6b4162a156435"
+      },
+      {
+        "name": "SerializationJob_3.save",
+        "size": 0,
+        "offset": 28514282,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fnv1a64": "cbf29ce484222325"
+      },
+      {
+        "name": "Header.save",
+        "size": 821700,
+        "offset": 28514282,
+        "sha256": "d5b5de36ea97da62fa2f0c897785c16f83a1ff9164ff1ecde7caf162dbc23971",
+        "fnv1a64": "48dc5dfcbf907e34"
+      },
+      {
+        "name": "WorldData.save",
+        "size": 6652241,
+        "offset": 29335982,
+        "sha256": "bd182c2d5b78533d141d93c8059d18b65deb263d45df3bc61b7e3eea1c2a068d",
+        "fnv1a64": "0852bf1ee4932871"
+      },
+      {
+        "name": "Systems.save",
+        "size": 1859,
+        "offset": 35988223,
+        "sha256": "41336fe586dec5109b40177ee7a56a3954615808b9d6511629b873a0d44596dc",
+        "fnv1a64": "cd18f4634b818921"
+      }
+    ]
+  },
+  {
+    "file": "AutoSave_5.save.gz",
+    "compressed_bytes": 7592236,
+    "sha256": "b7a52e50280ff5e4f0cd90918285384ed42fdbe04883c7c9f7285926f008728d",
+    "uncompressed_bytes": 35988840,
+    "container_version": 2,
+    "table_bytes": 172,
+    "members": [
+      {
+        "name": "SerializationJob_0.save",
+        "size": 15866088,
+        "offset": 172,
+        "sha256": "8a606f3efaa8edf2fbf90a18ec15b38732cb2413183ae3a12488ef735e1092dd",
+        "fnv1a64": "a4b3d8df2fb0ed3d"
+      },
+      {
+        "name": "SerializationJob_1.save",
+        "size": 12068726,
+        "offset": 15866260,
+        "sha256": "207ce988ce34daaaa1d13c9e08492e183bfdb7022e01fb543329e1f4b89fed20",
+        "fnv1a64": "e3d09fcbed969622"
+      },
+      {
+        "name": "SerializationJob_2.save",
+        "size": 578054,
+        "offset": 27934986,
+        "sha256": "f18c6fb17f77592ae1fbaa3e0363cec2e61586ba65fec27284040b1c2cde6159",
+        "fnv1a64": "62535a1eabeee732"
+      },
+      {
+        "name": "SerializationJob_3.save",
+        "size": 0,
+        "offset": 28513040,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fnv1a64": "cbf29ce484222325"
+      },
+      {
+        "name": "Header.save",
+        "size": 821700,
+        "offset": 28513040,
+        "sha256": "d5b5de36ea97da62fa2f0c897785c16f83a1ff9164ff1ecde7caf162dbc23971",
+        "fnv1a64": "48dc5dfcbf907e34"
+      },
+      {
+        "name": "WorldData.save",
+        "size": 6652241,
+        "offset": 29334740,
+        "sha256": "b65dfd8cac283b2ea6c6663b58dd557280db200518d2025b42aeb2860c08ca3d",
+        "fnv1a64": "de7968ef5b1c9469"
+      },
+      {
+        "name": "Systems.save",
+        "size": 1859,
+        "offset": 35986981,
+        "sha256": "12f50bb165cac132066781bcc877ff09d94bac5eb46a106e55bb703e575a3a2c",
+        "fnv1a64": "110542b3f5a45b5a"
+      }
+    ]
+  }
+]

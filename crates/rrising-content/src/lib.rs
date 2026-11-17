@@ -11,6 +11,7 @@
 pub mod content;
 pub mod entity_scenes;
 pub mod localization;
+pub mod persistence;
 pub mod scene_runtime;
 pub mod settings;
 

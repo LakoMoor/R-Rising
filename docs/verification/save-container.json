@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-17",
+  "reference": "reference.server.lock.json",
+  "kind": "save-container-reader-validation",
+  "original_file_observations": "../../evidence/oracles/save_containers.json",
+  "actual_original_files_read": 2,
+  "matching_member_ranges_and_fingerprints": 14,
+  "actual_cli_files_read": 2,
+  "portable_persistence_tests_passed": 4,
+  "original_data_persistence_test_passed": 1,
+  "workspace_passed": 147,
+  "workspace_failed": 0,
+  "workspace_ignored": 10,
+  "gpu_tests_excluded": [
+    "draws_a_hand_built_triangle",
+    "serialized_transfer_matches_direct_gpu_upload"
+  ],
+  "strict_clippy": "passed",
+  "format": "passed",
+  "world_restored": false,
+  "gameplay_parity_percent": null
+}

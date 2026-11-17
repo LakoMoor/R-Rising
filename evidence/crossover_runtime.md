@@ -60,8 +60,10 @@ private-prefix cleanup were used for the server observation above.
 
 ## Next comparison boundary
 
-The captured saves can supply actual runtime Entity/component data after their
-container, persistence header and serialization jobs are decoded. No original
-save is loaded into the Rust World yet. No fixed seed/time control, scripted
+The [outer save container is now readable in Rust](save_container.md); both
+remaining original files match captured member ranges and payload fingerprints.
+Persistence headers and serialization jobs still need decoding before they can
+supply actual runtime Entity/component data. No original save is loaded into the
+Rust World yet. No fixed seed/time control, scripted
 player input, original-client screenshot or original-vs-Rust state comparison
 was captured. Original-game parity scenarios therefore remain **zero**.

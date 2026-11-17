@@ -26,6 +26,7 @@ rrising-render = { path = "crates/rrising-render" }
 anyhow = "1"
 bytemuck = { version = "1", features = ["derive"] }
 env_logger = "0.11"
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 indexmap = "2"
 log = "0.4"

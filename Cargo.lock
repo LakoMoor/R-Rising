@@ -1926,6 +1926,7 @@ name = "rrising-content"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "indexmap",
  "log",
  "rrising-ecs",

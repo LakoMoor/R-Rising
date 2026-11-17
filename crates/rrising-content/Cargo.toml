@@ -8,6 +8,7 @@ description = "Reads V Rising's own content: UnityFS bundles, SerializedFile obj
 
 [dependencies]
 anyhow.workspace = true
+flate2.workspace = true
 indexmap.workspace = true
 rrising-ecs.workspace = true
 log.workspace = true
