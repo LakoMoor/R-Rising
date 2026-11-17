@@ -20,6 +20,18 @@ pub struct TextureData {
 }
 
 impl TextureData {
+    /// A 1x1 sRGB texture of one flat colour: the neutral stand-in for a base map that is missing
+    /// or could not be uploaded, so the gap reads as grey rather than as an unlit white surface.
+    pub fn flat(name: &str, rgba: [u8; 4]) -> Self {
+        Self {
+            name: name.to_owned(),
+            width: 1,
+            height: 1,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            levels: vec![rgba.to_vec()],
+        }
+    }
+
     pub fn upload(
         &self,
         device: &wgpu::Device,

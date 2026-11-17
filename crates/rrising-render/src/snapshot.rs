@@ -21,6 +21,9 @@ pub struct SnapshotItem {
     /// Ignored when `texture` is present.
     #[serde(default)]
     pub texture_index: Option<usize>,
+    /// Alpha-tested material (`fs_cutout`). Absent in older transfers, which means opaque.
+    #[serde(default)]
+    pub cutout: bool,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Snapshot {
@@ -37,6 +40,7 @@ pub struct LoadedSnapshot {
     textures: Vec<Option<GpuTexture>>,
     pool: Vec<GpuTexture>,
     item_pool: Vec<Option<usize>>,
+    cutout: Vec<bool>,
     instances: Vec<Vec<Instance>>,
     pub uniforms: FrameUniforms,
 }
@@ -56,6 +60,7 @@ impl Snapshot {
             textures: vec![],
             pool: vec![],
             item_pool: vec![],
+            cutout: vec![],
             instances: vec![],
             uniforms: self.uniforms,
         };
@@ -73,6 +78,7 @@ impl Snapshot {
                 item.name
             );
             loaded.item_pool.push(item.texture_index);
+            loaded.cutout.push(item.cutout);
             loaded.meshes.push(mesh::upload_vertices(
                 renderer.device(),
                 &item.name,
@@ -116,6 +122,7 @@ impl LoadedSnapshot {
                     .or_else(|| self.item_pool[i].map(|p| &self.pool[p]))
                     .map(|t| &t.view)
                     .unwrap_or(&neutral),
+                cutout: self.cutout[i],
             })
             .collect();
         renderer.render_surface(&self.uniforms, &draws)
@@ -134,6 +141,7 @@ impl LoadedSnapshot {
                     .or_else(|| self.item_pool[i].map(|p| &self.pool[p]))
                     .map(|t| &t.view)
                     .unwrap_or(&neutral),
+                cutout: self.cutout[i],
             })
             .collect();
         renderer.render_to_image(&self.uniforms, &draws)

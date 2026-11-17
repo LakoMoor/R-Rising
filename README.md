@@ -51,12 +51,18 @@ shows no original world placement.
 
 **Original scene placement** (`--scene`): the entities of one shipped scene
 (`Silver_Mountain01`, 9,898 entities with a serialized `LocalToWorld`) drawn at
-their **original placements** with the original meshes and base-map textures,
-framed by an automatic camera. Placement comes from original scene data. This is
-**not gameplay and not lighting parity**: one directional light, opaque drawing of
-alpha-blended/fog meshes (the dark cylinder at the bottom), no sub-mesh or shader
-state, white patches where a base map was not uploaded.
-9,492 mesh instances resolved (226 unique meshes), 3 unresolved drawn as marker boxes.
+their **original placements** with the original meshes, sub-meshes and base-map
+textures, framed by an automatic camera. Placement comes from original scene data.
+This is **not gameplay and not lighting parity**: one directional light, no LODs,
+skinned meshes, real material parameters or terrain blending. Alpha-tested
+materials are cut out at a fixed 0.5 threshold; transparent materials (fog sheets)
+are excluded and counted. 9,474 instances drawn, 18 transparent instances excluded,
+3 unresolved drawn as marker boxes; 1,691 grass instances show texture-array
+layer 0 as an assumption.
+
+The **native** image below is the current build. The **browser** image is from an
+earlier build and still shows the old artifacts (white patches, opaque fog cylinder);
+it has not been re-rendered.
 
 ![Native original scene placement](docs/screenshots/native-original-scene.png)
 

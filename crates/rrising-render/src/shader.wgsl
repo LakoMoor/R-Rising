@@ -47,9 +47,7 @@ fn vs_main(
     return out;
 }
 
-@fragment
-fn fs_main(in: In) -> @location(0) vec4<f32> {
-    let albedo = textureSample(albedo_map, albedo_sampler, in.uv);
+fn shade(in: In, albedo: vec4<f32>) -> vec4<f32> {
     let n = normalize(in.normal);
     let l = normalize(frame.light_dir.xyz);
     // Half-Lambert keeps the dark side readable the way the original's ambient does.
@@ -59,4 +57,20 @@ fn fs_main(in: In) -> @location(0) vec4<f32> {
     // WGSL has no swizzle assignment, so the colour is composed in one constructor.
     let rgb = albedo.rgb * lit;
     return vec4<f32>(rgb, albedo.a);
+}
+
+@fragment
+fn fs_main(in: In) -> @location(0) vec4<f32> {
+    return shade(in, textureSample(albedo_map, albedo_sampler, in.uv));
+}
+
+// Alpha-tested draws (materials with `_ALPHATEST_ON`). The material's own `_AlphaCutoff` is not
+// read; the threshold is a fixed 0.5.
+@fragment
+fn fs_cutout(in: In) -> @location(0) vec4<f32> {
+    let albedo = textureSample(albedo_map, albedo_sampler, in.uv);
+    if (albedo.a < 0.5) {
+        discard;
+    }
+    return shade(in, albedo);
 }

@@ -38,8 +38,8 @@ async function updateMetrics() {
 updateMetrics();
 
 const shots = {
-  sceneNative: { path: 'assets/screenshots/native-original-scene.png', alt: 'A mountain scene from V Rising drawn by the native Rust renderer at the entities’ original positions', caption: 'One original scene, 9,492 mesh instances at their stored positions, native on macOS / Metal. White patches are textures that did not load; the dark cylinder is geometry drawn without its transparency.' },
-  sceneBrowser: { path: 'assets/screenshots/browser-original-scene.png', alt: 'The same V Rising scene drawn in Chrome through WebGPU', caption: 'The same scene in Chrome through WebAssembly and WebGPU, from a locally exported file.' },
+  sceneNative: { path: 'assets/screenshots/native-original-scene.png', alt: 'A mountain scene from V Rising drawn by the native Rust renderer at the entities’ original positions', caption: 'One original scene, 9,474 mesh instances at their stored positions, native on macOS / Metal. No lighting parity; grass shows one texture-array layer; fog sheets are left out.' },
+  sceneBrowser: { path: 'assets/screenshots/browser-original-scene.png', alt: 'The same V Rising scene drawn in Chrome through WebGPU', caption: 'The same scene in Chrome through WebAssembly and WebGPU, from an earlier build: it still shows white patches and an opaque fog cylinder that the native image no longer has.' },
   gridNative: { path: 'assets/screenshots/native-content.png', alt: 'Original V Rising models arranged in a demonstration grid by the native renderer', caption: '48 original models and 26 textures in a demonstration grid, native on macOS / Metal. The arrangement is not the game world.' },
   gridBrowser: { path: 'assets/screenshots/browser-webgpu.png', alt: 'The same model grid in Chrome through WebGPU', caption: 'The same grid in Chrome through WebGPU.' }
 };

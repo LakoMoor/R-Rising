@@ -283,3 +283,95 @@ export transfers it through the existing JSON format (version 1, optional instan
 shared texture pool); Chrome / WebGPU loaded the 316 draw groups with 0 page errors. A native
 re-import of the same JSON differs from direct loading by a few pixels (2 of 94 textures did not
 export), so byte identity is not claimed for scene exports.
+
+
+## Transform golden comparison (first original-data scenario)
+
+The scene files store both authoring transforms and the `LocalToWorld` the original's own transform
+system produced, so `LocalToWorld` is original-produced golden data. `rrising_ecs::transform` computes
+it (`float4x4` TRS / `mul` via `rrising-math`; `crates/rrising-content/tests/transform_golden.rs`,
+`#[ignore]`, needs the pinned install and `RRISING_LAYOUT_REPORT`) and the test compares all 1,183
+scenes. Measured on the pinned build: 1,385,671 entities, 919,206 with a stored `LocalToWorld`.
+
+- Comparable: 112,177 (12.2%) have an authoring source. The other 807,029 have none: 793,493 are
+  `Static` entities with only a baked `LocalToWorld`, and 13,536 are `Parent`+`StaticChild` entities
+  without any local transform. These are not compared.
+- Component set in this build: `LocalTransform`, `Translation`, `Rotation`, uniform `Scale`,
+  `PostTransformMatrix`, `Parent`, `Static`, `StaticChild`. There is no `NonUniformScale`,
+  `CompositeScale` or `LocalToParent`, so scale types beyond uniform are not exercised.
+- Source rule found by measurement: where `Translation`/`Rotation` exist they drive the matrix
+  (`LocalTransform` is a stale twin for 174 of 111,272 entities that have both); scale is
+  `Scale`, else `LocalTransform.Scale`; `Translate * (Rotate * Scale)` reproduces the stored `+0.0`
+  where `float4x4.TRS` yields `-0.0`.
+- Result, child step computed from the parent's stored `LocalToWorld` (the isolated step): 86,798 of
+  112,177 bit-identical (88,677 treating +-0 as equal), 111,382 (99.3%) within 1e-5 (relative to
+  `max(|v|,1)`), 767 off by more than 1e-3, max abs error 198.5. Recomputing parents up the chain
+  instead gives 75,333 bit-identical and 111,368 within 1e-5 (rounding compounds).
+- By category (step): root `LocalTransform+Translation+Rotation` 56,159 / 58,597 bit-identical, all
+  within 3.6e-7; with `Parent` 15,246 / 21,732 identical, all within 7.6e-6; with `Parent` and
+  non-unit `Scale` 61 / 885 identical, 883 within 1e-5; `PostTransformMatrix` roots only 2,070 /
+  14,318 identical (98.6% within 1e-5, 80 over 1e-3).
+- Mismatch causes: (1) the large errors (>1e-3) are concentrated in `Static` entities (671 of 767),
+  whose stored matrix was baked; consistent with the authoring values having changed after the
+  bake (not verified), and not a pattern a different formula fixed. (2) A ~1% tail of unit-scale root entities differs by 1 ulp for
+  reasons not recovered: fused multiply-add forms of the rotation matrix, quaternion
+  normalization and the multiplication association were tried and none improved the match.
+  (3) The stored `PostTransformMatrix` product keeps translation and `w` exactly while a plain 4x4
+  product does not, so the original's exact combination is not recovered; `mul(local, post)` is
+  the right order (the reverse is far worse) but not bit-exact.
+- Not covered: no `Unity.Transforms` body exists in the decompiled corpus and the REA session on
+  the pinned `GameAssembly` timed out, so formulas are measured, not translated from code; the
+  systems' scheduling, change-filtering and dirty-tracking; runtime-created entities; any entity
+  without an authoring source (86% of stored `LocalToWorld`). This is agreement with stored original
+  output on baked scene data, not a claim that the runtime system is ported.
+
+### Original-scene viewer follow-up: sub-meshes, transparency, base maps, array mapping
+
+Findings from the install and what changed in `--scene` (placement is original data; none of this is a
+rendering-parity claim):
+
+- **The white cylinder was a fog sheet, not a missing texture.** In Silver_Mountain01 (`c6d34432...`)
+  the 18 instances of material `AbyssClouds` (queue 3400, `_SURFACE_TYPE_TRANSPARENT`) were drawn
+  opaque, white-and-grey. Materials are now classified from stored facts only (`_SURFACE_TYPE_TRANSPARENT`
+  keyword, `_SurfaceType` = 1, custom queue >= 3000); transparent ones are excluded and counted
+  (`excluded: transparent`), not blended. Limit: a transparent material that relies only on its shader's
+  default queue (not read) is still drawn opaque.
+- **Alpha test is real and common.** 7,743 of 9,474 drawn instances in Silver_Mountain01 use
+  `_ALPHATEST_ON` (rocks included). The renderer gained a second fragment entry (`fs_cutout`, a new
+  `DrawCall::cutout` flag and an optional `cutout` field in the transfer JSON) that discards texels with
+  base-map alpha < 0.5. The material's own `_AlphaCutoff` is not read.
+- **Real white/grey patches: `Texture2DArray` base maps.** 1,691 instances (`GrassProjection`, `_BaseMaps`)
+  failed to upload (`m_TextureFormat` absent; array formats are `GraphicsFormat` ids). The array is now
+  decoded (BC formats only; the per-layer byte count must match the file exactly, which it does) and
+  **layer 0** is shown, because no per-instance layer selector is decoded. Those instances are counted as
+  "Texture2DArray base map shown as layer 0"; layer 0 is an assumption, not the original's choice. Any
+  other base map that cannot be uploaded (for example a `Cubemap`, 9 instances in `153b7233...`) or a
+  material with no base map is drawn with a flat 1x1 grey texture and counted, never the white neutral
+  texture. BC6H/BC7 mips are still flipped by block row only, so detail inside 4x4 blocks is mirrored.
+- **Sub-mesh selection** uses `MaterialMeshInfo` sub-mesh index (low 8 bits) against the mesh's own
+  sub-mesh index ranges (`first_byte`, `index_count`, `base_vertex`); only triangle lists are drawn
+  (others would be counted as `unusable sub-mesh`, 0 occurrences in the scenes tried). Multi-sub-mesh
+  meshes get compacted per-sub-mesh vertex sets, which also keeps the browser transfer of
+  `57768327...` at 210 MB (283 MB with whole-mesh copies, over the viewer's 256 MiB cap).
+- **Chunk-to-array mapping.** `shared_component_remap` is one entry per shared (non-chunk-component)
+  type of each chunk's archetype, in chunk-stream order; the entry count equals that sum in all 1,183
+  scenes, and in all 13,286 `MaterialMeshInfo` chunks of the 347 scenes with a `ManagedRenderMeshArray`
+  the chunk's values contain that array's serialized index (unmanaged components first, then managed, 1-based). The
+  viewer now uses this per chunk, and locates each array in the managed blob by its observed layout
+  instead of requiring it to be first (two scenes, `67c6a4f7...` and `969df757...`, have another managed
+  record first and now resolve: 121 of 122 renderers in the former). **No scene in the install has more
+  than one `ManagedRenderMeshArray`** (distribution: 0 arrays in 835 scenes, 1 in 348), so the
+  multi-array branch is implemented but has never run on real data.
+- Counts, before (whole meshes, no exclusion) -> after:
+  - Silver_Mountain01: 9,492 drawn / 3 marker / 0 without base map / 0 excluded -> 9,474 drawn
+    (2,056 on a sub-mesh of a multi-sub-mesh mesh) / 3 marker / 1,691 on a Texture2DArray layer 0 /
+    0 grey fallback / 18 excluded transparent.
+  - `57768327...` (10,414 renderers): 10,239 drawn (4,249 on a sub-mesh, 1,642 on array layer 0, 18
+    with no base map -> grey) / 3 marker / 172 excluded transparent. Its "before" counts are the sum
+    drawn + excluded; the before image was not rendered.
+  - `153b7233...` (17,114 renderers): 16,930 drawn / 2 marker / 182 transparent excluded / 9 grey
+    fallback / 2 array layer 0. Its 1%-99% framing is poor (scattered clusters), so it is not a showcase.
+- Verified natively and by native re-import of the exported JSON for `57768327...`. **Chrome/WebGPU was
+  not re-verified for this change** (the Chrome tools were unavailable in this session); the committed
+  `browser-original-scene.png` predates it and is unchanged. Still not done: lighting, LODs, skinned
+  meshes, real material parameters, terrain blending.

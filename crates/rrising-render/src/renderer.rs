@@ -55,6 +55,8 @@ pub struct DrawCall<'a> {
     pub mesh: &'a GpuMesh,
     pub instances: &'a [Instance],
     pub texture: &'a wgpu::TextureView,
+    /// Alpha-test the base map's alpha at 0.5 (`fs_cutout`) instead of ignoring it.
+    pub cutout: bool,
 }
 
 /// Unity clip space (z in [-1, 1]) to wgpu's (z in [0, 1]), as a column-major matrix.
@@ -79,6 +81,7 @@ pub struct Renderer {
     config: Option<wgpu::SurfaceConfiguration>,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
+    pipeline_cutout: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     neutral: wgpu::TextureView,
@@ -263,44 +266,48 @@ impl Renderer {
             bind_group_layouts: &[Some(&bind_layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("lit"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &mesh::vertex_layout(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(format.into())],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                // The original's winding is not yet recovered from the decompiled build, so the port
-                // draws both faces rather than guess and cull half of every model. Recorded in
-                // docs/PORT.md as an open item.
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: if debug_no_depth() {
-                None
-            } else {
-                Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::Less),
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                })
-            },
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let make_pipeline = |label: &str, fragment: &str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &mesh::vertex_layout(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fragment),
+                    compilation_options: Default::default(),
+                    targets: &[Some(format.into())],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    // The original's winding is not yet recovered from the decompiled build, so the port
+                    // draws both faces rather than guess and cull half of every model. Recorded in
+                    // docs/PORT.md as an open item.
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: if debug_no_depth() {
+                    None
+                } else {
+                    Some(wgpu::DepthStencilState {
+                        format: DEPTH_FORMAT,
+                        depth_write_enabled: Some(true),
+                        depth_compare: Some(wgpu::CompareFunction::Less),
+                        stencil: wgpu::StencilState::default(),
+                        bias: wgpu::DepthBiasState::default(),
+                    })
+                },
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = make_pipeline("lit", "fs_main");
+        let pipeline_cutout = make_pipeline("lit cutout", "fs_cutout");
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("albedo"),
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -361,6 +368,7 @@ impl Renderer {
             config,
             format,
             pipeline,
+            pipeline_cutout,
             bind_layout,
             sampler,
             neutral: neutral_tex.create_view(&Default::default()),
@@ -633,7 +641,16 @@ impl Renderer {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group(&self.neutral), &[]);
             let _ = format;
+            let mut cutout_bound = false;
             for d in draws {
+                if d.cutout != cutout_bound {
+                    pass.set_pipeline(if d.cutout {
+                        &self.pipeline_cutout
+                    } else {
+                        &self.pipeline
+                    });
+                    cutout_bound = d.cutout;
+                }
                 pass.set_bind_group(0, &self.bind_group(d.texture), &[]);
                 let inst = self
                     .device

@@ -29,6 +29,7 @@ fn fixture() -> Snapshot {
             instances: vec![],
             texture_index: None,
             texture: None,
+            cutout: false,
             vertices: [[-0.9, -0.9, 0.5], [0.9, -0.9, 0.5], [0., 0.9, 0.5]]
                 .map(|position| Vertex {
                     position,
@@ -61,6 +62,7 @@ fn serialized_transfer_matches_direct_gpu_upload() {
                 mesh: &mesh,
                 instances: &[item.transform],
                 texture: &neutral,
+                cutout: false,
             }],
         )
         .expect("direct frame");

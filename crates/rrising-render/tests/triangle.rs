@@ -71,6 +71,7 @@ fn draws_a_hand_built_triangle() {
         mesh: &mesh,
         instances: &instances,
         texture: &neutral,
+        cutout: false,
     }];
     let (w, h, rgba) = renderer
         .render_to_image(&uniforms, &draws)

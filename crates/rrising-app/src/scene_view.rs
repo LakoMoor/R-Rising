@@ -28,8 +28,26 @@ use rrising_math::{float3, float4x4};
 use rrising_render::{mesh, FrameUniforms, Instance, Vertex};
 use unity_formats::player::{ObjRef, PPtr};
 
-type CpuMesh = (usize, Arc<Vec<Vertex>>, Arc<Vec<u32>>, String);
-type RefTable = (ObjRef, Vec<PPtr>, Vec<i32>, Vec<i32>);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Surface {
+    Opaque,
+    /// Alpha-tested material (`_ALPHATEST_ON`): drawn through the renderer's cutout pipeline.
+    Cutout,
+    /// Blended material (queue >= 3000 or a transparent surface flag): excluded, not drawn opaque.
+    Transparent,
+}
+
+/// A material's draw-relevant facts, read once.
+#[derive(Clone, Debug)]
+struct MatInfo {
+    texture: Option<ObjRef>,
+    surface: Surface,
+}
+
+struct ArrayTable {
+    meshes: Vec<ObjRef>,
+    materials: Vec<Option<ObjRef>>,
+}
 
 const MATERIAL_MESH_INFO_HASH: u64 = 0x3ae3_a524_8a68_9306;
 const MANAGED_RENDER_MESH_ARRAY_HASH: u64 = 0xf423_fa42_b77d_7330;
@@ -50,6 +68,22 @@ pub struct SceneStats {
     pub unresolved_runtime_or_range: usize,
     pub unresolved_index: usize,
     pub unresolved_mesh_read: usize,
+    pub unresolved_no_array: usize,
+    /// Number of `ManagedRenderMeshArray` tables located in the scene.
+    pub render_mesh_arrays: usize,
+    /// Entities left out because their material is alpha-blended.
+    pub excluded_transparent: usize,
+    /// Drawn instances whose material is alpha-tested (fixed 0.5 threshold, `_AlphaCutoff` not read).
+    pub cutout_instances: usize,
+    /// Entities left out because their sub-mesh is not a usable triangle list.
+    pub excluded_submesh: usize,
+    /// Drawn instances that use one sub-mesh of a multi-sub-mesh mesh.
+    pub submesh_instances: usize,
+    /// Instances whose base map failed to upload and were drawn with the grey fallback (set by the app).
+    pub texture_fallback_instances: usize,
+    pub texture_fallback_textures: usize,
+    /// Drawn instances whose base map is a `Texture2DArray` shown as layer 0 (layer selection not recovered).
+    pub array_layer0_instances: usize,
     pub referenced_objects: usize,
     pub note: String,
 }
@@ -61,6 +95,8 @@ pub struct ReadyGroup {
     pub verts: Arc<Vec<Vertex>>,
     pub inds: Arc<Vec<u32>>,
     pub texture: Option<ObjRef>,
+    /// Alpha-tested material: drawn through the cutout pipeline.
+    pub cutout: bool,
     pub instances: Vec<Instance>,
 }
 
@@ -73,7 +109,7 @@ pub struct SceneData {
 }
 
 struct RawGroup {
-    mesh: ObjRef,
+    cutout: bool,
     texture: Option<ObjRef>,
     instances: Vec<Instance>,
 }
@@ -163,14 +199,17 @@ fn parse_pptr_table(bytes: &[u8]) -> Result<Vec<PPtr>> {
 
 /// `[2 header bytes][i32 n][n x i32][1 byte][i32 m][m x i32]`: two arrays of indices into the
 /// referenced-objects table (materials and meshes). Layout observed on the install and validated
-/// by requiring every index to be in range and each array to resolve to a single class.
-fn parse_index_arrays(blob: &[u8], limit: usize) -> Result<(Vec<i32>, Vec<i32>)> {
+/// by requiring every index to be in range and each array to resolve to a single class. Returns the
+/// arrays and the offset just past the second one.
+fn parse_index_arrays(blob: &[u8], limit: usize) -> Result<(Vec<i32>, Vec<i32>, usize)> {
     fn read(blob: &[u8], at: &mut usize, limit: usize) -> Result<Vec<i32>> {
         let n = i32::from_le_bytes(blob.get(*at..*at + 4).context("short blob")?.try_into()?);
         ensure!(n >= 0, "negative array length");
         let n = n as usize;
         *at += 4;
-        let raw = blob.get(*at..*at + n * 4).context("array overruns blob")?;
+        let raw = blob
+            .get(*at..n.checked_mul(4).context("overflow")? + *at)
+            .context("array overruns blob")?;
         *at += n * 4;
         let v: Vec<i32> = raw
             .as_chunks::<4>()
@@ -188,7 +227,7 @@ fn parse_index_arrays(blob: &[u8], limit: usize) -> Result<(Vec<i32>, Vec<i32>)>
     let a = read(blob, &mut at, limit)?;
     at += 1;
     let b = read(blob, &mut at, limit)?;
-    Ok((a, b))
+    Ok((a, b, at))
 }
 
 fn matrix_instance(m: [f32; 16]) -> Option<Instance> {
@@ -205,6 +244,184 @@ fn matrix_instance(m: [f32; 16]) -> Option<Instance> {
     })
 }
 
+/// Classify a material from facts stored in the file only: HDRP's `_SURFACE_TYPE_TRANSPARENT`
+/// keyword / `_SurfaceType` float, an explicit custom render queue, and the alpha-test flags. The
+/// shader's own default queue is not read, so a transparent material that relies on it alone is
+/// still drawn as opaque; that limit is reported, not hidden.
+fn classify_material(m: &unity_formats::material::UnityMaterialData) -> (Surface, String) {
+    let kw = |k: &str| m.keywords.iter().any(|x| x == k);
+    let f = |n: &str| m.floats.iter().find(|(k, _)| k == n).map(|(_, v)| *v);
+    let transparent =
+        kw("_SURFACE_TYPE_TRANSPARENT") || f("_SurfaceType") == Some(1.0) || m.render_queue >= 3000;
+    let cutout = kw("_ALPHATEST_ON")
+        || f("_AlphaCutoffEnable") == Some(1.0)
+        || f("_AlphaClip") == Some(1.0)
+        || (2450..3000).contains(&m.render_queue);
+    let surface = if transparent {
+        Surface::Transparent
+    } else if cutout {
+        Surface::Cutout
+    } else {
+        Surface::Opaque
+    };
+    let summary = format!(
+        "{:?} queue {} surfaceType {:?} alphaCutoffEnable {:?} kw {:?} slots {:?}",
+        m.name,
+        m.render_queue,
+        f("_SurfaceType"),
+        f("_AlphaCutoffEnable"),
+        m.keywords,
+        m.textures
+            .iter()
+            .filter(|(_, e)| e.texture.is_some())
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>()
+    );
+    (surface, summary)
+}
+
+type SubMeshGpu = (usize, Arc<Vec<Vertex>>, Arc<Vec<u32>>);
+
+/// Keep only the vertices a sub-mesh's indices reach, so each sub-mesh draw carries its own
+/// vertices and not a copy of the whole mesh.
+fn compact_vertices(verts: &[Vertex], inds: &[u32]) -> (Arc<Vec<Vertex>>, Vec<u32>) {
+    let mut remap: HashMap<u32, u32> = HashMap::new();
+    let mut out = Vec::new();
+    let new_inds = inds
+        .iter()
+        .map(|&i| {
+            *remap.entry(i).or_insert_with(|| {
+                out.push(verts[i as usize]);
+                (out.len() - 1) as u32
+            })
+        })
+        .collect();
+    (Arc::new(out), new_inds)
+}
+
+struct MeshCpu {
+    name: String,
+    verts: Arc<Vec<Vertex>>,
+    inds: Vec<u32>,
+    submeshes: Vec<unity_formats::mesh::SubMesh>,
+    index_size: u32,
+}
+
+/// The index run for one sub-mesh as absolute vertex indices; `None` if it is not a triangle list
+/// or does not fit the mesh.
+fn submesh_indices(m: &MeshCpu, sub: usize) -> Option<Vec<u32>> {
+    if m.submeshes.is_empty() {
+        return (sub == 0).then(|| m.inds.clone());
+    }
+    let sm = m.submeshes.get(sub)?;
+    if sm.topology != 0 || m.index_size == 0 {
+        return None;
+    }
+    let first = (sm.first_byte / m.index_size) as usize;
+    let end = first.checked_add(sm.index_count as usize)?;
+    let run = m.inds.get(first..end)?;
+    let out: Vec<u32> = run.iter().map(|&i| i + sm.base_vertex).collect();
+    if out.is_empty() || out.iter().any(|&i| i as usize >= m.verts.len()) {
+        return None;
+    }
+    Some(out)
+}
+
+/// Read a material's base map as a plain 2D texture. A `Texture2DArray` (HDRP terrain-blend
+/// materials keep their `_BaseMaps` in one) has no per-instance layer selector in the data the port
+/// decodes, so its layer 0 is returned and the second value is `true`: callers count those
+/// instances as an approximation rather than a resolved base map.
+pub fn read_base_map(
+    content: &GameContent,
+    r: &ObjRef,
+) -> Result<(unity_formats::texture::UnityTexture, bool)> {
+    if content.player().class_name(r) != Some("Texture2DArray") {
+        return Ok((content.read_texture(r)?, false));
+    }
+    use unity_formats::texture::{TextureFormat, UnityTexture};
+    let t = content
+        .player()
+        .decode(r)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let int = |k: &str| {
+        t.get(k)
+            .and_then(|v| v.as_i64())
+            .with_context(|| format!("Texture2DArray: no integer {k}"))
+    };
+    let (w, h) = (int("m_Width")? as u32, int("m_Height")? as u32);
+    let (depth, mips) = (int("m_Depth")? as usize, int("m_MipCount")? as u32);
+    // `m_Format` of a Texture2DArray is a `GraphicsFormat`, not a `TextureFormat`. Only the BC
+    // block formats (96..=109 in that enum) are mapped; the byte-count check below is the
+    // validation that the mapping is right for the file at hand.
+    let graphics = int("m_Format")?;
+    let (format, srgb_from_format) = match graphics {
+        96 | 97 => (10, graphics == 96),
+        100 | 101 => (12, graphics == 100),
+        102 => (26, false),
+        104 => (27, false),
+        108 | 109 => (25, graphics == 108),
+        other => bail!("Texture2DArray GraphicsFormat {other} is not mapped"),
+    };
+    let stream = t
+        .get("m_StreamData")
+        .map(unity_formats::resource::StreamingInfo::of)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .flatten();
+    let data = match stream {
+        Some(s) => content
+            .player()
+            .read_stream(&r.file, &s)
+            .map_err(|e| anyhow::anyhow!("{e}"))?,
+        None => t
+            .get("image data")
+            .and_then(|v| v.as_bytes())
+            .context("Texture2DArray: no image data")?
+            .to_vec(),
+    };
+    let tf = TextureFormat::from_id(format).map_err(|e| anyhow::anyhow!("{e}"))?;
+    ensure!(
+        depth > 0 && mips > 0,
+        "Texture2DArray without layers or mips"
+    );
+    ensure!(!tf.is_crunched(), "crunched Texture2DArray");
+    let slice: usize = (0..mips)
+        .map(|i| {
+            tf.level_size((w >> i).max(1), (h >> i).max(1))
+                .context("level size")
+        })
+        .sum::<Result<usize>>()?;
+    ensure!(
+        slice.checked_mul(depth) == Some(data.len()),
+        "Texture2DArray data is {} bytes, {depth} layers of {slice} expected",
+        data.len()
+    );
+    let base = UnityTexture {
+        name: t
+            .get("m_Name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned(),
+        width: w,
+        height: h,
+        format,
+        mips,
+        srgb: srgb_from_format,
+        usage: 0,
+        wrap: [0, 0],
+        filter: 1,
+        mip_bias: 0.0,
+        aniso: 1,
+        data: data[..slice].to_vec(),
+        unity: content
+            .player()
+            .file(&r.file)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .unity,
+    };
+    Ok((base, true))
+}
+
 /// Collect placements and resolve references. Meshes are read once per unique object.
 pub fn collect(
     content: &GameContent,
@@ -216,9 +433,14 @@ pub fn collect(
     let scene = SceneFile::open(scene_path)?;
     let resolved = layouts.resolve_scene(&scene)?;
     let mut stats = SceneStats::default();
+    let debug = std::env::var_os("RRISING_SCENE_DEBUG").is_some();
 
     // Reference tables. Failure here leaves every renderer as a marker, with the reason recorded.
-    let table = (|| -> Result<RefTable> {
+    // Each ManagedRenderMeshArray is located in the managed blob by its observed layout (other
+    // managed shared records sit before and after it and their length is not decoded), and keyed by
+    // its 1-based serialized shared-component index.
+    let sc = scene.shared_and_managed_components()?;
+    let table = (|| -> Result<(Vec<(i32, ArrayTable)>, usize)> {
         let catalog = RuntimeContentCatalog::open(
             &data_dir.join("StreamingAssets/ContentArchives/archive_dependencies.bin"),
         )?;
@@ -228,77 +450,138 @@ pub fn collect(
             .behaviour(&ruo)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         let pptrs = parse_pptr_table(&bytes)?;
-        let sc = scene.shared_and_managed_components()?;
-        let mrma = sc
-            .managed_shared_records
-            .iter()
-            .filter(|r| r.stable_type_hash == MANAGED_RENDER_MESH_ARRAY_HASH)
-            .count();
-        ensure!(
-            sc.managed_shared_records
-                .first()
-                .is_some_and(|r| r.stable_type_hash == MANAGED_RENDER_MESH_ARRAY_HASH),
-            "first managed shared component is not a ManagedRenderMeshArray"
-        );
-        ensure!(
-            mrma == 1,
-            "{mrma} ManagedRenderMeshArray components; the chunk-to-array mapping is not recovered"
-        );
-        let (a, b) = parse_index_arrays(sc.managed_blob, pptrs.len())?;
-        Ok((ruo, pptrs, a, b))
-    })();
-
-    let mut meshes_arr: Vec<ObjRef> = Vec::new();
-    let mut materials_arr: Vec<Option<ObjRef>> = Vec::new();
-    match table {
-        Ok((ruo, pptrs, a, b)) => {
-            stats.referenced_objects = pptrs.len();
-            let resolve = |i: i32| -> Option<ObjRef> {
-                content
-                    .player()
-                    .resolve_pptr(&ruo.file, pptrs[i as usize])
-                    .ok()
-                    .flatten()
-            };
-            let class_of = |v: &[i32]| {
-                let mut counts: HashMap<&str, usize> = HashMap::new();
-                for &i in v {
-                    if let Some(r) = resolve(i) {
-                        if let Some(c) = content.player().class_name(&r) {
-                            *counts.entry(c).or_default() += 1;
-                        }
+        let resolve = |i: i32| -> Option<ObjRef> {
+            content
+                .player()
+                .resolve_pptr(&ruo.file, pptrs[i as usize])
+                .ok()
+                .flatten()
+        };
+        let class_of = |v: &[i32]| {
+            let mut counts: HashMap<&str, usize> = HashMap::new();
+            for &i in v {
+                if let Some(r) = resolve(i) {
+                    if let Some(c) = content.player().class_name(&r) {
+                        *counts.entry(c).or_default() += 1;
                     }
                 }
-                counts
-                    .into_iter()
-                    .max_by_key(|(_, n)| *n)
-                    .map(|(c, _)| c.to_owned())
-            };
-            let (ca, cb) = (class_of(&a), class_of(&b));
-            let (mesh_idx, mat_idx) = match (ca.as_deref(), cb.as_deref()) {
-                (Some("Mesh"), Some("Material")) => (a, b),
-                (Some("Material"), Some("Mesh")) => (b, a),
-                other => {
-                    stats.note = format!("array classes {other:?} are not Mesh/Material");
-                    (vec![], vec![])
+            }
+            counts
+                .into_iter()
+                .max_by_key(|(_, n)| *n)
+                .map(|(c, _)| c.to_owned())
+        };
+        let mut out = Vec::new();
+        let mut cursor = 0usize;
+        for (j, rec) in sc.managed_shared_records.iter().enumerate() {
+            if rec.stable_type_hash != MANAGED_RENDER_MESH_ARRAY_HASH {
+                continue;
+            }
+            let mut found = None;
+            for off in cursor..sc.managed_blob.len() {
+                let Ok((a, b, end)) = parse_index_arrays(&sc.managed_blob[off..], pptrs.len())
+                else {
+                    continue;
+                };
+                if a.is_empty() || b.is_empty() {
+                    continue;
                 }
+                let pair = match (class_of(&a).as_deref(), class_of(&b).as_deref()) {
+                    (Some("Mesh"), Some("Material")) => (a, b),
+                    (Some("Material"), Some("Mesh")) => (b, a),
+                    _ => continue,
+                };
+                found = Some((pair, off + end));
+                break;
+            }
+            let Some(((mesh_idx, mat_idx), end)) = found else {
+                continue;
             };
-            for i in mesh_idx {
-                meshes_arr.push(resolve(i).unwrap_or(ObjRef {
-                    file: String::new(),
-                    path_id: 0,
-                }));
-            }
-            for i in mat_idx {
-                materials_arr.push(resolve(i));
-            }
+            cursor = end;
+            let meshes = mesh_idx
+                .iter()
+                .map(|&i| {
+                    resolve(i).unwrap_or(ObjRef {
+                        file: String::new(),
+                        path_id: 0,
+                    })
+                })
+                .collect();
+            let materials = mat_idx.iter().map(|&i| resolve(i)).collect();
+            let serialized = i32::try_from(sc.unmanaged.len() + j + 1)?;
+            out.push((serialized, ArrayTable { meshes, materials }));
         }
-        Err(e) => stats.note = format!("{e:#}"),
-    }
+        ensure!(
+            !out.is_empty(),
+            "no ManagedRenderMeshArray could be located in the managed blob"
+        );
+        Ok((out, pptrs.len()))
+    })();
+    let arrays: Vec<(i32, ArrayTable)> = match table {
+        Ok((arrays, n)) => {
+            stats.referenced_objects = n;
+            arrays
+        }
+        Err(e) => {
+            stats.note = format!("{e:#}");
+            Vec::new()
+        }
+    };
+    stats.render_mesh_arrays = arrays.len();
 
-    // Texture per material, resolved once.
-    let mut tex_of_material: HashMap<ObjRef, Option<ObjRef>> = HashMap::new();
-    let mut raw: HashMap<(ObjRef, Option<ObjRef>), RawGroup> = HashMap::new();
+    // Chunk -> shared-component values. `shared_component_remap` holds, in chunk stream order, one
+    // entry per shared (non-chunk-component) type of the chunk's archetype (the entry count equals
+    // that sum in all 1,183 scenes). A chunk's ManagedRenderMeshArray is the table whose serialized
+    // index appears among its values.
+    let mut chunk_values: Vec<&[i32]> = Vec::with_capacity(resolved.chunks.len());
+    let mut mapping_ok = true;
+    let mut at = 0usize;
+    for chunk in &resolved.chunks {
+        let k = match resolved
+            .archetypes
+            .get(chunk.header.archetype_index as usize)
+        {
+            Some(Some(a)) => a
+                .types
+                .iter()
+                .filter(|t| t.is_shared_component_type() && !t.is_chunk_component())
+                .count(),
+            _ => {
+                mapping_ok = false;
+                0
+            }
+        };
+        let slice = sc
+            .shared_component_remap
+            .get(at..at + k)
+            .unwrap_or_else(|| {
+                mapping_ok = false;
+                &[]
+            });
+        chunk_values.push(slice);
+        at += k;
+    }
+    if mapping_ok {
+        mapping_ok = at == sc.shared_component_remap.len();
+    }
+    let array_for_chunk = |ci: usize| -> Option<&ArrayTable> {
+        if mapping_ok {
+            let vals = chunk_values.get(ci)?;
+            arrays
+                .iter()
+                .find(|(id, _)| vals.contains(id))
+                .map(|(_, t)| t)
+        } else if arrays.len() == 1 {
+            // Mapping not decodable: only a lone array is unambiguous.
+            Some(&arrays[0].1)
+        } else {
+            None
+        }
+    };
+
+    // Per material, resolved once.
+    let mut mat_cache: HashMap<ObjRef, Option<MatInfo>> = HashMap::new();
+    let mut raw: HashMap<(ObjRef, u16, Option<ObjRef>, bool), RawGroup> = HashMap::new();
     let mut markers: Vec<Instance> = Vec::new();
 
     for (ci, chunk) in resolved.chunks.iter().enumerate() {
@@ -321,55 +604,81 @@ pub fn collect(
                 markers.push(inst);
                 continue;
             }
-            let mi = info.mesh_array_index();
-            let mat = info.material_array_index();
-            let mesh_ref = usize::try_from(mi)
+            let Some(table) = array_for_chunk(ci) else {
+                stats.unresolved_no_array += 1;
+                markers.push(inst);
+                continue;
+            };
+            let mesh_ref = usize::try_from(info.mesh_array_index())
                 .ok()
-                .and_then(|i| meshes_arr.get(i))
+                .and_then(|i| table.meshes.get(i))
                 .filter(|r| r.path_id != 0);
             let Some(mesh_ref) = mesh_ref else {
                 stats.unresolved_index += 1;
                 markers.push(inst);
                 continue;
             };
-            let material = usize::try_from(mat)
+            let material = usize::try_from(info.material_array_index())
                 .ok()
-                .and_then(|i| materials_arr.get(i))
+                .and_then(|i| table.materials.get(i))
                 .cloned()
                 .flatten();
-            let texture = material.and_then(|m| {
-                tex_of_material
+            let mat = material.and_then(|m| {
+                mat_cache
                     .entry(m.clone())
                     .or_insert_with(|| {
-                        let mat = content.read_material(&m).ok()?;
-                        let slot = rrising_core::base_map_name(&mat)?;
-                        mat.textures
-                            .iter()
-                            .find(|(n, _)| n == slot)
-                            .and_then(|(_, env)| env.texture.clone())
+                        let data = content.read_material(&m).ok()?;
+                        let (surface, summary) = classify_material(&data);
+                        let texture = rrising_core::base_map_name(&data).and_then(|slot| {
+                            data.textures
+                                .iter()
+                                .find(|(n, _)| n == slot)
+                                .and_then(|(_, env)| env.texture.clone())
+                        });
+                        if debug {
+                            eprintln!("material {summary} -> {surface:?}");
+                        }
+                        Some(MatInfo { texture, surface })
                     })
                     .clone()
             });
-            raw.entry((mesh_ref.clone(), texture.clone()))
-                .or_insert_with(|| RawGroup {
-                    mesh: mesh_ref.clone(),
-                    texture,
-                    instances: vec![],
-                })
-                .instances
-                .push(inst);
+            let (texture, surface) = match &mat {
+                Some(m) => (m.texture.clone(), m.surface),
+                None => (None, Surface::Opaque),
+            };
+            match surface {
+                Surface::Opaque | Surface::Cutout => {}
+                Surface::Transparent => {
+                    stats.excluded_transparent += 1;
+                    continue;
+                }
+            }
+            raw.entry((
+                mesh_ref.clone(),
+                info.sub_mesh(),
+                texture.clone(),
+                surface == Surface::Cutout,
+            ))
+            .or_insert_with(|| RawGroup {
+                cutout: surface == Surface::Cutout,
+                texture,
+                instances: vec![],
+            })
+            .instances
+            .push(inst);
         }
     }
 
-    // Read each unique mesh once; a group whose mesh cannot be read becomes markers.
-    let mut cpu: HashMap<ObjRef, Option<CpuMesh>> = HashMap::new();
+    // Read each unique mesh once; a group whose mesh or sub-mesh cannot be used becomes markers
+    // (unreadable/skinned) or an excluded, counted instance (not a triangle list).
+    let mut cpu: HashMap<ObjRef, Option<MeshCpu>> = HashMap::new();
+    let mut sub_ids: HashMap<(ObjRef, u16), Option<SubMeshGpu>> = HashMap::new();
     let mut groups = Vec::new();
     let mut keys: Vec<_> = raw.into_iter().collect();
-    keys.sort_by(|a, b| (&a.0 .0, a.0 .1.as_ref()).cmp(&(&b.0 .0, b.0 .1.as_ref())));
-    for (_, g) in keys {
-        let next_id = cpu.len();
-        let entry = cpu.entry(g.mesh.clone()).or_insert_with(|| {
-            let m = content.read_mesh(&g.mesh).ok()?;
+    keys.sort_by(|a, b| a.0.cmp(&b.0));
+    for ((mesh_ref, sub, _, _), g) in keys {
+        let mesh = cpu.entry(mesh_ref.clone()).or_insert_with(|| {
+            let m = content.read_mesh(&mesh_ref).ok()?;
             if m.skin.is_some() {
                 return None;
             }
@@ -377,21 +686,49 @@ pub fn collect(
             if v.is_empty() || i.is_empty() {
                 return None;
             }
-            Some((next_id, Arc::new(v), Arc::new(i), m.name.clone()))
+            Some(MeshCpu {
+                name: m.name.clone(),
+                verts: Arc::new(v),
+                inds: i,
+                submeshes: m.submeshes.clone(),
+                index_size: m.index_size,
+            })
+        });
+        let Some(mesh) = mesh.as_ref() else {
+            stats.unresolved_mesh_read += g.instances.len();
+            markers.extend(g.instances);
+            continue;
+        };
+        let next_id = sub_ids.len();
+        let entry = sub_ids.entry((mesh_ref.clone(), sub)).or_insert_with(|| {
+            let inds = submesh_indices(mesh, sub as usize)?;
+            let (verts, inds) = if mesh.submeshes.len() > 1 {
+                compact_vertices(&mesh.verts, &inds)
+            } else {
+                (mesh.verts.clone(), inds)
+            };
+            Some((next_id, verts, Arc::new(inds)))
         });
         match entry {
-            Some((id, v, i, name)) => groups.push(ReadyGroup {
-                name: name.clone(),
-                mesh_id: *id,
-                verts: v.clone(),
-                inds: i.clone(),
-                texture: g.texture,
-                instances: g.instances,
-            }),
-            None => {
-                stats.unresolved_mesh_read += g.instances.len();
-                markers.extend(g.instances);
+            Some((id, verts, inds)) => {
+                if mesh.submeshes.len() > 1 {
+                    stats.submesh_instances += g.instances.len();
+                }
+                groups.push(ReadyGroup {
+                    name: if mesh.submeshes.len() > 1 {
+                        format!("{}#{sub}", mesh.name)
+                    } else {
+                        mesh.name.clone()
+                    },
+                    mesh_id: *id,
+                    verts: verts.clone(),
+                    inds: inds.clone(),
+                    texture: g.texture,
+                    cutout: g.cutout,
+                    instances: g.instances,
+                });
             }
+            None => stats.excluded_submesh += g.instances.len(),
         }
     }
     stats.unique_meshes_resolved = cpu.values().filter(|v| v.is_some()).count();
@@ -401,6 +738,11 @@ pub fn collect(
         .collect::<std::collections::BTreeSet<_>>()
         .len();
     stats.drawn_mesh_instances = groups.iter().map(|g| g.instances.len()).sum();
+    stats.cutout_instances = groups
+        .iter()
+        .filter(|g| g.cutout)
+        .map(|g| g.instances.len())
+        .sum();
     stats.resolved_entities = stats.drawn_mesh_instances;
     stats.marker_instances = markers.len();
     stats.untextured_instances = groups
@@ -545,7 +887,8 @@ impl SceneStats {
         format!(
             "scene: {} entities, {} with LocalToWorld, {} with MaterialMeshInfo | referenced objects {} | \
              resolved meshes {} unique ({} textures) | drawn mesh instances {} (without base map {}) | unresolved -> marker boxes {} \
-             (runtime/range {}, bad index {}, mesh unreadable/skinned {}){}",
+             (runtime/range {}, bad index {}, no array for chunk {}, mesh unreadable/skinned {}) | {} render-mesh array(s), {} instances on a sub-mesh of a multi-sub-mesh mesh | \
+             excluded: transparent {}, unusable sub-mesh {} | alpha-tested instances drawn {} | base map upload failed -> grey fallback: {} instances ({} textures) | Texture2DArray base map shown as layer 0: {} instances{}",
             self.entities,
             self.with_transform,
             self.with_material_mesh_info,
@@ -557,7 +900,16 @@ impl SceneStats {
             self.marker_instances,
             self.unresolved_runtime_or_range,
             self.unresolved_index,
+            self.unresolved_no_array,
             self.unresolved_mesh_read,
+            self.render_mesh_arrays,
+            self.submesh_instances,
+            self.excluded_transparent,
+            self.excluded_submesh,
+            self.cutout_instances,
+            self.texture_fallback_instances,
+            self.texture_fallback_textures,
+            self.array_layer0_instances,
             if self.note.is_empty() {
                 String::new()
             } else {

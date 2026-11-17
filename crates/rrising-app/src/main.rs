@@ -98,6 +98,7 @@ fn parse_args() -> Result<Options> {
 struct Item {
     mesh: usize,
     texture: Option<usize>,
+    cutout: bool,
     instances: Vec<Instance>,
 }
 
@@ -118,6 +119,7 @@ impl Loaded {
             .map(|it| DrawCall {
                 mesh: &self.meshes[it.mesh],
                 instances: &it.instances,
+                cutout: it.cutout,
                 texture: match it.texture {
                     Some(t) => &self.textures[t].view,
                     None => neutral,
@@ -151,6 +153,7 @@ fn load_scene(renderer: &Renderer, content: &GameContent, spec: &SceneSpec) -> R
                 items.push(Item {
                     mesh: mesh_index,
                     texture: None,
+                    cutout: false,
                     instances: vec![Instance::from_matrix(&item.transform)],
                 });
                 continue;
@@ -187,6 +190,7 @@ fn load_scene(renderer: &Renderer, content: &GameContent, spec: &SceneSpec) -> R
         items.push(Item {
             mesh: mesh_index,
             texture: texture_index,
+            cutout: false,
             instances: vec![Instance::from_matrix(&item.transform)],
         });
     }
@@ -203,7 +207,7 @@ fn load_scene(renderer: &Renderer, content: &GameContent, spec: &SceneSpec) -> R
 fn load_scene_view(
     renderer: &Renderer,
     content: &GameContent,
-    data: &scene_view::SceneData,
+    data: &mut scene_view::SceneData,
 ) -> Result<Loaded> {
     let mut meshes = Vec::new();
     let mut textures: Vec<rrising_render::GpuTexture> = Vec::new();
@@ -212,6 +216,11 @@ fn load_scene_view(
     let mut tex_slot: std::collections::HashMap<unity_formats::player::ObjRef, Option<usize>> =
         Default::default();
     let mut textures_bound = 0;
+    let mut grey_slot: Option<usize> = None;
+    let mut array_textures: std::collections::HashMap<unity_formats::player::ObjRef, bool> =
+        Default::default();
+    let mut array_instances = 0;
+    let (mut failed_instances, mut failed_textures) = (0, 0);
     for g in &data.groups {
         let mesh = match mesh_slot.get(&g.mesh_id) {
             Some(&m) => m,
@@ -228,24 +237,64 @@ fn load_scene_view(
                 meshes.len() - 1
             }
         };
-        let texture = match &g.texture {
+        let real = match &g.texture {
             None => None,
             Some(r) => *tex_slot.entry(r.clone()).or_insert_with(|| {
-                let gpu = content
-                    .read_texture(r)
-                    .and_then(|t| renderer.upload_texture(&t))
-                    .ok()?;
-                textures.push(gpu);
-                Some(textures.len() - 1)
+                let uploaded = scene_view::read_base_map(content, r).and_then(|(t, layer0)| {
+                    array_textures.insert(r.clone(), layer0);
+                    renderer.upload_texture(&t)
+                });
+                match uploaded {
+                    Ok(gpu) => {
+                        textures.push(gpu);
+                        Some(textures.len() - 1)
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "base map {r:?} ({:?}) not uploaded: {e:#}",
+                            content.player().class_name(r)
+                        );
+                        failed_textures += 1;
+                        None
+                    }
+                }
             }),
         };
-        textures_bound += usize::from(texture.is_some());
+        if g.texture.is_some() && real.is_none() {
+            failed_instances += g.instances.len();
+        }
+        if real.is_some()
+            && g.texture
+                .as_ref()
+                .is_some_and(|r| array_textures.get(r) == Some(&true))
+        {
+            array_instances += g.instances.len();
+        }
+        // No base map (or one that cannot be held): a flat grey, never the white neutral texture.
+        if real.is_none() && grey_slot.is_none() {
+            let grey =
+                rrising_render::texture::TextureData::flat("fallback grey", [128, 128, 128, 255]);
+            if let Ok(t) = grey.upload(
+                renderer.device(),
+                renderer.queue(),
+                renderer.device().features(),
+            ) {
+                textures.push(t);
+                grey_slot = Some(textures.len() - 1);
+            }
+        }
+        let texture = real.or(grey_slot);
+        textures_bound += usize::from(real.is_some());
         items.push(Item {
             mesh,
             texture,
+            cutout: g.cutout,
             instances: g.instances.clone(),
         });
     }
+    data.stats.texture_fallback_instances = failed_instances;
+    data.stats.texture_fallback_textures = failed_textures;
+    data.stats.array_layer0_instances = array_instances;
     if !data.markers.is_empty() {
         let (v, i) = scene_view::marker_box();
         meshes.push(rrising_render::mesh::upload_vertices(
@@ -259,6 +308,7 @@ fn load_scene_view(
         items.push(Item {
             mesh: meshes.len() - 1,
             texture: None,
+            cutout: false,
             instances: data.markers.clone(),
         });
     }
@@ -553,9 +603,9 @@ fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCa
     let content = open_content(&opt)?;
     if let Some(scene_path) = &opt.scene {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
-        let data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        let loaded = load_scene_view(renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
-        let loaded = load_scene_view(renderer, &content, &data)?;
         return Ok((loaded, Some(scene_view::FlyCam::framing(data.bounds))));
     }
     let spec = scene::showcase(&content, opt.items);
@@ -586,9 +636,9 @@ fn run_offscreen(opt: &Options) -> Result<()> {
     if let Some(scene_path) = &opt.scene {
         let content = open_content(opt)?;
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
-        let data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        let loaded = load_scene_view(&renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
-        let loaded = load_scene_view(&renderer, &content, &data)?;
         let mut renderer = renderer;
         let cam = scene_view::FlyCam::framing(data.bounds);
         let uniforms = cam.uniforms(opt.width as f32 / opt.height as f32);
@@ -686,6 +736,7 @@ fn export_web(opt: &Options, path: &Path) -> Result<()> {
             instances: vec![],
             texture,
             texture_index: None,
+            cutout: false,
         });
     }
     let snapshot = Snapshot {
@@ -716,22 +767,57 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
     let scene_path = opt.scene.as_ref().context("--scene")?;
     let content = open_content(opt)?;
     let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
-    let data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
-    println!("{}", data.stats.report());
+    let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
     let mut pool = Vec::new();
     let mut slot: std::collections::HashMap<unity_formats::player::ObjRef, Option<usize>> =
         Default::default();
     let mut items = Vec::new();
     let identity = Instance::from_matrix(&float4x4::identity);
+    let mut grey: Option<usize> = None;
+    let mut array_textures: std::collections::HashMap<unity_formats::player::ObjRef, bool> =
+        Default::default();
+    let mut array_instances = 0;
+    let (mut failed_instances, mut failed_textures) = (0, 0);
     for g in &data.groups {
-        let texture_index = match &g.texture {
+        let real = match &g.texture {
             None => None,
             Some(r) => *slot.entry(r.clone()).or_insert_with(|| {
-                let t = content.read_texture(r).ok()?;
-                pool.push(rrising_render::unity_texture::export(&t).ok()?);
-                Some(pool.len() - 1)
+                let exported = scene_view::read_base_map(&content, r).and_then(|(t, layer0)| {
+                    array_textures.insert(r.clone(), layer0);
+                    rrising_render::unity_texture::export(&t)
+                });
+                match exported {
+                    Ok(t) => {
+                        pool.push(t);
+                        Some(pool.len() - 1)
+                    }
+                    Err(e) => {
+                        log::warn!("base map {r:?} not exported: {e:#}");
+                        failed_textures += 1;
+                        None
+                    }
+                }
             }),
         };
+        if g.texture.is_some() && real.is_none() {
+            failed_instances += g.instances.len();
+        }
+        if real.is_some()
+            && g.texture
+                .as_ref()
+                .is_some_and(|r| array_textures.get(r) == Some(&true))
+        {
+            array_instances += g.instances.len();
+        }
+        let texture_index = real.or_else(|| {
+            Some(*grey.get_or_insert_with(|| {
+                pool.push(rrising_render::texture::TextureData::flat(
+                    "fallback grey",
+                    [128, 128, 128, 255],
+                ));
+                pool.len() - 1
+            }))
+        });
         items.push(SnapshotItem {
             name: g.name.clone(),
             vertices: (*g.verts).clone(),
@@ -740,8 +826,13 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
             instances: g.instances.clone(),
             texture: None,
             texture_index,
+            cutout: g.cutout,
         });
     }
+    data.stats.texture_fallback_instances = failed_instances;
+    data.stats.texture_fallback_textures = failed_textures;
+    data.stats.array_layer0_instances = array_instances;
+    println!("{}", data.stats.report());
     if !data.markers.is_empty() {
         let (vertices, indices) = scene_view::marker_box();
         items.push(SnapshotItem {
@@ -752,6 +843,7 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
             instances: data.markers.clone(),
             texture: None,
             texture_index: None,
+            cutout: false,
         });
     }
     let cam = scene_view::FlyCam::framing(data.bounds);
