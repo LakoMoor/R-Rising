@@ -37,7 +37,7 @@ struct Options {
     inspect_scene: Option<PathBuf>,
     scene: Option<PathBuf>,
     type_layouts: Option<PathBuf>,
-    /// `--scene-sim N`: run N fixed transform frames in a World and draw from its LocalToWorld.
+    /// `--scene-sim N`: run fixed steering/transform frames and draw the World's LocalToWorld.
     scene_sim: Option<usize>,
     /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
     compare: Option<PathBuf>,
@@ -654,8 +654,8 @@ fn apply_sim(
     let sim = scene_view::simulate(layouts, scene_path, frames)?;
     let (ok, missing) = sim.apply(data);
     println!(
-        "scene-sim: {frames} fixed frames, world built in {:.0} ms, {ok} instances read back from the World ({missing} kept stored); transform writes frame 1: {}, last: {}",
-        sim.build_ms, sim.written_first, sim.written_last
+        "scene-sim: {frames} fixed frames, world built in {:.0} ms, {ok} instances read back from the World ({missing} kept stored); transform writes frame 1: {}, last: {}; live steering candidates {}, EntityInput updates {}",
+        sim.build_ms, sim.written_first, sim.written_last, sim.steering_live_candidates, sim.steering_input_updates
     );
     Ok(())
 }
@@ -844,6 +844,12 @@ fn compare_scene(opt: &Options, out: &Path) -> Result<()> {
         "instances_read_back_from_world": read_back,
         "instances_missing_in_world": missing,
         "instances_with_different_matrix_bits": matrices_differing,
+        "steering": {
+            "types_present": sim.steering_types_present,
+            "live_candidates": sim.steering_live_candidates,
+            "entity_input_updates": sim.steering_input_updates,
+            "scope": "shared steering only; no locomotion or collision systems",
+        },
         "max_abs_matrix_element_delta": max_matrix_delta,
         "pixels": w * h,
         "pixels_differing": differing,
@@ -1300,4 +1306,21 @@ fn main() -> Result<()> {
     let mut app = App::default();
     el.run_app(&mut app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diff_images;
+
+    #[test]
+    fn diff_counts_pixels_and_channel_deltas() {
+        let a = vec![10u8; 4 * 4];
+        let mut b = a.clone();
+        assert_eq!(diff_images(&a, &b).0, 0);
+        b[4] = 14; // one pixel, red +4
+        b[9] = 5; // another pixel, green -5
+        let (n, max, sum, img) = diff_images(&a, &b);
+        assert_eq!((n, max, sum), (2, 5, 9));
+        assert_eq!(&img[4..8], &[255, 0, 0, 255]);
+    }
 }

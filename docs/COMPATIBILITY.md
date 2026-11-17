@@ -316,6 +316,36 @@ shared texture pool); Chrome / WebGPU loaded the 316 draw groups with 0 page err
 re-import of the same JSON differs from direct loading by a few pixels (2 of 94 textures did not
 export), so byte identity is not claimed for scene exports.
 
+### Runtime loop to renderer (`--scene-sim N`, `--compare out.json`)
+
+`--scene ... --scene-sim N` builds the scene `World` through `world_adapter`, runs the `Schedule`
+(`TransformSystem`) for N fixed frames, reads each drawn entity's `LocalToWorld` back from the
+`World` by its stored entity id, and draws those matrices instead of the stored ones (works with
+`--offscreen`, windowed and `--export-web`). The old path stays the default. `--compare out.json`
+renders both ways offscreen (same camera, same GPU data, 1280x720, 3 frames) and writes the JSON
+plus stored/sim/diff PNGs. This compares original-stored transforms with Rust-simulated transforms;
+it is NOT a comparison with the original game's frames.
+
+| scene | instances | matrices differing (bits) | max matrix delta | pixels differing | max channel delta |
+|---|---|---|---|---|---|
+| Silver_Mountain01 `c6d34432` | 9,495 | 0 | 0 | 0 / 921,600 (0%) | 0 |
+| `63f65516` | 12,911 | 0 | 0 | 0 (0%) | 0 |
+| `153b7233` (17,114 instances, mostly marker boxes) | 17,114 | 4,287 | 3.4e-3 | 0 (0%) | 0 |
+
+In a sweep of ~90 of the largest scenes no framed render differed by a single pixel; the largest
+matrix deltas were sub-pixel at the framed distance (a close-up on the worst instance of `153b7233`
+also showed 0 differing pixels, but that instance was not on screen, so it is weak evidence). Most
+entities have no authoring source and keep their stored matrix, so the image test mostly confirms
+the pipeline wiring and that the transform system does not disturb stored placements. The diff
+code is covered by a unit test that proves it detects differing pixels.
+
+Release timings (Apple GPU, offscreen render + readback, median of 5; schedule median over frames
+after the first): Silver_Mountain01 world build 7.6 ms, schedule first frame 0.054 ms (289
+entities written), steady 0.008 ms, render 2.7 ms stored / 2.6 ms sim; `63f65516` 13.5 ms, 0.089 ms,
+0.011 ms, render 3.0 / 2.6 ms; `153b7233` 77 ms, 3.0 ms (15,906 written), 0.55 ms, render 5.2 / 5.4 ms.
+The sim `--export-web` JSON of Silver_Mountain01 is byte-identical to the stored export, so the
+earlier Chrome / WebGPU check applies unchanged; Chrome was not re-run.
+
 
 ## Transform golden comparison (first original-data scenario)
 

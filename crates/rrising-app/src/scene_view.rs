@@ -970,17 +970,22 @@ pub struct SimWorld {
     /// Entities the last frame wrote / the first frame wrote.
     pub written_first: usize,
     pub written_last: usize,
+    pub steering_types_present: bool,
+    pub steering_live_candidates: usize,
+    pub steering_input_updates: usize,
 }
 
 const SCALE_HASH: u64 = 0xadc0_56c7_729e_d01e;
 const POST_HASH: u64 = 0x0233_3773_b807_e90d;
 const STEP_NS: u64 = 16_666_667;
 
-/// Build the scene's world through the adapter and run `frames` fixed frames of the transform
-/// system. Nothing but `LocalToWorld` is changed by the system.
+/// Build a scene World and run fixed frames. Shared steering, if live candidates
+/// exist, updates EntityInput before transforms update LocalToWorld. No locomotion,
+/// navigation service or original game-loop ordering is supplied by this driver.
 pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result<SimWorld> {
     use rrising_content::type_layouts::{LOCAL_TRANSFORM_HASH, ROTATION_HASH, TRANSLATION_HASH};
     use rrising_content::world_adapter::{build_scene_world, PARENT_HASH};
+    use rrising_core::movement::{SharedSteeringSystem, SharedSteeringTypes};
     use rrising_ecs::transform::{TransformSystem, TransformTypes};
     use rrising_ecs::Schedule;
     let layouts = TypeLayouts::from_json(&std::fs::read(layouts_path)?)?;
@@ -999,15 +1004,29 @@ pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result
         post_transform: ty(POST_HASH),
         parent: ty(PARENT_HASH),
     };
+    let steering = SharedSteeringTypes::from_hashes(&sw.type_of_hash);
+    let steering_live_candidates = steering
+        .as_ref()
+        .map_or(0, |t| sw.world.query_count(&t.query()));
     let mut sched = Schedule::new(STEP_NS)?;
+    // The original has RequireMatchingQueriesForUpdate. This fixed-content driver
+    // never creates entities, so register only if the initial live query is nonempty.
+    if let Some(types) = steering.filter(|_| steering_live_candidates != 0) {
+        sched.add_group("SetInput")?;
+        sched.add_system("SetInput", Box::new(SharedSteeringSystem::new(types)))?;
+    }
     sched.add_group("Simulation")?;
     sched.add_system("Simulation", Box::new(TransformSystem::new(tt)))?;
     let mut frame_ms = Vec::with_capacity(frames);
     let (mut written_first, mut written_last) = (0, 0);
+    let mut steering_input_updates = 0;
     for i in 0..frames {
         let t = std::time::Instant::now();
         sched.run_frame(&mut sw.world)?;
         frame_ms.push(t.elapsed().as_secs_f64() * 1e3);
+        steering_input_updates += sched
+            .system::<SharedSteeringSystem>(SharedSteeringSystem::NAME)
+            .map_or(0, |s| s.entities_updated);
         let w = sched
             .system::<TransformSystem>(TransformSystem::NAME)
             .context("system")?
@@ -1025,6 +1044,9 @@ pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result
         frame_ms,
         written_first,
         written_last,
+        steering_types_present: steering.is_some(),
+        steering_live_candidates,
+        steering_input_updates,
     })
 }
 
