@@ -3,9 +3,9 @@
   "metric": "heuristic_member_name_match",
   "behavioral_parity_percent": null,
   "warning": "Name matches can over-count; these numbers do not measure playable game completion or performance.",
-  "matched": 5110,
+  "matched": 5115,
   "total": 187377,
-  "percent": 2.7271,
+  "percent": 2.7298,
   "groups": [
     {
       "name": "BCL (no crate assigned yet)",
@@ -33,9 +33,9 @@
     },
     {
       "name": "game-authored (ProjectM*, Stunlock*)",
-      "matched": 1,
+      "matched": 6,
       "total": 79642,
-      "percent": 0.0013
+      "percent": 0.0075
     },
     {
       "name": "middleware / other (no crate assigned yet)",

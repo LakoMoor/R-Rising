@@ -16,7 +16,7 @@ performance improvement has been demonstrated.
 
 | Metric | Measured | Share / status |
 | --- | --- | --- |
-| Managed API member name matches | 5,110 / 187,377 | **2.7% heuristic coverage** |
+| Managed API member name matches | 5,115 / 187,377 | **2.7% heuristic coverage** |
 | `Unity.Mathematics` member name matches | 4,850 / 4,961 | **97.8% heuristic coverage** |
 | `Unity.Entities` member name matches | 259 / 8,486 | **3.0% heuristic coverage** |
 | Game-authored member name matches | 1 / 79,642 | **0.0013%**, not gameplay coverage |
