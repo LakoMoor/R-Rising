@@ -73,6 +73,24 @@ pub struct AdaptedScene {
     pub stats: AdapterStats,
 }
 
+/// Original store initialization at RVA 0x8fa9840 populates these identities;
+/// CreateArchetype (0x8fb0b30) uses them to classify Prefab/Disabled/meta chunks.
+/// Only types present in this scene are registered. Absence is an unmatched slot,
+/// not TypeIndex zero (which can alias another registered type).
+fn special_types(types: &TypeManager, entity: TypeIndex) -> SpecialTypes {
+    let get = |name| types.type_index_of(name).unwrap_or(SpecialTypes::UNSET);
+    SpecialTypes {
+        entity_type: entity,
+        chunk_header: get("Unity.Entities.ChunkHeader"),
+        prefab: get("Unity.Entities.Prefab"),
+        spawn_tag: get("Unity.Entities.SpawnTag"),
+        destroy_tag: get("Unity.Entities.DestroyTag"),
+        cleanup_entity: get("Unity.Entities.CleanupEntity"),
+        disabled: get("Unity.Entities.Disabled"),
+        system_instance: get("Unity.Entities.SystemInstance"),
+    }
+}
+
 /// Convert a scene into [`WorldInput`]. Refuses (errors) if any archetype lacks a recovered layout.
 pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<AdaptedScene> {
     let resolved = layouts.resolve_scene(scene)?;
@@ -239,7 +257,7 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         });
     }
     Ok(AdaptedScene {
-        special: SpecialTypes::new(entity),
+        special: special_types(&types, entity),
         types,
         input: WorldInput { archetypes, chunks },
         type_of_hash,
@@ -270,5 +288,64 @@ fn add_counts(a: RefCounts, b: RefCounts) -> RefCounts {
         live: a.live + b.live,
         stale_version: a.stale_version + b.stale_version,
         dangling: a.dangling + b.dangling,
+    }
+}
+
+#[cfg(test)]
+mod special_type_tests {
+    use super::*;
+    use rrising_ecs::{EntityQuery, TypeCategory, TypeSpec};
+
+    #[test]
+    fn scene_registry_special_identities_control_the_actual_world_query() {
+        let mut types = TypeManager::default();
+        let mut spec = TypeSpec::component_data("Unity.Entities.Entity", 8, 8);
+        spec.category = TypeCategory::EntityData;
+        let entity = types.register(spec).unwrap();
+        let position = types
+            .register(TypeSpec::component_data("Position", 12, 4))
+            .unwrap();
+        let prefab = types
+            .register(TypeSpec::tag("Unity.Entities.Prefab"))
+            .unwrap();
+        let disabled = types
+            .register(TypeSpec::tag("Unity.Entities.Disabled"))
+            .unwrap();
+        let special = special_types(&types, entity);
+        assert_eq!(special.chunk_header, SpecialTypes::UNSET);
+        assert_eq!(special.system_instance, SpecialTypes::UNSET);
+        let input = WorldInput {
+            archetypes: vec![
+                ArchetypeInput {
+                    types: vec![position],
+                },
+                ArchetypeInput {
+                    types: vec![position, prefab],
+                },
+                ArchetypeInput {
+                    types: vec![position, disabled],
+                },
+            ],
+            chunks: (0..3)
+                .map(|archetype| ChunkInput {
+                    archetype,
+                    entities: EntityIds::Fresh(1),
+                    components: vec![],
+                })
+                .collect(),
+        };
+        let world = World::build(types, special, 8, &input).unwrap();
+        let mut q = EntityQuery {
+            all: vec![position],
+            ..Default::default()
+        };
+        assert_eq!(world.query_count(&q), 1);
+        q.include_prefab = true;
+        assert_eq!(world.query_count(&q), 2);
+        q.include_prefab = false;
+        q.include_disabled = true;
+        assert_eq!(world.query_count(&q), 2);
+        q.include_prefab = true;
+        assert_eq!(world.query_count(&q), 3);
     }
 }

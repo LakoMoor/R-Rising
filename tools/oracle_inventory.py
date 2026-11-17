@@ -43,7 +43,9 @@ def inventory():
             'rvas': [f'0x{rva:x}' for rva in rvas],
             'cases_per_function': count,
             'helper_stubs': ['IL2CPP sqrt wrapper replaced by sqrtss for quaternion normalize']
-                            if path.name == 'math_matrix.tsv' else [],
+                            if path.name == 'math_matrix.tsv' else
+                            ['five supplied-value ECS accessors; initialized metadata and float2.zero; sqrtss wrapper stub']
+                            if path.name == 'movement_shared.tsv' else [],
         })
     return {
         'schema_version': 1,

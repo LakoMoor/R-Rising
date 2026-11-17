@@ -6,12 +6,16 @@ license.workspace = true
 rust-version.workspace = true
 description = "Port of ProjectM and Stunlock gameplay code: settings, world bootstrap, gameplay systems"
 
+[features]
+default = ["content"]
+content = ["dep:rrising-content", "dep:unity-formats"]
+
 [dependencies]
-rrising-content.workspace = true
+rrising-content = { workspace = true, optional = true }
 rrising-ecs.workspace = true
 rrising-math.workspace = true
 anyhow.workspace = true
 indexmap.workspace = true
 log.workspace = true
 rustc-hash.workspace = true
-unity-formats.workspace = true
+unity-formats = { workspace = true, optional = true }

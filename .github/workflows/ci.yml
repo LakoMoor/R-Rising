@@ -38,3 +38,4 @@ jobs:
           toolchain: 1.99.0
           targets: wasm32-unknown-unknown
       - run: cargo build --locked -p rrising-web --target wasm32-unknown-unknown
+      - run: cargo build --locked -p rrising-core --no-default-features --target wasm32-unknown-unknown

@@ -5,8 +5,10 @@ temporary Mach-O executable with a C driver and executed with the Windows x64
 calling convention under Rosetta. Neither the bytes nor the executable is kept;
 only input/output rows are written by the capture scripts.
 
-Only straight-line leaf functions are accepted: no calls (except a trailing
-noreturn assertion call that is never executed), no jumps out of the function.
+By default only leaves or explicitly linked calls are accepted; no jumps out of
+the declared extent. Original functions and helper substitutions are caller-selected.
+The shared movement capture uses an explicit audited function extent and isolated
+runtime globals. These substitutions must be reported alongside its outputs.
 RIP-relative reads of constants are supported by copying the read-only bytes
 next to the function and patching the displacement in the temporary copy.
 """
@@ -45,7 +47,7 @@ def _decode(code):
     return insns
 
 
-def analyse(image, rva, allow_noreturn_call=False, known_calls=()):
+def analyse(image, rva, allow_noreturn_call=False, known_calls=(), max_jump_target=0x200):
     """Return (code, relocations) for the function at rva; relocations are
     (disp_offset_in_code, insn_end_offset, target_rva)."""
     window = code_at_rva(image, rva, 3000)
@@ -93,7 +95,7 @@ def analyse(image, rva, allow_noreturn_call=False, known_calls=()):
             if not m2:
                 raise SystemExit(f'indirect jump in {rva:x}: {text}')
             target = nxt + int(m2.group(1))
-            if target < 0 or target > 0x200:
+            if target < 0 or target > max_jump_target:
                 raise SystemExit(f'jump leaves function {rva:x}: {text}')
             limit = max(limit, target)
         if (mnem in ('ret', 'jmp') and nxt > limit) or (mnem == 'int3' and offset >= limit):
@@ -105,21 +107,28 @@ def analyse(image, rva, allow_noreturn_call=False, known_calls=()):
     return window[:end], [r for r in relocs if r[1] <= end]
 
 
-def assemble(image, entries, stubs=None):
-    """entries: list of (symbol, rva[, allow_noreturn_call]). Returns assembly text."""
+def assemble(image, entries, stubs=None, rip_overrides=None, extra_assembly=''):
+    """entries: (symbol, rva[, allow_noreturn_call[, max_jump_target]]).
+
+    rip_overrides maps original data RVAs to local bytes or tuples of assembly
+    directives. extra_assembly defines the corresponding local context. Neither
+    option changes the supplied original image on disk.
+    """
     lines = ['.text']
     data = []
     stubs = stubs or {}
+    rip_overrides = rip_overrides or {}
     known = {e[1]: e[0] for e in entries}
     known.update({rva: s[0] for rva, s in stubs.items()})
     for entry in entries:
         name, rva = entry[0], entry[1]
-        code, relocs = analyse(image, rva, len(entry) > 2 and entry[2], known)
+        code, relocs = analyse(image, rva, len(entry) > 2 and entry[2], known,
+                               max_jump_target=entry[3] if len(entry) > 3 else 0x200)
         relocs = sorted(relocs)
         code = bytearray(code)
         for k, (disp_at, insn_end, target, kind) in enumerate(relocs):
             if kind == 'rip':
-                const = code_at_rva(image, target, 16)
+                const = rip_overrides[target] if target in rip_overrides else code_at_rva(image, target, 16)
                 label = f'{name}_const{k}'
                 data.append((label, const))
             # displacement is resolved by the assembler from the label
@@ -138,16 +147,21 @@ def assemble(image, entries, stubs=None):
         lines += [p for p in pieces if p]
     for rva, (sname, body) in stubs.items():
         lines += ['.balign 16', f'.globl _{sname}', f'_{sname}:', body]
+    if rip_overrides:
+        # Isolated runtime globals can contain relocated pointers or mutable flags.
+        # Mach-O forbids such absolute pointer relocations in the text section.
+        lines.append('.data')
     lines.append('.balign 16')
     for label, const in data:
-        lines += [f'{label}:', '.byte ' + ','.join(hex(b) for b in const)]
-    return '\n'.join(lines) + '\n'
+        lines += [f'{label}:']
+        lines += list(const) if isinstance(const, tuple) else ['.byte ' + ','.join(hex(b) for b in const)]
+    return '\n'.join(lines) + '\n' + extra_assembly
 
 
-def run(image, entries, driver_source, timeout=60, stubs=None):
+def run(image, entries, driver_source, timeout=60, stubs=None, rip_overrides=None, extra_assembly=''):
     with tempfile.TemporaryDirectory(prefix='rrising-oracle-') as scratch:
         scratch = Path(scratch)
-        (scratch / 'original.S').write_text(assemble(image, entries, stubs))
+        (scratch / 'original.S').write_text(assemble(image, entries, stubs, rip_overrides, extra_assembly))
         (scratch / 'driver.c').write_text(driver_source)
         subprocess.run(['/usr/bin/clang', '-arch', 'x86_64', '-O1', '-Wno-everything', str(scratch / 'driver.c'),
                         str(scratch / 'original.S'), '-o', str(scratch / 'oracle')], check=True)

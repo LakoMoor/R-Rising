@@ -5,7 +5,10 @@
 //! drawable scenes from the original's archives. The gameplay systems themselves wait on the
 //! decompiled bodies, which `docs/PORT.md` tracks.
 
+pub mod movement;
 pub mod pathfinding;
+#[cfg(feature = "content")]
 pub mod scene;
 
+#[cfg(feature = "content")]
 pub use scene::{base_map_name, showcase, SceneItem, SceneSpec};
