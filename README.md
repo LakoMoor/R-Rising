@@ -60,9 +60,7 @@ are excluded and counted. 9,474 instances drawn, 18 transparent instances exclud
 3 unresolved drawn as marker boxes; 1,691 grass instances show texture-array
 layer 0 as an assumption.
 
-The **native** image below is the current build. The **browser** image is from an
-earlier build and still shows the old artifacts (white patches, opaque fog cylinder);
-it has not been re-rendered.
+Both images below come from the current build (the browser capture is Chrome / WebGPU, 314 draw groups, 74.7 MB local export, about 1.1 s to load from localhost, 0 page errors; the match to native was judged by eye, not by pixel diff).
 
 ![Native original scene placement](docs/screenshots/native-original-scene.png)
 

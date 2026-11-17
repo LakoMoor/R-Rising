@@ -21,8 +21,7 @@ try {
   if (!navigator.gpu) throw new Error('WebGPU is unavailable in this browser. Use a browser with WebGPU support over HTTPS or localhost.');
   await init();
   status.textContent = 'Ready · open a local .rrscene.json file';
-  input.addEventListener('change', async () => {
-    const file = input.files[0];
+  const load = async (file) => {
     if (!file) return;
     delete document.documentElement.dataset.loaded;
     cancelAnimationFrame(frame);
@@ -39,7 +38,15 @@ try {
       status.textContent = `${viewer.item_count()} draw groups · Rust / WebGPU · original data, not gameplay`;
       document.documentElement.dataset.loaded = 'true';
     } catch (error) { status.textContent = `Unable to load scene: ${error}`; }
-  });
+  };
+  input.addEventListener('change', () => load(input.files[0]));
+  // Same-origin convenience: ?scene=<path> fetches a scene export served next to the page.
+  const preset = new URLSearchParams(location.search).get('scene');
+  if (preset && !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(preset)) {
+    const response = await fetch(preset);
+    if (response.ok) await load(await response.blob());
+    else status.textContent = `Unable to fetch ${preset}: HTTP ${response.status}`;
+  }
 } catch (error) { status.textContent = String(error); }
 </script>
 </html>
