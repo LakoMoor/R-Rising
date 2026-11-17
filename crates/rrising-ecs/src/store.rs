@@ -136,6 +136,7 @@ pub struct EntityComponentStore {
     archetypes: Vec<StoredArchetype>,
     by_types: HashMap<Vec<i32>, usize>,
     special: SpecialTypes,
+    admit_opaque_special_components: bool,
 }
 
 impl EntityComponentStore {
@@ -166,6 +167,7 @@ impl EntityComponentStore {
             archetypes: Vec::new(),
             by_types: HashMap::new(),
             special,
+            admit_opaque_special_components: false,
         };
         s.resize_and_initialize(0, initial_capacity)?;
         Ok(s)
@@ -204,6 +206,14 @@ impl EntityComponentStore {
             0
         };
         self.resize_and_initialize(start, new_cap as i32)
+    }
+
+    /// Admit archetypes with shared/managed/chunk/cleanup components as *opaque*: the archetype
+    /// layout (offsets, capacity, per-entity slots) is the original algorithm's, but shared values,
+    /// chunk-component storage (meta chunks), managed objects and the cleanup archetype are not
+    /// modelled; entities with different shared values may share a chunk. Off by default.
+    pub fn set_admit_opaque_special_components(&mut self, admit: bool) {
+        self.admit_opaque_special_components = admit;
     }
 
     pub fn capacity(&self) -> i32 {
@@ -289,17 +299,21 @@ impl EntityComponentStore {
         let idx = self.archetypes.len();
         let archetype = Archetype::new(idx as i32, in_arch, data);
         let l = archetype.layout();
-        if l.num_shared_components() > 0
+        let special_components = l.num_shared_components() > 0
             || l.num_managed_components() > 0
             || l.num_chunk_components(archetype.types_count) > 0
-            || archetype.types.iter().any(|t| t.is_cleanup_component())
-        {
+            || archetype.types.iter().any(|t| t.is_cleanup_component());
+        if special_components && !self.admit_opaque_special_components {
             bail!("archetypes with shared/managed/chunk/cleanup components are not supported yet");
         }
         ensure!(l.chunk_capacity > 0, "archetype has zero chunk capacity");
         let chunk_data = crate::chunk_data::ArchetypeChunkData::new(
             archetype.types_count as usize,
-            l.num_shared_components() as usize,
+            if special_components {
+                0 // shared values are not tracked in opaque mode
+            } else {
+                l.num_shared_components() as usize
+            },
         )?;
         self.archetypes.push(StoredArchetype {
             archetype,

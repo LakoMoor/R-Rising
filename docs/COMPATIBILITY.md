@@ -8,7 +8,7 @@ original assets, executables or decompiled sources should be distributed.
 | Boundary | Implementation | Runtime connection | Evidence | Remaining acceptance |
 | --- | --- | --- | --- | --- |
 | Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Catalog read and wired into native startup; request scheduling remains |
-| Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | Reader tests only | 9 scene tests passed against local install | Build runtime world and resolve components |
+| Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | `world_adapter` builds one `World` per scene (opaque special components) | 9 scene tests + `world_adapter` test: all 1,183 scenes, 1,385,671 entities with preserved ids | Shared values, chunk components, managed objects, buffer heap payloads, entity-reference remap |
 | Math | Broad API coverage | Showcase transforms | 58 regression/unit tests passed | Original-runtime differential oracle; rounding deviations in PORT.md |
 | ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Unit tests only; not wired into a running game world | Port-side unit tests derived from decompiled bodies (`store.rs`); no native-replay oracle (functions are not pure leaves) | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, system scheduling |
 | Rendering | Basic lit meshes | Native showcase | GPU triangle test; screenshots/native-content.png | Original scenes, animation, HDRP and visual comparisons |
@@ -220,6 +220,25 @@ Limits: the acceptance proves the slot sizes, ordering and buffer geometry of ev
 archetype, not component semantics. The Entity references inside managed objects and blob
 asset pointers are neither patched nor dereferenced. Per-type managed slot attribution among
 several managed types, write groups and refcount/serialization flags remain unreconstructed.
+
+## Scene to World adapter
+
+`rrising_content::world_adapter` converts every archetype/chunk of a decoded scene into
+`rrising_ecs::WorldInput` (ids preserved, component bytes sliced through `TypeLayouts`) and builds
+a `World` per scene. Acceptance (`tests/world_adapter.rs`, ignored, needs the install and layout
+report): all 1,183 scenes build, 1,385,671 entities are live at their stored ids. Entities with
+Translation / LocalTransform / LocalToWorld (including disabled and prefab): 348,846 / 111,272 /
+919,206 (counts of entities having the type, no semantic validation). Release build time for all
+worlds: about 3.4 s on the Apple M4 (single run, warm cache, excludes scene decode and layout resolution).
+
+Limits, stated plainly: the store refused archetypes with shared/managed/chunk/cleanup components,
+so `EntityComponentStore::set_admit_opaque_special_components` / `World::build_with` add an opt-in
+*opaque* mode (default still refuses; existing tests unchanged). It keeps the original layout
+algorithm but does not model shared values (no `ChunkListMap`: entities with different shared values
+share chunks), chunk-component storage (no meta chunks), managed objects or the cleanup archetype.
+Managed 4-byte slots and buffer headers are copied as raw serialized bytes: slots are not valid
+managed-store handles and buffers have no heap payload. The store re-packs entities, so it holds
+27,497 chunks versus the scene's 31,723. Entity references are not remapped.
 
 ## Performance measurement (Rust only)
 

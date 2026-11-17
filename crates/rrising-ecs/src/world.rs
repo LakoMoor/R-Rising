@@ -6,7 +6,8 @@
 //! the original deserialiser (`EntityComponentStore` + `EntityRemapUtility`) is not ported, only its
 //! observable end state (entities live at their stored index/version, component bytes in place).
 //!
-//! Limits: archetypes with shared/managed/chunk/cleanup components are refused by the store;
+//! Limits: archetypes with shared/managed/chunk/cleanup components are refused by the store unless
+//! [`World::build_with`] asks for opaque admission (layout only; values not modelled);
 //! shared-component values, chunk components, buffer heap payloads and entity-reference patching
 //! are not handled; `Disabled`/`Prefab` flags come from the supplied [`SpecialTypes`].
 
@@ -81,7 +82,21 @@ impl World {
         initial_capacity: i32,
         input: &WorldInput,
     ) -> Result<World> {
+        Self::build_with(types, special, initial_capacity, input, false)
+    }
+
+    /// Like [`World::build`]; with `admit_opaque_special_components` archetypes holding
+    /// shared/managed/chunk/cleanup components are built layout-only (see
+    /// [`EntityComponentStore::set_admit_opaque_special_components`]).
+    pub fn build_with(
+        types: TypeManager,
+        special: SpecialTypes,
+        initial_capacity: i32,
+        input: &WorldInput,
+        admit_opaque_special_components: bool,
+    ) -> Result<World> {
         let mut store = EntityComponentStore::new(initial_capacity, special)?;
+        store.set_admit_opaque_special_components(admit_opaque_special_components);
         let mut archetype_map = Vec::with_capacity(input.archetypes.len());
         for a in &input.archetypes {
             archetype_map.push(store.get_or_create_archetype(&types, &a.types)?);

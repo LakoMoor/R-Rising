@@ -19,3 +19,5 @@ pub use content::{list_archives, ContentEntry, GameContent, TRACKED_CLASSES};
 pub mod catalog;
 
 pub mod type_layouts;
+
+pub mod world_adapter;
