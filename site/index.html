@@ -3,216 +3,98 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>R-Rising — V Rising runtime in Rust</title>
-<meta name="description" content="An independent Rust + wgpu runtime for V Rising that loads your own game files. Native and WebGPU, with every claim tied to a measurement.">
-<meta name="color-scheme" content="light dark">
+<title>R-Rising — V Rising in Rust · porting progress</title>
+<meta name="description" content="An independent Rust + wgpu runtime for V Rising. Real game content, native and WebGPU renderers, verifiable progress and openly stated limits.">
+<meta name="theme-color" content="#0c0b0e">
 <meta property="og:type" content="website">
-<meta property="og:title" content="R-Rising — V Rising runtime in Rust">
-<meta property="og:description" content="Original content, a Rust runtime, and a public ledger of what is and is not proven.">
+<meta property="og:title" content="R-Rising — V Rising in Rust">
+<meta property="og:description" content="From original content to a compatible engine. Native, WebGPU and verifiable progress.">
 <meta property="og:image" content="https://lakomoor.github.io/R-Rising/assets/branding/cover.png">
 <meta property="og:url" content="https://lakomoor.github.io/R-Rising/">
 <link rel="icon" href="assets/branding/logo.png" type="image/png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#ledger">Skip to the ledger</a>
-<header class="bar">
-  <div class="wrap bar-row">
-    <a class="brand" href="#top" aria-label="R-Rising home"><img src="assets/branding/logo.png" alt="" width="36" height="36"><span>R-Rising</span></a>
-    <button class="menu" aria-expanded="false" aria-controls="nav">Menu</button>
-    <nav id="nav" aria-label="Primary"><a href="#ledger">Ledger</a><a href="#numbers">Numbers</a><a href="#screens">Screenshots</a><a href="#run">Run it</a><a href="#next">Next</a><a class="gh" href="https://github.com/LakoMoor/R-Rising">GitHub</a></nav>
+<a class="skip" href="#progress">Skip to content</a>
+<header class="header">
+  <div class="wrap header-row">
+    <a class="brand" href="#top" aria-label="R-Rising home"><img src="assets/branding/logo.png" alt="" width="42" height="42"><span>R-RISING<small>RUST GAME RUNTIME</small></span></a>
+    <button class="menu-toggle" aria-expanded="false" aria-controls="navigation">Menu <span aria-hidden="true">☰</span></button>
+    <nav id="navigation" aria-label="Primary"><a href="#progress">Progress</a><a href="#screenshots">Screenshots</a><a href="#architecture">Engine</a><a href="#start">Run it</a><a class="nav-github" href="https://github.com/LakoMoor/R-Rising">GitHub <span aria-hidden="true">↗</span></a></nav>
   </div>
 </header>
-
 <main id="top">
-  <section class="hero wrap">
-    <div class="hero-text">
-      <h1>A V&nbsp;Rising runtime in Rust, with every claim measured.</h1>
-      <p class="lead">R-Rising loads the game files from your own installation and rebuilds the engine around them. Native desktop and the browser run the same renderer. It is not playable yet, and this page says exactly how far it has got.</p>
-      <div class="cta">
-        <a class="btn primary" href="viewer/">Open the WebGPU viewer</a>
-        <a class="btn" href="https://github.com/LakoMoor/R-Rising">Read the source</a>
+  <div class="hero-shell">
+    <div class="wrap hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Independent project · early development</div>
+        <h1>V Rising.<br>Rebuilt in <em>Rust.</em></h1>
+        <p class="lead">A compatible engine that reads the content of your own copy of the game. The goal is 1:1 behaviour, better performance, and running from desktop to browser.</p>
+        <div class="cta"><a class="button primary" href="viewer/">Open the WebGPU viewer <span aria-hidden="true">↗</span></a><a class="button" href="https://github.com/LakoMoor/R-Rising">Source code <span aria-hidden="true">↗</span></a></div>
+        <p class="hero-footnote">Original scenes can already be viewed. Gameplay has not been ported yet.</p>
+        <div class="tech-line"><span>RUST</span><i></i><span>WGPU</span><i></i><span>METAL</span><i></i><span>WEBASSEMBLY</span></div>
       </div>
-      <p class="fine">Reference build: V Rising 1.1.13.0-r99712-b17. No game files or decompiled code are distributed.</p>
+      <div class="hero-art">
+        <div class="orbit" aria-hidden="true"></div>
+        <img class="emblem" src="assets/branding/logo.png" alt="A silver gothic letter R in a crimson eclipse" width="1254" height="1254">
+        <div class="art-caption"><span>FROM ORIGINAL CONTENT</span><b>TO A NEW RUNTIME</b></div>
+      </div>
     </div>
-
-    <figure class="ladder-wrap" id="ledger">
-      <figcaption>
-        <h2>What each part has been proven to do</h2>
-        <p>Read left to right: a part earns a column only when a test or measurement backs it.</p>
-      </figcaption>
-      <div class="ladder-scroll" tabindex="0" role="group" aria-label="Verification ladder, scrolls sideways on small screens">
-      <table class="ladder">
-        <thead>
-          <tr>
-            <th scope="col" class="corner"><span class="sr-only">Subsystem</span></th>
-            <th scope="col"><span>Reads real files</span></th>
-            <th scope="col"><span>Runs in the runtime</span></th>
-            <th scope="col"><span>Checked against original code</span></th>
-            <th scope="col"><span>Matches an original scenario</span></th>
-            <th scope="col"><span>Compared for speed</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><th scope="row">Archives and catalog</th>
-            <td data-s="yes" title="All 4,409 archives indexed"><i></i><b>Yes</b></td>
-            <td data-s="yes" title="Startup reads the original catalog"><i></i><b>Yes</b></td>
-            <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
-          <tr><th scope="row">Scene containers</th>
-            <td data-s="yes" title="All 1,183 scenes decoded"><i></i><b>Yes</b></td>
-            <td data-s="part" title="World built; shared, managed and chunk components kept opaque"><i></i><b>Partly</b></td>
-            <td data-s="part" title="Layouts validated against stored chunk headers"><i></i><b>Partly</b></td>
-            <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
-          <tr><th scope="row">Component types</th>
-            <td data-s="yes" title="All 1,772 type hashes resolved"><i></i><b>Yes</b></td>
-            <td data-s="yes" title="Layouts used to read components"><i></i><b>Yes</b></td>
-            <td data-s="part" title="Type flags replayed from the original"><i></i><b>Partly</b></td>
-            <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
-          <tr><th scope="row">ECS store and queries</th>
-            <td data-s="na"><i></i><b>Not applicable</b></td>
-            <td data-s="part" title="Entity table, chunks and queries; no systems yet"><i></i><b>Partly</b></td>
-            <td data-s="part" title="Archetype getters replayed from the original"><i></i><b>Partly</b></td>
-            <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
-          <tr><th scope="row">Math</th>
-            <td data-s="na"><i></i><b>Not applicable</b></td>
-            <td data-s="yes"><i></i><b>Yes</b></td>
-            <td data-s="part" title="23 functions replayed from the original; most of the library is untested"><i></i><b>Partly</b></td>
-            <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
-          <tr><th scope="row">Transforms</th>
-            <td data-s="yes" title="Stored LocalToWorld read from all scenes"><i></i><b>Yes</b></td>
-            <td data-s="part" title="Computed in Rust; not yet run as a scheduled system"><i></i><b>Partly</b></td>
-            <td data-s="no" title="Formulas measured against stored output, not translated from original code"><i></i><b>No</b></td>
-            <td data-s="part" title="99.3% of 112,177 recomputed matrices within 1e-5 of the stored ones; static entities not covered"><i></i><b>Partly</b></td>
-            <td data-s="no"><i></i><b>No</b></td></tr>
-          <tr><th scope="row">Rendering</th>
-            <td data-s="yes" title="Real meshes and textures"><i></i><b>Yes</b></td>
-            <td data-s="yes" title="Native and WebGPU"><i></i><b>Yes</b></td>
-            <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
-          <tr><th scope="row">Gameplay, physics, audio, network, saves</th>
-            <td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td><td data-s="no"><i></i><b>No</b></td></tr>
-        </tbody>
-      </table>
-      </div>
-      <ul class="legend" aria-label="Legend">
-        <li><i data-s="yes"></i>Proven by a test or measurement</li>
-        <li><i data-s="part"></i>Partly: see the notes in the compatibility report</li>
-        <li><i data-s="no"></i>Not done, or not measured</li>
-      </ul>
-    </figure>
-  </section>
-
+  </div>
   <div class="wrap">
-    <section id="numbers" class="block" aria-labelledby="numbers-title">
-      <div class="block-head">
-        <h2 id="numbers-title">The numbers behind the ledger</h2>
-        <p>Each figure comes from a command in the repository. Timings are one run on an Apple M4 (release build), measured on this runtime only: there is no comparison with the original game yet.</p>
+    <section class="overview" aria-labelledby="overview-title">
+      <div class="overview-label"><span class="kicker">CURRENT SNAPSHOT</span><h2 id="overview-title">Progress you<br>can verify.</h2><p>Every number belongs to a specific check. Overall compatibility with the game has not been measured.</p></div>
+      <div class="coverage-card">
+        <div class="ring" aria-hidden="true"><svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="51"/><circle id="coverage-ring" class="ring-fill" cx="60" cy="60" r="51"/></svg><span id="overall">2.7<small>%</small></span></div>
+        <div><span class="metric-label">API name matches</span><strong id="overall-count">5,107 / 187,377</strong><p>A heuristic code metric.<br>Not a percentage of the game finished.</p><a href="https://github.com/LakoMoor/R-Rising/blob/main/tools/port_coverage.py">How it is counted <span aria-hidden="true">↗</span></a></div>
       </div>
-      <dl class="facts">
-        <div><dt>Archives indexed</dt><dd>4,409 <small>of 4,409</small></dd><dd class="note">188,063 objects</dd></div>
-        <div><dt>Scenes decoded</dt><dd>1,183 <small>of 1,183</small></dd><dd class="note">31,723 chunks, 1,385,671 entities</dd></div>
-        <div><dt>Component types resolved</dt><dd>1,772 <small>of 1,772</small></dd><dd class="note">17,579 of 17,579 archetypes accepted</dd></div>
-        <div><dt>Original functions replayed</dt><dd>80+</dd><dd class="note">Original machine code run on 1,024 to 2,048 inputs each; three Rust bugs found and fixed</dd></div>
-        <div><dt>All scenes into a World</dt><dd>3.4 <small>s</small></dd><dd class="note">Every entity keeps its stored id</dd></div>
-        <div><dt>Offscreen frame, 1280×720</dt><dd>1.42 <small>ms median</small></dd><dd class="note">Includes GPU readback</dd></div>
-        <div><dt>Stored transforms reproduced</dt><dd>99.3 <small>%</small></dd><dd class="note">112,177 matrices recomputed and compared with the originals within 1e-5; 86,798 bit-identical. 87.8% of stored transforms have no source to compute from</dd></div>
-        <div class="warn"><dt>Original-game scenarios matched</dt><dd id="scenarios">0</dd><dd class="note">Until this is above zero, 1:1 behaviour is unproven</dd></div>
-        <div class="warn"><dt>API names matched</dt><dd><span id="overall">2.7</span><small>%</small></dd><dd class="note"><span id="overall-count">5,107 of 187,377</span>. A name match is a hint, not a proof. <a href="https://github.com/LakoMoor/R-Rising/blob/main/tools/port_coverage.py">How it is counted</a></dd></div>
-      </dl>
-      <p class="more">Details, limits and reproduction commands: <a href="https://github.com/LakoMoor/R-Rising/blob/main/docs/COMPATIBILITY.md">compatibility report</a> · <a href="progress.json">raw metrics</a></p>
+      <div class="overview-stats"><div><b>4,409<span>/ 4,409</span></b><p>archives read</p></div><div><b>1,183<span>/ 1,183</span></b><p>scene containers decoded</p></div><div><b>9,474<span>instances</span></b><p>of one original scene drawn natively and in WebGPU</p></div></div>
     </section>
-
-    <section id="screens" class="block" aria-labelledby="screens-title">
-      <div class="block-head">
-        <h2 id="screens-title">What it draws today</h2>
-        <p>Real models and textures from a local installation. The scene views place entities at their original positions; there is no lighting, animation or gameplay, and some surfaces are still wrong.</p>
+    <section id="progress" class="section" aria-labelledby="progress-title">
+      <div class="section-heading"><div><span class="kicker">01 / COMPATIBILITY</span><h2 id="progress-title">What is ported right now</h2></div><a class="text-link" href="https://github.com/LakoMoor/R-Rising/blob/main/docs/COMPATIBILITY.md">Full report <span aria-hidden="true">↗</span></a></div>
+      <p class="section-intro">Open a subsystem to see what is implemented, how it was checked and what is missing. Parsing content and reproducing game behaviour have different standards of done.</p>
+      <div class="areas">
+        <details class="area"><summary><span class="area-name"><span class="area-index">01</span> Math <span class="tag">API names</span></span><span class="area-value" id="math-percent">97.8%</span><span class="expand" aria-hidden="true">+</span><span class="bar"><i id="math-bar" style="width:97.7625%"></i></span></summary><div class="area-detail"><p>Vectors, matrices, quaternions, <code>RigidTransform</code> and <code>half</code>. <span id="math-count">4,850 of 4,961</span> metadata member names are matched to Rust code. 23 original functions are replayed on thousands of inputs, and three bugs found that way were fixed.</p><p><strong>Remaining:</strong> most of the library is not checked against the original runtime, plus exact operation order, SIMD approximations and the remaining overloads. A name match does not prove the same result.</p></div></details>
+        <details class="area"><summary><span class="area-name"><span class="area-index">02</span> ECS runtime <span class="tag">API names</span></span><span class="area-value" id="ecs-percent">3.0%</span><span class="expand" aria-hidden="true">+</span><span class="bar"><i id="ecs-bar" style="width:2.5454%"></i></span></summary><div class="area-detail"><p>Entity table with versions, archetype layout, chunk versions and enable masks, create/destroy and simple queries, and a World built from all 1,183 scenes. The metric is refreshed from the repository report: <span id="ecs-count">256 of 8,486</span>.</p><p><strong>Remaining:</strong> systems and scheduling, shared, managed and chunk components as real values (they are kept opaque), entity-reference patching, and a running game loop.</p></div></details>
+        <details class="area"><summary><span class="area-name"><span class="area-index">03</span> Content archives <span class="tag measured">checked on files</span></span><span class="area-value">100%</span><span class="expand" aria-hidden="true">+</span><span class="bar"><i style="width:100%"></i></span></summary><div class="area-detail"><p>All 4,409 UnityFS archives of this installation are read. 188,063 objects are indexed: models, textures, materials and other assets.</p><p><strong>Limit:</strong> reading files does not mean every dependency loads correctly or that any game logic runs. No game files are distributed.</p></div></details>
+        <details class="area"><summary><span class="area-name"><span class="area-index">04</span> EntityScene containers <span class="tag measured">checked on files</span></span><span class="area-value">100%</span><span class="expand" aria-hidden="true">+</span><span class="bar"><i style="width:100%"></i></span></summary><div class="area-detail"><p>All 1,183 scene containers are decoded: node trees, archetypes, chunks, enable masks, dynamic buffers, shared and managed components, and blob assets. All 1,772 component type hashes are resolved and all 17,579 archetypes (1,385,671 entities) pass layout checks.</p><p><strong>Remaining:</strong> a live ECS world used in a normal game launch. The percentage refers to parsing. Stored transforms: 99.3% of 112,177 recomputed matrices are within 1e-5 of the originals; static entities are not covered.</p></div></details>
+        <details class="area"><summary><span class="area-name"><span class="area-index">05</span> Rendering and browser <span class="tag measured">working slice</span></span><span class="area-value status">viewer</span><span class="expand" aria-hidden="true">+</span><span class="bar segment"><i style="width:100%"></i></span></summary><div class="area-detail"><p>One wgpu renderer and WGSL shader serve the native app and WebAssembly. An original scene is drawn at its stored entity positions, natively and in Chrome / WebGPU from a local export.</p><p><strong>Remaining:</strong> lighting parity, HDRP, animation, direct archive import in the browser and a texture fallback for mobile GPUs. WebGPU and BC compression are required.</p></div></details>
+        <details class="area"><summary><span class="area-name"><span class="area-index">06</span> Gameplay and 1:1 behaviour <span class="tag pending">ahead</span></span><span class="area-value status">not done</span><span class="expand" aria-hidden="true">+</span><span class="bar"><i style="width:0%"></i></span></summary><div class="area-detail"><p>Combat, building, HUD, physics, audio, networking and saves are not implemented. There are no scenarios compared against the running original yet.</p><p><strong>Performance:</strong> speed against the original is not measured. Rust-only timings (one Apple M4 run): all scenes into a World 3.4 s, offscreen frame 1.42 ms median. Being faster is a goal, not a result.</p></div></details>
       </div>
-      <div class="shots">
-        <div class="tabs" role="tablist" aria-label="Screenshot">
-          <button id="tab-scene-native" class="tab active" role="tab" aria-selected="true" aria-controls="stage" data-shot="sceneNative">Scene, native</button>
-          <button id="tab-scene-browser" class="tab" role="tab" aria-selected="false" aria-controls="stage" data-shot="sceneBrowser" tabindex="-1">Scene, browser</button>
-          <button id="tab-grid-native" class="tab" role="tab" aria-selected="false" aria-controls="stage" data-shot="gridNative" tabindex="-1">Model grid, native</button>
-          <button id="tab-grid-browser" class="tab" role="tab" aria-selected="false" aria-controls="stage" data-shot="gridBrowser" tabindex="-1">Model grid, browser</button>
-        </div>
-        <figure id="stage" role="tabpanel" aria-labelledby="tab-scene-native">
-          <a id="shot-link" href="assets/screenshots/native-original-scene.png" target="_blank" rel="noopener"><img id="shot-image" src="assets/screenshots/native-original-scene.png" alt="A mountain scene from V Rising drawn by the native Rust renderer at the entities' original positions" width="1600" height="900"></a>
-          <figcaption><span id="shot-caption">One original scene, 9,492 mesh instances at their stored positions, native on macOS / Metal. White patches are textures that did not load.</span></figcaption>
-        </figure>
-      </div>
+      <div class="evidence-note"><span aria-hidden="true">↳</span><p><strong>1:1 compatibility is still unknown.</strong> API percentages can overstate coverage because names are shared. They do not show how much of the game could be played. <a href="progress.json">Open the raw metrics JSON</a>.</p></div>
     </section>
-
-    <section id="how" class="block split" aria-labelledby="how-title">
-      <div class="block-head">
-        <h2 id="how-title">The original is the specification</h2>
-        <p>Behaviour is taken from the shipped game, not from guesses. Original functions are replayed to produce test data, original scene files serve as ground truth, and the results decide what counts as done.</p>
-        <p>Reading Unity data is kept apart from the GPU, so the browser build shares the renderer without the native file loader.</p>
+    <section id="screenshots" class="section" aria-labelledby="screenshots-title">
+      <div class="section-heading"><div><span class="kicker">02 / REAL CONTENT</span><h2 id="screenshots-title">One renderer. Two hosts.</h2></div><span class="live-label"><span class="status-dot"></span> REAL SCREENSHOTS</span></div>
+      <p class="section-intro">Original models and textures from a local installation. The scene views place entities at their stored positions; there is no lighting parity, animation or gameplay.</p>
+      <div class="screenshot-panel">
+        <div class="screenshot-toolbar"><div class="tabs" role="tablist" aria-label="Rendering host"><button id="tab-native" class="tab active" role="tab" aria-selected="true" aria-controls="screenshot-stage" data-shot="native">Scene · native</button><button id="tab-browser" class="tab" role="tab" aria-selected="false" aria-controls="screenshot-stage" data-shot="browser" tabindex="-1">Scene · browser</button></div><span id="shot-detail">1280 × 720 · 9,474 instances · original scene</span></div>
+        <figure id="screenshot-stage" role="tabpanel" aria-labelledby="tab-native"><a id="shot-link" href="assets/screenshots/native-original-scene.png" target="_blank" rel="noopener"><img id="shot-image" src="assets/screenshots/native-original-scene.png" alt="A mountain scene from V Rising drawn by the native Rust renderer at the entities' original positions" width="1600" height="900"></a><figcaption><span id="shot-caption">Native Rust renderer on macOS / Metal.</span><span>Open the image <span aria-hidden="true">↗</span></span></figcaption></figure>
       </div>
-      <ol class="flow">
-        <li><b>Your game files</b><span>UnityFS archives, EntityScenes and the content catalog stay on your machine.</span></li>
-        <li><b>Rust core</b><span>Content readers, then ECS and the scene world, then simulation.</span></li>
-        <li><b>wgpu</b><span>One renderer for native Metal, Vulkan and DirectX, and for WebGPU in the browser.</span></li>
-      </ol>
+      <p class="quiet-note">Comparison with frames of the original game will come after reproducible scenarios are recorded. These images show that the renderer works, not visual 1:1 compatibility.</p>
     </section>
-
-    <section id="run" class="block" aria-labelledby="run-title">
-      <div class="block-head">
-        <h2 id="run-title">Run it yourself</h2>
-        <p>You need your own copy of V Rising. Rust 1.99.0 is pinned by the repository. There is no packaged release yet.</p>
-      </div>
-      <div class="run-grid">
-        <article>
-          <h3>Native</h3>
-          <p>Point it at the <code>VRising_Data</code> folder of your installation.</p>
-          <div class="code-head"><span>Terminal</span><button class="copy" data-copy="native-code" aria-label="Copy the native build commands">Copy</button></div>
-<pre id="native-code"><code>git clone https://github.com/LakoMoor/R-Rising
+    <section id="architecture" class="section" aria-labelledby="architecture-title">
+      <div class="section-heading"><div><span class="kicker">03 / HOW THE ENGINE IS BUILT</span><h2 id="architecture-title">The original is the specification.</h2></div></div>
+      <div class="architecture-grid"><div class="architecture-copy"><p>R-Rising aims to run real content and reproduce the behaviour of one specific build of the game. Work goes from file formats and a deterministic core towards a connected game world.</p><p>Reading Unity content is kept separate from the GPU. The browser host uses the same renderer through a local scene transfer, without the native library loader.</p><a class="text-link" href="https://github.com/LakoMoor/R-Rising/tree/main/crates">Browse the crates <span aria-hidden="true">↗</span></a></div><div class="pipeline"><div><span>01</span><b>Your game files</b><small>UnityFS · EntityScenes · materials</small></div><i aria-hidden="true">↓</i><div><span>02</span><b>Rust core</b><small>content → ECS → scene / simulation</small></div><i aria-hidden="true">↓</i><div class="pipeline-targets"><span>03</span><b>wgpu</b><small>Native / Metal <em>+</em> WASM / WebGPU</small></div></div></div>
+      <div class="principles"><div><span class="mini-index">01</span><h3>Your own copy of the game</h3><p>Archives, models and other game assets are not in the repository. Running it needs a local installation.</p></div><div><span class="mini-index">02</span><h3>Verifiable steps</h3><p>File checks, GPU regressions and original-code replays are counted separately, and limits are stated openly.</p></div><div><span class="mini-index">03</span><h3>Shared Rust code</h3><p>Native and browser rendering share one implementation; platform-specific code stays at the boundary.</p></div></div>
+    </section>
+    <section id="start" class="section" aria-labelledby="start-title">
+      <div class="section-heading"><div><span class="kicker">04 / TRY IT</span><h2 id="start-title">Build. Open. Check.</h2></div></div>
+      <p class="section-intro">Reference build: V Rising <code>v1.1.13.0-r99712-b17</code>, Unity <code>2022.3.58f1</code>. Rust 1.99.0 is pinned by the repository. There is no packaged release yet.</p>
+      <div class="start-grid"><article class="start-card"><span class="card-kicker">NATIVE</span><h3>From source</h3><p>Point it at the <code>VRising_Data</code> folder of your installed game.</p><div class="code-header"><span>TERMINAL</span><button class="copy" data-copy="native-code" aria-label="Copy the native build commands">Copy</button></div><pre id="native-code"><code>git clone https://github.com/LakoMoor/R-Rising
 cd R-Rising
 cargo run --release --locked -p rrising-app -- \
-  --data /path/to/VRising_Data</code></pre>
-          <a class="text-link" href="https://github.com/LakoMoor/R-Rising#native-build">All options</a>
-        </article>
-        <article>
-          <h3>Browser</h3>
-          <p>Export a scene on your machine, then open the file in the viewer. The data never leaves your device.</p>
-          <div class="code-head"><span>Local export</span><button class="copy" data-copy="web-code" aria-label="Copy the scene export command">Copy</button></div>
-<pre id="web-code"><code>cargo run --locked -p rrising-app -- \
+  --data /path/to/VRising_Data</code></pre><a class="text-link" href="https://github.com/LakoMoor/R-Rising#native-build">Run options <span aria-hidden="true">↗</span></a></article><article class="start-card browser-start"><span class="card-kicker">WEBASSEMBLY</span><h3>In the browser</h3><p>Export a scene locally first, then open the file in the viewer. The data stays on your device.</p><div class="code-header"><span>LOCAL EXPORT</span><button class="copy" data-copy="web-code" aria-label="Copy the scene export command">Copy</button></div><pre id="web-code"><code>cargo run --locked -p rrising-app -- \
   --data /path/to/VRising_Data \
   --export-web scene.rrscene.json \
   --archives 5000 --items 48 \
-  --width 1600 --height 900</code></pre>
-          <a class="btn primary" href="viewer/">Open the WebGPU viewer</a>
-          <p class="fine">Needs WebGPU and BC texture support. Mobile and WebGL are untested.</p>
-        </article>
-      </div>
+  --width 1600 --height 900</code></pre><a class="button primary" href="viewer/">Open the WebGPU viewer <span aria-hidden="true">↗</span></a><p class="requirements">Needs WebGPU and BC texture support. Mobile devices and WebGL are untested.</p></article></div>
     </section>
-
-    <section id="next" class="block" aria-labelledby="next-title">
-      <div class="block-head"><h2 id="next-title">What happens next</h2></div>
-      <ol class="road">
-        <li class="done"><h3>Read and draw real content</h3><p>Archives, scenes and types are read; native and browser draw original scenes at their stored positions.</p></li>
-        <li class="now"><h3>Make the world run</h3><p>Transforms already reproduce 99.3% of the stored values; the rest is the exact original arithmetic, then systems, scheduling and the remaining component kinds.</p></li>
-        <li><h3>One playable scenario</h3><p>Tie input, simulation and display together and compare the result with the running original.</p></li>
-        <li><h3>Speed and devices</h3><p>Same-scene release timings against the original, texture fallbacks, and checks on other platforms.</p></li>
-      </ol>
-    </section>
+    <section id="roadmap" class="section roadmap" aria-labelledby="roadmap-title"><div><span class="kicker">05 / NEXT</span><h2 id="roadmap-title">From a scene<br> to a living world.</h2><a class="text-link" href="https://github.com/LakoMoor/R-Rising/commits/main/">Development history <span aria-hidden="true">↗</span></a></div><ol><li><span class="roadmap-status done">DONE</span><h3>Reading content and two renderer hosts</h3><p>Native output, the WebGPU viewer and local transfer of real content.</p></li><li><span class="roadmap-status current">IN PROGRESS</span><h3>Original scene → ECS world</h3><p>Types and the World build are in place and transforms already reproduce 99.3% of the stored values. Next: entity-reference patching, exact original arithmetic, systems and scheduling.</p></li><li><span class="roadmap-status">LATER</span><h3>A first gameplay scenario</h3><p>Tie input, simulation and display together, and compare the result with the running original.</p></li><li><span class="roadmap-status">AFTER BEHAVIOUR IS VERIFIED</span><h3>Performance and devices</h3><p>Comparable release timings, texture fallbacks and checks on target platforms.</p></li></ol></section>
+    <section class="contribute"><img src="assets/branding/logo.png" alt="" width="72" height="72" loading="lazy"><div><span class="kicker">BUILDING A COMPATIBLE RUNTIME</span><h2>Follow the port.</h2><p>Source code, evidence and the remaining gaps are all in the open repository.</p></div><a class="button" href="https://github.com/LakoMoor/R-Rising">Open GitHub <span aria-hidden="true">↗</span></a></section>
   </div>
 </main>
-
-<footer>
-  <div class="wrap foot">
-    <div>
-      <a class="brand small" href="#top"><img src="assets/branding/logo.png" alt="" width="28" height="28"><span>R-Rising</span></a>
-      <p>An independent project. V Rising and its game assets belong to Stunlock Studios. Game files are not distributed, and compatibility with the full game has not been reached.</p>
-    </div>
-    <nav aria-label="Project links">
-      <a href="https://github.com/LakoMoor/R-Rising">GitHub</a>
-      <a href="https://github.com/LakoMoor/R-Rising/blob/main/docs/COMPATIBILITY.md">Compatibility report</a>
-      <a href="https://github.com/LakoMoor/R-Rising/blob/main/THIRD_PARTY.md">Licenses</a>
-    </nav>
-  </div>
-</footer>
-<div id="announce" class="sr-only" role="status" aria-live="polite"></div>
+<footer><div class="wrap footer-row"><div><a class="footer-brand" href="#top">R-RISING</a><p>An independent project. V Rising and its game assets belong to Stunlock Studios.<br>Game files are not distributed. Compatibility with the whole game has not been reached.</p></div><div class="footer-links"><a href="https://github.com/LakoMoor/R-Rising/blob/main/docs/COMPATIBILITY.md">Compatibility</a><a href="https://github.com/LakoMoor/R-Rising/blob/main/THIRD_PARTY.md">Licenses</a><a href="https://github.com/LakoMoor/R-Rising">GitHub ↗</a></div></div><div class="wrap footer-bottom"><span>RUST · WGPU · WEBASSEMBLY</span><span>No invented completion percentages.</span></div></footer>
+<div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
 </body>
 </html>

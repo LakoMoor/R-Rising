@@ -1,92 +1,88 @@
 'use strict';
-const nf = new Intl.NumberFormat('en-US');
-const pf = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
-
-const menu = document.querySelector('.menu');
-const nav = document.querySelector('#nav');
+const formatNumber = number => new Intl.NumberFormat('en-US').format(number);
+const formatPercent = number => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(number);
+const menu = document.querySelector('.menu-toggle');
+const navigation = document.querySelector('#navigation');
 menu.addEventListener('click', () => {
   const open = menu.getAttribute('aria-expanded') !== 'true';
   menu.setAttribute('aria-expanded', String(open));
-  nav.classList.toggle('open', open);
+  navigation.classList.toggle('open', open);
 });
-nav.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+navigation.querySelectorAll('a').forEach(link => link.addEventListener('click', () => {
   menu.setAttribute('aria-expanded', 'false');
-  nav.classList.remove('open');
+  navigation.classList.remove('open');
 }));
-
-// Stagger index for the ladder fill animation.
-document.querySelectorAll('.ladder tbody tr').forEach((row, r) => {
-  row.querySelectorAll('td').forEach((cell, c) => {
-    cell.style.setProperty('--r', r);
-    cell.style.setProperty('--c', c);
-  });
-});
 
 async function updateMetrics() {
   try {
     const response = await fetch('./progress.json');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const m = await response.json();
-    if (m.metric !== 'heuristic_member_name_match' || !Number.isFinite(m.percent)) throw new Error('unsupported schema');
-    document.querySelector('#overall').textContent = pf.format(m.percent);
-    document.querySelector('#overall-count').textContent = `${nf.format(m.matched)} of ${nf.format(m.total)}`;
+    if (!response.ok) throw new Error(`Metrics: ${response.status}`);
+    const metrics = await response.json();
+    if (metrics.metric !== 'heuristic_member_name_match' || !Number.isFinite(metrics.percent)) throw new Error('Unsupported metrics schema');
+    document.querySelector('#overall').replaceChildren(document.createTextNode(formatPercent(metrics.percent)), Object.assign(document.createElement('small'), { textContent: '%' }));
+    document.querySelector('#overall-count').textContent = `${formatNumber(metrics.matched)} / ${formatNumber(metrics.total)}`;
+    document.querySelector('#coverage-ring').style.strokeDashoffset = String(320.442 * (1 - Math.min(100, Math.max(0, metrics.percent)) / 100));
+    for (const [key, prefix] of [['math', 'Unity.Mathematics'], ['ecs', 'Unity.Entities']]) {
+      const group = metrics.groups.find(group => group.name.startsWith(prefix));
+      if (!group || !Number.isFinite(group.percent)) continue;
+      document.querySelector(`#${key}-percent`).textContent = `${formatPercent(group.percent)}%`;
+      document.querySelector(`#${key}-count`).textContent = `${formatNumber(group.matched)} of ${formatNumber(group.total)}`;
+      document.querySelector(`#${key}-bar`).style.width = `${Math.min(100, Math.max(0, group.percent))}%`;
+    }
   } catch (error) {
-    // The page keeps its last published snapshot if the JSON is unavailable.
+    // Keep the explicitly labelled last measured snapshot visible if JSON is unavailable.
+    document.querySelector('#overall-count').title = 'Last saved snapshot; the current metrics could not be loaded';
     console.warn('R-Rising metrics unavailable:', error.message);
   }
 }
 updateMetrics();
 
 const shots = {
-  sceneNative: { path: 'assets/screenshots/native-original-scene.png', alt: 'A mountain scene from V Rising drawn by the native Rust renderer at the entities’ original positions', caption: 'One original scene, 9,474 mesh instances at their stored positions, native on macOS / Metal. No lighting parity; grass shows one texture-array layer; fog sheets are left out.' },
-  sceneBrowser: { path: 'assets/screenshots/browser-original-scene.png', alt: 'The same V Rising scene drawn in Chrome through WebGPU', caption: 'The same scene in Chrome through WebAssembly and WebGPU, loaded from a 74.7 MB local export in about 1.1 s with no page errors. It matches the native image by eye; no pixel diff yet.' },
-  gridNative: { path: 'assets/screenshots/native-content.png', alt: 'Original V Rising models arranged in a demonstration grid by the native renderer', caption: '48 original models and 26 textures in a demonstration grid, native on macOS / Metal. The arrangement is not the game world.' },
-  gridBrowser: { path: 'assets/screenshots/browser-webgpu.png', alt: 'The same model grid in Chrome through WebGPU', caption: 'The same grid in Chrome through WebGPU.' }
+  native: { path: 'assets/screenshots/native-original-scene.png', detail: '1280 \u00d7 720 \u00b7 9,474 instances \u00b7 original scene', caption: 'One original scene at its stored positions, native on macOS / Metal. No lighting parity.', alt: 'A mountain scene from V Rising drawn by the native Rust renderer at the entities\u2019 original positions' },
+  browser: { path: 'assets/screenshots/browser-original-scene.png', detail: 'Chrome \u00b7 WebGPU \u00b7 314 draw groups', caption: 'The same scene in Chrome through WebAssembly and WebGPU, from a 74.7 MB local export, no page errors.', alt: 'The same V Rising scene drawn in Chrome through WebGPU' }
 };
 const tabs = [...document.querySelectorAll('[data-shot]')];
-function show(tab) {
+function showShot(tab) {
   const shot = shots[tab.dataset.shot];
-  for (const t of tabs) {
-    const on = t === tab;
-    t.classList.toggle('active', on);
-    t.setAttribute('aria-selected', String(on));
-    t.tabIndex = on ? 0 : -1;
+  for (const item of tabs) {
+    const active = item === tab;
+    item.classList.toggle('active', active);
+    item.setAttribute('aria-selected', String(active));
+    item.tabIndex = active ? 0 : -1;
   }
-  const img = document.querySelector('#shot-image');
-  img.src = shot.path;
-  img.alt = shot.alt;
+  document.querySelector('#shot-image').src = shot.path;
+  document.querySelector('#shot-image').alt = shot.alt;
   document.querySelector('#shot-link').href = shot.path;
+  document.querySelector('#shot-detail').textContent = shot.detail;
   document.querySelector('#shot-caption').textContent = shot.caption;
-  document.querySelector('#stage').setAttribute('aria-labelledby', tab.id);
+  document.querySelector('#screenshot-stage').setAttribute('aria-labelledby', tab.id);
 }
 for (const tab of tabs) {
-  tab.addEventListener('click', () => show(tab));
+  tab.addEventListener('click', () => showShot(tab));
   tab.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const i = tabs.indexOf(tab);
-    const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(i + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(tabs.indexOf(tab) + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
     next.focus();
-    show(next);
+    showShot(next);
   });
 }
 
 for (const button of document.querySelectorAll('[data-copy]')) {
   button.addEventListener('click', async () => {
-    const target = document.getElementById(button.dataset.copy);
-    const announce = document.querySelector('#announce');
+    const text = document.getElementById(button.dataset.copy).textContent;
     try {
-      await navigator.clipboard.writeText(target.textContent);
+      await navigator.clipboard.writeText(text);
       button.textContent = 'Copied';
-      announce.textContent = 'Commands copied';
+      document.querySelector('#announcement').textContent = 'Command copied';
     } catch {
-      const range = document.createRange();
-      range.selectNodeContents(target);
       const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(document.getElementById(button.dataset.copy));
       selection.removeAllRanges();
       selection.addRange(range);
-      button.textContent = 'Selected';
-      announce.textContent = 'Commands selected, press copy to finish';
+      button.textContent = 'Text selected';
+      document.querySelector('#announcement').textContent = 'Command selected for copying';
     }
     setTimeout(() => { button.textContent = 'Copy'; }, 2500);
   });
