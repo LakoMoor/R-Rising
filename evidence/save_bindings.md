@@ -25,9 +25,11 @@ order and the current prefab groups to produce these mappings. The original
 test uses synthetic current handles and catalogs built from the two captured
 source topologies: it checks 315,444 and 315,442 pairs in both directions,
 including null, against the [derived oracle](oracles/save_bindings.json).
-It does not run a second ECS or load converted prefab content. Populating the
-current catalog from server scenes and applying the resulting mapping to
-actual component fields remain separate steps.
+The same test patches copied [reference fields](save_references.md) from original scalar and buffer payloads
+with those bindings, including a reference to a prefab root. It does not run
+a second ECS or load converted prefab content. Populating the current catalog
+from server scenes, obtaining all patch layouts and writing the patched
+values into a running world remain separate steps.
 
 ```sh
 RRISING_SAVE_DIR=/path/to/captured/saves \

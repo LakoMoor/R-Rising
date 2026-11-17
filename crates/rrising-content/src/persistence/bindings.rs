@@ -53,6 +53,45 @@ impl SavedEntityBindings {
         &self.issues
     }
 
+    /// Patches Entity fields in scalar rows or buffer elements using validated server offsets.
+    /// Returns the number of handles absent from the binding table and cleared by the loader.
+    pub fn patch_references(
+        &self,
+        bytes: &mut [u8],
+        stride: usize,
+        offsets: &[usize],
+    ) -> Result<usize> {
+        ensure!(
+            stride != 0 && bytes.len().is_multiple_of(stride),
+            "invalid entity patch stride"
+        );
+        let mut previous_end = 0;
+        for &offset in offsets {
+            ensure!(
+                offset >= previous_end && offset <= stride && stride - offset >= 8,
+                "unordered, overlapping or out-of-range entity patch offset {offset}"
+            );
+            previous_end = offset + 8;
+        }
+        let mut missing = 0;
+        for element in bytes.chunks_exact_mut(stride) {
+            for &offset in offsets {
+                let field = &mut element[offset..offset + 8];
+                let saved = Entity::new(
+                    i32::from_le_bytes(field[..4].try_into()?),
+                    i32::from_le_bytes(field[4..].try_into()?),
+                );
+                let current = self.target(saved).unwrap_or_else(|| {
+                    missing += 1;
+                    Entity::NULL
+                });
+                field[..4].copy_from_slice(&current.index.to_le_bytes());
+                field[4..].copy_from_slice(&current.version.to_le_bytes());
+            }
+        }
+        Ok(missing)
+    }
+
     fn bind(&mut self, saved: Entity, current: Entity) {
         let kept = *self.targets.entry(saved).or_insert(current);
         if kept != current {

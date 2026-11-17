@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use rrising_content::persistence::{PersistentSave, PrefabReference, SavedSnapshot};
+use rrising_content::persistence::{
+    PersistentSave, PrefabReference, SavedEntityBindings, SavedSnapshot,
+};
 use rrising_ecs::Entity;
 use serde_json::Value;
 
@@ -104,6 +106,42 @@ fn fnv1a64_in_wire_order(entities: &[Entity]) -> String {
     format!("{hash:016x}")
 }
 
+fn check_reference_patch(
+    snapshot: &SavedSnapshot<'_>,
+    bindings: &SavedEntityBindings,
+    name: &str,
+    owner: Entity,
+    offset: usize,
+    source: Entity,
+) {
+    let component = snapshot.header().persistent_component_named(name).unwrap();
+    let stride = usize::try_from(component.component_size).unwrap();
+    let owner = snapshot.entity(owner).unwrap();
+    let bytes = if component.saved_type_index.is_buffer() {
+        owner.buffer(component.saved_type_index).unwrap()
+    } else {
+        owner.scalar(component.saved_type_index).unwrap()
+    };
+    let mut element = bytes[..stride].to_vec();
+    let mut original = Vec::from(source.index.to_le_bytes());
+    original.extend(source.version.to_le_bytes());
+    assert_eq!(&element[offset..offset + 8], original);
+    assert_eq!(
+        bindings
+            .patch_references(&mut element, stride, &[offset])
+            .unwrap(),
+        0
+    );
+    let target = bindings.target(source).unwrap();
+    assert_eq!(element[offset..offset + 4], target.index.to_le_bytes());
+    assert_eq!(
+        element[offset + 4..offset + 8],
+        target.version.to_le_bytes()
+    );
+    assert_eq!(element[..offset], bytes[..offset]);
+    assert_eq!(element[offset + 8..], bytes[offset + 8..stride]);
+}
+
 #[test]
 #[ignore = "requires two captured original server saves and RRISING_SAVE_DIR"]
 fn original_source_topology_binds_in_wire_order_to_supplied_synthetic_targets() {
@@ -173,6 +211,35 @@ fn original_source_topology_binds_in_wire_order_to_supplied_synthetic_targets() 
         );
         assert_eq!(bindings.target(Entity::NULL), Some(Entity::NULL));
         assert_eq!(bindings.source(Entity::NULL), Some(Entity::NULL));
+        check_reference_patch(
+            &snapshot,
+            &bindings,
+            "ProjectM.Buff",
+            Entity::new(152839, 4),
+            8,
+            Entity::new(152830, 4),
+        );
+        check_reference_patch(
+            &snapshot,
+            &bindings,
+            "Unity.Entities.LinkedEntityGroup",
+            Entity::new(86390, 3),
+            0,
+            Entity::new(86390, 3),
+        );
+        if name == "AutoSave_4.save.gz" {
+            check_reference_patch(
+                &snapshot,
+                &bindings,
+                "ProjectM.EntityOwner",
+                Entity::new(559509, 3),
+                0,
+                Entity::new(36976, 1),
+            );
+        }
+        let mut unknown = [0xff; 8];
+        assert_eq!(bindings.patch_references(&mut unknown, 8, &[0]).unwrap(), 1);
+        assert_eq!(unknown, [0; 8]);
         for (ordinal, source) in job_sources.into_iter().enumerate() {
             let target = fresh_job_entity(ordinal);
             assert_eq!(bindings.target(source), Some(target), "{name}/{ordinal}");
