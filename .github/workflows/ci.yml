@@ -1,0 +1,40 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  native:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Tests marked #[ignore] need the original installation and are not run here.
+      # The two GPU tests need a graphics adapter, which hosted runners generally lack,
+      # so they are skipped by name instead of being allowed to fail.
+      - run: >
+          cargo test --workspace --locked --
+          --skip draws_a_hand_built_triangle
+          --skip serialized_transfer_matches_direct_gpu_upload
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          targets: wasm32-unknown-unknown
+      - run: cargo build --locked -p rrising-web --target wasm32-unknown-unknown
