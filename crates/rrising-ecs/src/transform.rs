@@ -3,9 +3,10 @@
 //! Component values stay raw serialized floats (matrices column-major as `c0..c3`), so a caller
 //! holding scene bytes needs no math types; the arithmetic goes through `rrising-math`.
 //!
-//! Provenance: the corpus under `evidence/decompiled` has no `Unity.Transforms` module, and the REA
-//! session on the pinned `GameAssembly` timed out, so none of this is translated from a decompiled
-//! body. The formulas are the Unity Entities `LocalTransform` / `Translation` / `Rotation` /
+//! Provenance: the corpus under `evidence/decompiled` has no `Unity.Transforms` module, so the
+//! system-level composition is not translated from a decompiled body. The leaf math it calls
+//! (`float4x4.TRS`, `float3x3(quaternion)`, `mul(float4x4, float4x4)`, `mul(quaternion, quaternion)`)
+//! is bit-identical to the original's, replayed under Rosetta (`tools/capture_math_matrix.py`). The formulas are the Unity Entities `LocalTransform` / `Translation` / `Rotation` /
 //! `PostTransformMatrix` / `Parent` semantics, selected by *measuring bitwise agreement with the
 //! `LocalToWorld` values the original stored in its scene files*
 //! (`crates/rrising-content/tests/transform_golden.rs`, `docs/COMPATIBILITY.md`). Where a variant was
@@ -46,9 +47,12 @@ pub fn mul(a: &Mat, b: &Mat) -> Mat {
 
 /// `LocalTransform.ToMatrix()` = `float4x4.TRS(Position, Rotation, float3(Scale))`.
 ///
-/// Measured: bit-identical to the stored `LocalToWorld` for ~98.7% of root entities that have only
-/// this source; `float4x4.TRS` writes `-0.0` where the stored value has `+0.0` for rotations with
-/// negative-zero components, which is the one systematic bit difference from [`trs_matrix`].
+/// `rrising_math::float4x4::trs` is bit-identical to the original's `float4x4.TRS` (and its
+/// `float3x3(quaternion)` constructor) replayed from the pinned binary on 2,048 inputs
+/// (`crates/rrising-math/tests/oracle_matrix.rs`), including the `+0.0` the constructor writes where
+/// a plain product form leaves `-0.0`. Against stored scene `LocalToWorld` this form matches
+/// bit for bit for 58,021 of 58,597 (99.0%) root `LocalTransform+Translation+Rotation` entities;
+/// the remainder is discussed in `docs/COMPATIBILITY.md`.
 pub fn local_transform_matrix(lt: &LocalTransform) -> Mat {
     to_mat(float4x4::trs(
         float3::new(lt.position[0], lt.position[1], lt.position[2]),
@@ -62,28 +66,25 @@ pub fn local_transform_matrix(lt: &LocalTransform) -> Mat {
     ))
 }
 
-/// Translation / Rotation / uniform scale as the product `Translate * (Rotate * Scale)`.
-///
-/// Measured against the stored values this reproduces the `+0.0` the original stores where `TRS`
-/// leaves `-0.0` (the zero terms of the matrix product normalize the sign), and agrees bitwise on
-/// ~99.0% of entities where `Translation`/`Rotation` are the source. Rejected variants (same
-/// harness): `mul(mul(T,R),S)` (identical bits), rotation normalized first (fewer exact matches),
-/// fused multiply-add forms of `float3x3(quaternion)` (fewer exact matches).
+/// Translation / Rotation / uniform scale: the original's `float4x4.TRS` (see
+/// [`local_transform_matrix`]). Earlier revisions composed `Translate * (Rotate * Scale)` to
+/// reproduce a stored `+0.0`; with the constructor's real operation order that workaround is
+/// unnecessary and `TRS` matches the stored values better (58,021 vs 56,159 of 58,597 bit-identical on
+/// those roots).
 pub fn trs_matrix(t: [f32; 3], r: [f32; 4], s: f32) -> Mat {
-    let sv = float3::new(s, s, s);
-    to_mat(float4x4::mul_matrix(
-        float4x4::translate(float3::new(t[0], t[1], t[2])),
-        float4x4::mul_matrix(
-            float4x4::rotate(quaternion::new(r[0], r[1], r[2], r[3])),
-            float4x4::scale(sv),
-        ),
-    ))
+    local_transform_matrix(&LocalTransform {
+        position: t,
+        scale: s,
+        rotation: r,
+    })
 }
 
-/// `PostTransformMatrix`: `mul(local, post)`. Measured: this order is the right one (the reverse
-/// order is far worse), but it is only bit-exact for ~27% of entities and within 1e-5 for ~98.6%;
-/// the stored matrices keep the translation and `w` exactly, which a plain 4x4 product does not,
-/// so the original's exact combination is not recovered.
+/// `PostTransformMatrix`: `mul(local, post)`. `mul` is bit-identical to the original's
+/// `math.mul(float4x4, float4x4)` (replayed). Measured against stored matrices this order is the
+/// right one (the reverse order is far worse) but only ~27% of entities are bit-exact and ~98.6%
+/// are within 1e-5; stored matrices keep the local translation exactly where the product adds the
+/// post matrix's tiny translation terms, and even an identity post does not reproduce the stored
+/// rotation bits for ~59% of such entities. The original's combination is not recovered.
 pub fn post_transform(local: &Mat, post: &Mat) -> Mat {
     mul(local, post)
 }

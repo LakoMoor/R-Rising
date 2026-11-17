@@ -8,7 +8,7 @@ original assets, executables or decompiled sources should be distributed.
 | Boundary | Implementation | Runtime connection | Evidence | Remaining acceptance |
 | --- | --- | --- | --- | --- |
 | Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Catalog read and wired into native startup; request scheduling remains |
-| Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | `world_adapter` builds one `World` per scene (opaque special components) | 9 scene tests + `world_adapter` test: all 1,183 scenes, 1,385,671 entities with preserved ids | Shared values, chunk components, managed objects, buffer heap payloads, entity-reference remap |
+| Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | `world_adapter` builds one `World` per scene (opaque special components) | 9 scene tests + `world_adapter` test: all 1,183 scenes, 1,385,671 entities with preserved ids | Shared values, chunk components, managed objects, buffer heap payloads; entity-reference remap is identity-validated (0 dangling), not native-replayed |
 | Math | Broad API coverage | Showcase transforms | 58 regression/unit tests passed | Replay oracle for 23 scalar int/float leaves (`oracle_math.rs`, 2,048 cases each); transcendental rounding deviations in PORT.md are not covered |
 | ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Unit tests only; not wired into a running game world | Port-side unit tests derived from decompiled bodies (`store.rs`); native-replay oracles only for the pure archetype getters, Hash128 compare/hash and Entity/ChunkIndex compares (`oracle_entities.rs`); store/creation functions are not pure leaves and have none | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, system scheduling |
 | Rendering | Basic lit meshes | Native showcase | GPU triangle test; screenshots/native-content.png | Original scenes, animation, HDRP and visual comparisons |
@@ -238,7 +238,34 @@ algorithm but does not model shared values (no `ChunkListMap`: entities with dif
 share chunks), chunk-component storage (no meta chunks), managed objects or the cleanup archetype.
 Managed 4-byte slots and buffer headers are copied as raw serialized bytes: slots are not valid
 managed-store handles and buffers have no heap payload. The store re-packs entities, so it holds
-27,497 chunks versus the scene's 31,723. Entity references are not remapped.
+27,497 chunks versus the scene's 31,723.
+
+Entity references (`rrising_ecs::remap`, `World::resolve`, `World::check_hierarchy`). Field
+locations come from the recovered layouts' `entity_offsets` (368 of 1,772 types have at least one;
+the same data `CreateArchetype` turns into `EntityPatchInfo` / `BufferEntityPatchInfo`). The remap
+rule is Unity's `RemapEntity`: table indexed by source index holding `(SourceVersion, Target)`;
+version match gives the target, otherwise `Entity.Null`. **Provenance: derived from the documented
+Unity semantics and data invariants, not re-read from the pinned `GameAssembly`**: the REA server
+timed out in this session, so no body of `RemapEntity` was inspected and there is no native replay.
+The adapter registers every stored id as its own target (ids are preserved, so the remap is the
+identity) and patches per-entity component fields. Buffer elements are only classified (no heap
+payload exists in the `World`); elements come from the scene's buffer patches or the inline bytes.
+Measured over all 1,183 scenes (`entity_references_resolve_and_parent_chains_are_acyclic`, pinned):
+
+| Where | Null | Resolves to a live entity in the same scene | Stale version | Dangling |
+| --- | --- | --- | --- | --- |
+| Per-entity component fields | 155,086 | 141,778 | 0 | 0 |
+| Buffer elements | 10,723 | 1,491,308 | 0 | 0 |
+| of which `Parent.Value` | 0 | 36,200 | 0 | 0 |
+
+Every non-null reference names an entity stored in the same scene with its stored version, so the
+serialized form already equals the live id space and the patch rewrites no bytes; the 0 dangling
+and 0 stale counts are the evidence (this does not prove the original's table is an identity, only
+that for these scenes it cannot differ). All 36,200 `Parent.Value` targets are live after the world
+is built and the parent chains are acyclic, maximum depth 18. Not covered: Entity fields inside
+managed components, blob assets and shared-component values (not modelled), and cross-scene
+references (none observed, so none are explained or tested). Pointer-typed or `UnsafeList` fields
+holding entities are not in `entity_offsets`.
 
 ## Performance measurement (Rust only)
 
@@ -324,6 +351,37 @@ scenes. Measured on the pinned build: 1,385,671 entities, 919,206 with a stored 
   systems' scheduling, change-filtering and dirty-tracking; runtime-created entities; any entity
   without an authoring source (86% of stored `LocalToWorld`). This is agreement with stored original
   output on baked scene data, not a claim that the runtime system is ported.
+
+#### Update: matrix/quaternion leaves replayed from the original
+
+`tools/capture_math_matrix.py` replays eight original leaves under Rosetta (2,048 cases each,
+`evidence/oracles/math_matrix.tsv`, inputs and outputs only): `float3x3(quaternion)`,
+`float4x4(float3x3, float3)`-style `float4x4(quaternion, float3)`, `float4x4.TRS`, `Translate`,
+`Scale(float3)`, `mul(float4x4, float4x4)`, `mul(quaternion, quaternion)` and
+`normalize(quaternion)` (the il2cpp `sqrt(float)` wrapper, not a leaf, is stubbed by `sqrtss`; the
+harness gained call-linking between captured functions and longer straight-line bodies). Inputs
+include unit quaternions, axis rotations, negative zeros, non-unit and special values, scene-shaped
+TRS matrices and general matrices. Rust diverged in two places, both fixed in `rrising-math`:
+`float3x3(quaternion)` (original: `(a * -b - c * d) + k` per element, so `-0.0` becomes `+0.0`;
+205 of 2,048 differed) and `quaternion * quaternion` (term order; 613 of 2,048 differed). `float4x4.TRS`
+(which calls the former), `Translate`, `Scale`, `mul(float4x4, float4x4)` and `normalize(quaternion)`
+are now bit-identical on all 2,048 cases (`crates/rrising-math/tests/oracle_matrix.rs`).
+
+Effect on the golden comparison (isolated step): `trs_matrix` is now `float4x4.TRS`, which makes
+the earlier `Translate * (Rotate * Scale)` workaround and the "`-0.0` vs stored `+0.0`" note obsolete.
+Bit-identical 88,660 of 112,177 (was 86,798; 88,677 treating +-0 as equal, within 1e-5 111,382
+unchanged, 767 over 1e-3 unchanged). Roots `LocalTransform+Translation+Rotation`: 58,021 of 58,597
+bit-identical (was 56,159), all within 3.6e-7. Chain mode: 77,195 bit-identical (was 75,333).
+
+Still unexplained: (1) 576 of those roots differ by 1 ulp or so from the stored value although
+every involved leaf is now replayed bit-exact; a search over +-2 ulp neighbours of the stored
+rotation recovers most of them, so the original likely rotated by a slightly different (e.g.
+re-normalized or converted at bake time) quaternion than the serialized one, not a different
+formula. (2) `Parent` children 15,246 of 21,732 and `PostTransformMatrix` roots 2,070 of 14,318
+(even with an identity post matrix the product does not reproduce the stored bits) stay as before:
+`mul` is exact, so the stored values come from a composition or inputs not recovered here, and
+parent-with-scale remains weakest (61 of 885). (3) Entities without authoring source and
+`Static` entities with baked mismatches are unchanged.
 
 ### Original-scene viewer follow-up: sub-meshes, transparency, base maps, array mapping
 

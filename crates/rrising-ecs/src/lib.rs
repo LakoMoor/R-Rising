@@ -32,6 +32,7 @@ pub mod chunk;
 pub mod chunk_data;
 pub mod entity;
 pub mod hash128;
+pub mod remap;
 pub mod store;
 pub mod transform;
 pub mod type_table;
@@ -63,4 +64,7 @@ pub use store::{
     EntityComponentStore, EntityInChunk, EntityQuery, StoredArchetype, K_MAX_ENTITIES_PER_WORLD,
 };
 
+pub use remap::{
+    classify_elements, remap_elements, EntityRemapTable, HierarchyReport, RefClass, RefCounts,
+};
 pub use world::{ArchetypeInput, ChunkInput, EntityIds, World, WorldInput};

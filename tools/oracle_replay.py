@@ -45,18 +45,24 @@ def _decode(code):
     return insns
 
 
-def analyse(image, rva, allow_noreturn_call=False):
+def analyse(image, rva, allow_noreturn_call=False, known_calls=()):
     """Return (code, relocations) for the function at rva; relocations are
     (disp_offset_in_code, insn_end_offset, target_rva)."""
-    window = code_at_rva(image, rva, 300)
+    window = code_at_rva(image, rva, 3000)
     insns = _decode(window)
     offset = 0
     limit = 0
     relocs = []
     end = None
     for index, (text, raw) in enumerate(insns):
-        if window[offset:offset + len(raw)] != raw and window[offset] == 0x66:
-            raw = b'\x66' + raw
+        if text.split()[0] == 'call' and window[offset] == 0xe8:
+            raw = window[offset:offset + 5]
+        if window[offset:offset + len(raw)] != raw:
+            # llvm-mc drops redundant prefixes (0x66, empty REX); recover them from the window
+            for k in (1, 2, 3):
+                if window[offset + k:offset + k + len(raw)] == raw:
+                    raw = window[offset:offset + k + len(raw)]
+                    break
         if text.split()[0].startswith('j'):
             b0 = window[offset]
             size = 2 if (0x70 <= b0 <= 0x7f or b0 == 0xeb) else 5 if b0 == 0xe9 else 6 if b0 == 0x0f else 0
@@ -69,7 +75,10 @@ def analyse(image, rva, allow_noreturn_call=False):
         mnem = text.split()[0]
         if mnem.startswith('call'):
             following = insns[index + 1][0] if index + 1 < len(insns) else ''
-            if not (allow_noreturn_call and following.startswith('int3')):
+            mc = re.match(r'call\s+(-?\d+)$', text)
+            if mc and rva + nxt + int(mc.group(1)) in known_calls and raw[0] == 0xe8:
+                relocs.append((offset + 1, nxt, rva + nxt + int(mc.group(1)), 'call'))
+            elif not (allow_noreturn_call and following.startswith('int3')):
                 raise SystemExit(f'call in {rva:x}: {text}')
         m = re.search(r'\[rip \+ (-?\d+)\]', text)
         if m:
@@ -78,7 +87,7 @@ def analyse(image, rva, allow_noreturn_call=False):
             at = raw.rfind(pat)
             if at < 0:
                 raise SystemExit(f'cannot find displacement in {text}')
-            relocs.append((offset + at, nxt, rva + nxt + rel))
+            relocs.append((offset + at, nxt, rva + nxt + rel, 'rip'))
         if mnem.startswith('j'):
             m2 = re.match(r'j\w+\s+(-?\d+)$', text)
             if not m2:
@@ -96,41 +105,49 @@ def analyse(image, rva, allow_noreturn_call=False):
     return window[:end], [r for r in relocs if r[1] <= end]
 
 
-def assemble(image, entries):
+def assemble(image, entries, stubs=None):
     """entries: list of (symbol, rva[, allow_noreturn_call]). Returns assembly text."""
     lines = ['.text']
     data = []
+    stubs = stubs or {}
+    known = {e[1]: e[0] for e in entries}
+    known.update({rva: s[0] for rva, s in stubs.items()})
     for entry in entries:
         name, rva = entry[0], entry[1]
-        code, relocs = analyse(image, rva, len(entry) > 2 and entry[2])
+        code, relocs = analyse(image, rva, len(entry) > 2 and entry[2], known)
+        relocs = sorted(relocs)
         code = bytearray(code)
-        for k, (disp_at, insn_end, target) in enumerate(relocs):
-            const = code_at_rva(image, target, 16)
-            label = f'{name}_const{k}'
-            data.append((label, const))
+        for k, (disp_at, insn_end, target, kind) in enumerate(relocs):
+            if kind == 'rip':
+                const = code_at_rva(image, target, 16)
+                label = f'{name}_const{k}'
+                data.append((label, const))
             # displacement is resolved by the assembler from the label
             code[disp_at:disp_at + 4] = b'\0\0\0\0'
         # emit with label-relative displacement fixups
         pieces = []
         cursor = 0
-        for k, (disp_at, insn_end, target) in enumerate(relocs):
+        for k, (disp_at, insn_end, target, kind) in enumerate(relocs):
             pieces.append('.byte ' + ','.join(hex(b) for b in code[cursor:disp_at]) if disp_at > cursor else '')
-            pieces.append(f'.long {name}_const{k} - (_{name} + {insn_end})')
+            sym = f'{name}_const{k}' if kind == 'rip' else f'_{known[target]}'
+            pieces.append(f'.long {sym} - (_{name} + {insn_end})')
             cursor = disp_at + 4
         if cursor < len(code):
             pieces.append('.byte ' + ','.join(hex(b) for b in code[cursor:]))
         lines += ['.balign 16', f'.globl _{name}', f'_{name}:']
         lines += [p for p in pieces if p]
+    for rva, (sname, body) in stubs.items():
+        lines += ['.balign 16', f'.globl _{sname}', f'_{sname}:', body]
     lines.append('.balign 16')
     for label, const in data:
         lines += [f'{label}:', '.byte ' + ','.join(hex(b) for b in const)]
     return '\n'.join(lines) + '\n'
 
 
-def run(image, entries, driver_source, timeout=60):
+def run(image, entries, driver_source, timeout=60, stubs=None):
     with tempfile.TemporaryDirectory(prefix='rrising-oracle-') as scratch:
         scratch = Path(scratch)
-        (scratch / 'original.S').write_text(assemble(image, entries))
+        (scratch / 'original.S').write_text(assemble(image, entries, stubs))
         (scratch / 'driver.c').write_text(driver_source)
         subprocess.run(['/usr/bin/clang', '-arch', 'x86_64', '-O1', '-Wno-everything', str(scratch / 'driver.c'),
                         str(scratch / 'original.S'), '-o', str(scratch / 'oracle')], check=True)

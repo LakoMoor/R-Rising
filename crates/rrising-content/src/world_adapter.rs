@@ -9,8 +9,13 @@
 //!   copied as raw serialized bytes. Managed slots are opaque: they are *not* valid managed-store
 //!   handles and no managed object is attached.
 //! - Buffer headers carry length/capacity but there is no heap payload behind them.
-//! - Shared-component values, chunk-component values and entity-reference remapping are not
-//!   carried. Their archetypes are admitted through the store's opaque mode, which keeps the
+//! - Entity references: the scene stores references in its own (scene-local) id space. A remap
+//!   table (`rrising_ecs::EntityRemapTable`, source id -> live id, ids being preserved) is applied
+//!   to every per-entity component's `Entity` fields (offsets from the recovered layouts); a
+//!   reference that is not live in the scene becomes `Entity.Null`, as `RemapEntity` does. Buffer
+//!   elements have no heap payload in the `World`, so their references are classified from the
+//!   scene's buffer data but not patched. Counts are in [`AdapterStats`].
+//! - Shared-component values and chunk-component values are not carried. Their archetypes are admitted through the store's opaque mode, which keeps the
 //!   original layout algorithm but not shared-value chunk grouping: the store packs entities into
 //!   chunks itself, so chunk boundaries can differ from the scene's.
 //! - The archetype/type order inside the store is the port's ("entity first, rest by packed
@@ -20,8 +25,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{bail, ensure, Context, Result};
 use rrising_ecs::{
-    ArchetypeInput, ChunkInput, Entity, EntityIds, SpecialTypes, TypeIndex, TypeManager, World,
-    WorldInput,
+    classify_elements, remap_elements, ArchetypeInput, ChunkInput, Entity, EntityIds,
+    EntityRemapTable, RefCounts, SpecialTypes, TypeIndex, TypeManager, World, WorldInput,
 };
 
 use crate::entity_scenes::SceneFile;
@@ -37,7 +42,18 @@ pub struct AdapterStats {
     pub component_arrays: usize,
     /// Shared / chunk-component / zero-sized slots with no per-entity bytes to copy.
     pub skipped_value_less_slots: usize,
+    /// References in per-entity components, classified before patching (then patched).
+    pub scalar_refs: RefCounts,
+    /// References in buffer elements (classified, not patched: no heap payload in the world).
+    pub buffer_refs: RefCounts,
+    /// The subset of `scalar_refs` that are `Parent.Value`.
+    pub parent_refs: RefCounts,
+    /// Dangling or stale-version references by component type name.
+    pub unresolved_by_type: BTreeMap<String, usize>,
 }
+
+/// `Unity.Transforms.Parent` (checked by name in the acceptance test).
+pub const PARENT_HASH: u64 = 0x6a6b_52ec_c95a_65e0;
 
 /// A scene instantiated as a world, with the hash-to-type map needed to build queries.
 #[derive(Debug)]
@@ -104,8 +120,38 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
     }
     stats.archetypes = archetypes.len();
 
-    let mut chunks = Vec::with_capacity(resolved.chunks.len());
+    // Pass 1: stored ids of every chunk; they become the remap table (source -> live id).
+    let mut chunk_ids: Vec<Vec<Entity>> = Vec::with_capacity(resolved.chunks.len());
+    let mut table = EntityRemapTable::new();
     for chunk in &resolved.chunks {
+        let ai = usize::try_from(chunk.header.archetype_index)?;
+        let arch = resolved.archetypes[ai].as_ref().context("archetype")?;
+        let count = usize::try_from(chunk.header.count)?;
+        let off = usize::try_from(arch.data.layout.offsets[0])?;
+        let id_bytes = chunk
+            .buffer
+            .get(off..off + 8 * count)
+            .with_context(|| format!("chunk {} entity slot outside buffer", chunk.index))?;
+        let ids: Vec<Entity> = id_bytes
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|b| {
+                Entity::new(
+                    i32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+                    i32::from_le_bytes([b[4], b[5], b[6], b[7]]),
+                )
+            })
+            .collect();
+        for &e in &ids {
+            table.add(e, e);
+        }
+        chunk_ids.push(ids);
+    }
+    let buffers = scene.buffer_data()?;
+
+    let mut chunks = Vec::with_capacity(resolved.chunks.len());
+    for (ci, chunk) in resolved.chunks.iter().enumerate() {
         let ai = usize::try_from(chunk.header.archetype_index)?;
         let arch = resolved.archetypes[ai].as_ref().context("archetype")?;
         let count = usize::try_from(chunk.header.count)?;
@@ -118,18 +164,7 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
                 .get(off..off + stride * count)
                 .with_context(|| format!("chunk {} slot {slot} outside buffer", chunk.index))
         };
-        let id_bytes = slice(0)?;
-        ensure!(id_bytes.len() == count * 8, "Entity slot is not 8 bytes");
-        let ids = (0..count)
-            .map(|i| {
-                let r = |o: usize| -> Result<i32> {
-                    Ok(i32::from_le_bytes(
-                        id_bytes[i * 8 + o..i * 8 + o + 4].try_into()?,
-                    ))
-                };
-                Ok(Entity::new(r(0)?, r(4)?))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let ids = std::mem::take(&mut chunk_ids[ci]);
         let mut components = Vec::new();
         for slot in 1..arch.types.len() {
             let t = arch.types[slot];
@@ -140,7 +175,59 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
             if layout.sizeofs[slot] == 0 {
                 bail!("slot {slot} of archetype {ai} has zero stride but is per-entity");
             }
-            components.push((archetypes[ai].types[slot - 1], slice(slot)?.to_vec()));
+            let hash = arch.hashes[slot];
+            let rec = layouts.get(hash).context("recovered type")?;
+            let stride = usize::from(layout.sizeofs[slot]);
+            let mut bytes = slice(slot)?.to_vec();
+            if !rec.entity_offsets.is_empty() && !t.is_managed_component() {
+                let mut c = RefCounts::default();
+                if t.is_buffer() {
+                    let elem = usize::try_from(rec.spec.element_size)?;
+                    let patches = &buffers.per_chunk[chunk.index].patches;
+                    let base = usize::try_from(layout.offsets[slot])?;
+                    for i in 0..count {
+                        let at = base + i * stride;
+                        let h = &chunk.buffer[at..at + 16];
+                        let len = usize::try_from(i32::from_le_bytes(h[8..12].try_into()?))?;
+                        let data: &[u8] = match patches
+                            .iter()
+                            .find(|p| usize::try_from(p.chunk_offset).ok() == Some(at))
+                        {
+                            Some(p) => p.data,
+                            None => &chunk.buffer[at + 16..at + stride],
+                        };
+                        let used = data.get(..len * elem).with_context(|| {
+                            format!(
+                                "chunk {} buffer {at}: {len} elements exceed data",
+                                chunk.index
+                            )
+                        })?;
+                        classify_elements(used, elem, &rec.entity_offsets, &table, &mut c);
+                    }
+                    stats.buffer_refs = add_counts(stats.buffer_refs, c);
+                } else {
+                    remap_elements(
+                        &mut bytes,
+                        stride,
+                        &rec.entity_offsets,
+                        &table,
+                        true,
+                        &mut c,
+                    );
+                    stats.scalar_refs = add_counts(stats.scalar_refs, c);
+                    if hash == PARENT_HASH {
+                        stats.parent_refs = add_counts(stats.parent_refs, c);
+                    }
+                }
+                let bad = c.dangling + c.stale_version;
+                if bad > 0 {
+                    *stats
+                        .unresolved_by_type
+                        .entry(rec.name.clone())
+                        .or_default() += bad;
+                }
+            }
+            components.push((archetypes[ai].types[slot - 1], bytes));
             stats.component_arrays += 1;
         }
         stats.chunks += 1;
@@ -175,4 +262,13 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
         type_of_hash: a.type_of_hash,
         stats: a.stats,
     })
+}
+
+fn add_counts(a: RefCounts, b: RefCounts) -> RefCounts {
+    RefCounts {
+        null: a.null + b.null,
+        live: a.live + b.live,
+        stale_version: a.stale_version + b.stale_version,
+        dangling: a.dangling + b.dangling,
+    }
 }

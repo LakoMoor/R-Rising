@@ -166,16 +166,17 @@ impl quaternion {
 
 impl std::ops::Mul for quaternion {
     type Output = quaternion;
-    /// `quaternion * quaternion` — the original's component order, term for term.
+    /// `math.mul(quaternion, quaternion)` — operation order of the original's body (replayed from
+    /// the pinned binary): three partial products summed left to right, then the fourth term.
     #[inline]
     fn mul(self, r: Self) -> Self {
-        let va = self.value;
-        let vb = r.value;
+        let a = self.value;
+        let b = r.value;
         Self::new(
-            va.w * vb.x + va.x * vb.w + (va.y * vb.z - va.z * vb.y),
-            va.w * vb.y + va.y * vb.w + (va.z * vb.x - va.x * vb.z),
-            va.w * vb.z + va.z * vb.w + (va.x * vb.y - va.y * vb.x),
-            va.w * vb.w - (va.x * vb.x + va.y * vb.y + va.z * vb.z),
+            ((a.y * b.z + b.w * a.x) + a.w * b.x) - a.z * b.y,
+            ((a.z * b.x + b.w * a.y) + a.w * b.y) - b.z * a.x,
+            ((a.z * b.w + b.y * a.x) + a.w * b.z) - a.y * b.x,
+            ((a.y * b.y + a.x * b.x) * -1.0 + b.w * a.w) - a.z * b.z,
         )
     }
 }

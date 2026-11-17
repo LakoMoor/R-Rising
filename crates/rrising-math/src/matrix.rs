@@ -95,28 +95,33 @@ impl float3x3 {
         Self::new(a * b.c0, a * b.c1, a * b.c2)
     }
 
-    /// `float3x3(quaternion)` — the rotation basis the original builds.
+    /// `float3x3(quaternion)` — operation order of the original's constructor (replayed from the
+    /// pinned binary, `evidence/oracles/math_matrix.tsv`): every element is
+    /// `(a * -b - c * d) + k` with the doubled lanes `2x, 2y, 2z`, `k = 1.0` on the diagonal and
+    /// `0.0` elsewhere. The `+ 0.0` turns a `-0.0` result into `+0.0`, which the older
+    /// `1 - (yy + zz)` form did not. No fused multiply-add: Rust never contracts `a * b + c`.
     #[inline]
     pub fn from_quaternion(q: quaternion) -> Self {
-        let v = q.value;
-        let x2 = v.x + v.x;
-        let y2 = v.y + v.y;
-        let z2 = v.z + v.z;
-        let xx = v.x * x2;
-        let xy = v.x * y2;
-        let xz = v.x * z2;
-        let yy = v.y * y2;
-        let yz = v.y * z2;
-        let zz = v.z * z2;
-        let wx = v.w * x2;
-        let wy = v.w * y2;
-        let wz = v.w * z2;
-        // Columns as `float3x3(quaternion)` derives them; `from_elements` takes rows, so they are
-        // written transposed here.
+        let (x, y, z, w) = (q.value.x, q.value.y, q.value.z, q.value.w);
+        let z2 = z + z;
+        let y2 = y + y;
+        let x2 = x + x;
         Self::new(
-            float3::new(1.0 - (yy + zz), xy + wz, xz - wy),
-            float3::new(xy - wz, 1.0 - (xx + zz), yz + wx),
-            float3::new(xz + wy, yz - wx, 1.0 - (xx + yy)),
+            float3::new(
+                (y2 * -y - z2 * z) + 1.0,
+                (y2 * x - z2 * -w) + 0.0,
+                (y2 * -w - z2 * -x) + 0.0,
+            ),
+            float3::new(
+                (z2 * -w - x2 * -y) + 0.0,
+                (z2 * -z - x2 * x) + 1.0,
+                (z2 * y - x2 * -w) + 0.0,
+            ),
+            float3::new(
+                (x2 * z - y2 * -w) + 0.0,
+                (x2 * -w - y2 * -z) + 0.0,
+                (x2 * -x - y2 * y) + 1.0,
+            ),
         )
     }
 

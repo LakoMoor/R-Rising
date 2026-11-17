@@ -15,6 +15,7 @@ use anyhow::{ensure, Result};
 
 use crate::archetype::SpecialTypes;
 use crate::entity::Entity;
+use crate::remap::HierarchyReport;
 use crate::store::{EntityComponentStore, EntityQuery};
 use crate::type_table::{TypeIndex, TypeManager};
 
@@ -144,6 +145,82 @@ impl World {
             archetype_map,
             entities,
         })
+    }
+
+    /// Safe liveness check: `Some(e)` when `e` names a live entity (index in range, version
+    /// current, slot occupied); `None` for `Entity.Null`, out-of-range indices and stale handles.
+    pub fn resolve(&self, e: Entity) -> Option<Entity> {
+        if e == Entity::NULL {
+            return None;
+        }
+        self.store.exists(e).ok()?.then_some(e)
+    }
+
+    /// Walk a `Parent`-style relation. `parent_type` is a per-entity 8-byte component whose first
+    /// field is the parent `Entity`. Counts parents that are null / not live and entities whose
+    /// chain never terminates (visited-set cycle detection), plus the longest chain.
+    pub fn check_hierarchy(&self, parent_type: TypeIndex) -> Result<HierarchyReport> {
+        let q = EntityQuery {
+            all: vec![parent_type],
+            include_disabled: true,
+            include_prefab: true,
+            ..Default::default()
+        };
+        let mut parent_of = std::collections::HashMap::new();
+        let mut rep = HierarchyReport::default();
+        for e in self.store.query_entities(&q)? {
+            let b = self.store.component_bytes(e, parent_type)?;
+            ensure!(b.len() >= 8, "parent component is {} bytes", b.len());
+            let p = Entity::new(
+                i32::from_le_bytes(b[0..4].try_into()?),
+                i32::from_le_bytes(b[4..8].try_into()?),
+            );
+            rep.with_parent += 1;
+            if p == Entity::NULL {
+                rep.null_parent += 1;
+            } else if self.resolve(p).is_none() {
+                rep.dangling_parent += 1;
+            } else {
+                parent_of.insert(e.index, p.index);
+            }
+        }
+        // depth memo: 0 = unknown, usize::MAX = on the current path / cyclic
+        let mut depth: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
+        for &start in parent_of.keys() {
+            let mut path = Vec::new();
+            let mut cur = start;
+            let result = loop {
+                if let Some(&d) = depth.get(&cur) {
+                    break d;
+                }
+                if path.contains(&cur) {
+                    break usize::MAX;
+                }
+                match parent_of.get(&cur) {
+                    Some(&n) => {
+                        path.push(cur);
+                        cur = n;
+                    }
+                    None => {
+                        depth.insert(cur, 0);
+                        break 0;
+                    }
+                }
+            };
+            let mut d = result;
+            for &n in path.iter().rev() {
+                d = if d == usize::MAX { d } else { d + 1 };
+                depth.insert(n, d);
+            }
+        }
+        for &d in depth.values() {
+            if d == usize::MAX {
+                rep.cyclic += 1;
+            } else {
+                rep.max_depth = rep.max_depth.max(d);
+            }
+        }
+        Ok(rep)
     }
 
     /// Number of entities matched by the query (sum of matching chunk counts).
