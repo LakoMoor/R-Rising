@@ -5,8 +5,8 @@
 //! then member payloads in table order. ReadVersion2 RVA 0x7f1e9e0;
 //! WriteAndZipToDiskJob.Execute 0x7f31d70, WriteFileEntry 0x7f32cb0.
 //! Two actual original autosaves establish the 172-byte table, seven members and
-//! valid empty fourth serialization job. The header decoder is separate;
-//! world/system/job contents stay opaque. This diagnostic rejects incomplete
+//! valid empty fourth serialization job. Separate decoders read the header and
+//! serialization jobs; world and system members stay opaque. This diagnostic rejects incomplete
 //! payloads, trailing data and invalid UTF-8, and bounds decompression explicitly.
 
 use std::collections::BTreeSet;
@@ -17,8 +17,13 @@ use anyhow::{ensure, Context, Result};
 use flate2::bufread::GzDecoder;
 
 mod header;
+mod job;
 pub use header::{
     PersistenceHeader, PersistentBlob, PersistentComponent, PrefabReference, RequiredComponent,
+};
+pub use job::{
+    SavedArchetype, SavedChunk, SavedColumn, SerializationJob, SerializationJobRegistry,
+    SerializationJobStats,
 };
 
 /// Diagnostic allocation limit, not a limit observed in the original game.

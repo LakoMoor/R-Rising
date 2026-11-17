@@ -614,5 +614,10 @@ The next slice decodes format-7/persistence-4 Header.save completely. Original s
 confirms prefab/link handles, the saved component registry and blob mappings; a test-only
 encoding of all parsed fields matches the 821,700 original bytes in both files. Required names
 use nine-bit lengths followed by alignment, not u16 lengths. Runtime type indices retain flags
-and are not installed into the port registry. See evidence/save_header.md. Serialization-job,
-world and system values still need decoding before a saved world can be restored and compared.
+and are not installed into the port registry. See evidence/save_header.md.
+
+The serialization-job reader then indexes archetypes, chunks, saved entity handles and scalar
+or dynamic-buffer columns. It consumes all eight job members in two original autosaves to their
+exact ends, including two empty members. The original-data check locates saved `EntityInput` and
+`MapCollision` values by entity handle and compares fingerprints. See evidence/save_jobs.md.
+World and system payloads, typed state and remapping remain ahead of restoration and comparison.

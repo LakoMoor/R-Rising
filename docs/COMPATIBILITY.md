@@ -1,4 +1,4 @@
-# Compatibility status — updated 2026-11-17
+# Compatibility status — updated 2026-11-18
 
 Target: V Rising v1.1.13.0-r99712-b17 (202605251526), native desktop and browser.
 
@@ -12,7 +12,7 @@ original assets, executables or decompiled sources should be distributed.
 | Math | Broad API coverage | Scene transforms and transform system | 23 scalar and 8 matrix/quaternion replay targets, 2,048 inputs each; normalization uses a sqrt stub | Remaining overloads, SIMD approximations and transcendental rounding deviations in PORT.md |
 | ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Scene Worlds, deterministic schedule and TransformSystem; `--scene-sim` feeds viewer/export | Store tests derived from decompiled bodies; native replay for pure getters, comparisons and change versions; 372 real-scene transform scenarios | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, original system scheduling |
 | Rendering | Basic lit meshes, sub-meshes and cutout pipeline | Original-scene viewer, optional transform-system output | GPU regressions; native/WebGPU screenshots; stored-vs-simulated Rust image comparison | Animation, HDRP, transparent materials, terrain blending and original-game visual parity |
-| Saves | Version-2 container, format-7 header and saved type/prefab/blob metadata | `--inspect-save` without GPU startup | Two actual CrossOver autosaves; 14 member fingerprints and every header field match | Job/world/system decoding, World restoration and round-trip gameplay parity |
+| Saves | Version-2 container, format-7 header, archetypes, chunks, entity handles and component columns | `--inspect-save` without GPU startup | Two actual CrossOver autosaves; 14 member fingerprints, every header field and 8 job boundaries match | Typed values, shared and omitted values, world/system decoding, remapping, World restoration and round-trip gameplay parity |
 | Gameplay / HUD / physics / sound / networking | Not implemented | None | No end-to-end parity cases | First original-scene playable slice |
 | Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, physical mobile-device verification, game world |
 | Performance | Rust-only absolute timings (see Performance measurement) | None | No comparable original-runtime benchmark | Same-scene release measurements on both runtimes |
@@ -695,5 +695,12 @@ The header decoder now reads all 821,700 bytes of each original Header.save: 23,
 Every parsed field re-encodes byte-identically in the original-data test; all persistent indices
 join the saved name registry. Runtime records independently confirm six steering component
 hashes/sizes. The 9-bit FixedString length and alignment are explicitly tested. No original
-saved address is dereferenced. See [save_header.md](../evidence/save_header.md); component values
-and a restored World are outside this boundary.
+saved address is dereferenced. See [save_header.md](../evidence/save_header.md).
+
+Rust reads the four serialization jobs in each of the two retained saves to the end of
+their members, including one empty job per save. `AutoSave_4` contains 140 archetypes,
+2,673 chunks and 274,238 entity rows; `AutoSave_5` contains 138 archetypes, 2,671 chunks
+and 274,236 entity rows. The app lists the counts for each job; values can be read from
+the component columns. Actual `EntityInput` and `MapCollision` samples are checked
+against source fingerprints. The captures have no `MoveTowardsPositionBuff` column
+and do not establish live steering parity. Details and reproduction: [save_jobs.md](../evidence/save_jobs.md).

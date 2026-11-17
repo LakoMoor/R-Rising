@@ -91,5 +91,6 @@ is diagnostic; native List deserialization has no equivalent complete validation
 Uniqueness and cross-table joins are asserted on the measured files in tests,
 not assumed to have been checked by the original parser.
 
-WorldData, Systems and serialization-job payloads remain to decode, including
-buffer/blob contents and entity remapping. No saved world is runnable in Rust yet.
+The [serialization-job reader](save_jobs.md) uses this registry to locate entity
+handles and component values. `WorldData`, `Systems`, typed values, and entity
+and blob remapping remain to implement. No saved world is runnable in Rust yet.

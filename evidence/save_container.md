@@ -63,8 +63,9 @@ RRISING_SAVE_DIR=/path/to/captured/saves \
 ```
 
 `--inspect-save` runs without opening a window/GPU or indexing game archives. It
-prints the version, table size, uncompressed size, ordered member names/ranges and
-the [decoded header's versions and counts](save_header.md).
+prints the version, table size, uncompressed size, ordered member names/ranges,
+the [decoded header's versions and counts](save_header.md) and
+[serialization-job counts](save_jobs.md).
 It does not extract files. The normal file-loading API also accepts an already
 decompressed version-2 container, matching the original case-sensitive `.gz` choice.
 
@@ -79,7 +80,7 @@ overflow bits in its fifth byte. Error-policy parity is therefore not claimed.
 
 Four portable tests cover the real table shape, unknown names/UTF-8 lengths,
 incomplete/invalid tables and gzip checksum/truncation/limit handling. The two
-original files also pass the actual application command. The subsequent header
-slice recovers saved type/prefab/blob metadata; world data, system state,
-serialization jobs and legacy v1 directories remain opaque. These are format
+original files also pass the actual application command. The header and job
+readers recover saved registry metadata, entity handles and component columns.
+World data, system state and legacy v1 directories remain opaque. These are format
 checks, **not save/load gameplay parity**.

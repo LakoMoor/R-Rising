@@ -28,7 +28,7 @@ performance improvement has been demonstrated.
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |
 | Original-game scenarios | 0 | Game parity **unmeasured**; 95 distinct native function addresses have replay tests (sqrt stub; steering isolates five ECS accessors); see [oracle evidence](evidence/original_leaf_oracles.md) |
 | Original runtime reference | Dedicated server boots through CrossOver; six autosaves captured | [Measured startup/save evidence](evidence/crossover_runtime.md); no deterministic Rust comparison yet |
-| Saves | Container + header read from both original autosaves; 14 member fingerprints and complete 821,700-byte headers match | [Saved registry and prefab/blob metadata](evidence/save_header.md); no restored World |
+| Saves | Containers, complete headers and all 8 serialization jobs read across two original autosaves; 274,238 and 274,236 entity rows | [Saved entities and component columns](evidence/save_jobs.md); no restored World |
 | Gameplay, HUD, animation, physics, audio, networking | Not implemented | Not playable |
 | Rust-only timings (Apple M4, release) | Index 4,409 archives 3.3 s; decode 1,183 scenes 1.3 s; offscreen 1280x720 frame median 1.4 ms | Absolute numbers only, **no original-game comparison**; see COMPATIBILITY.md |
 
@@ -98,6 +98,15 @@ type-tree package: `assets/typetrees.tpk`. Override with `--data`, `--tpk`,
 `VRISING_DATA`, or `RRISING_TPK`. The windowed application currently renders a
 static showcase; there are no game controls yet.
 
+Inspect a local dedicated-server autosave without starting the renderer:
+
+```sh
+cargo run --locked -p rrising-app -- --inspect-save /path/to/AutoSave_4.save.gz
+```
+
+The report includes the header, member ranges and counts for every serialization
+job. See [save format evidence](evidence/save_jobs.md) for the measured scope.
+
 ## Browser build
 
 The browser uses the **same wgpu renderer and shader** as native. The native Unity
@@ -146,7 +155,7 @@ installation is counted as a successful original-game compatibility test.
 | --- | --- |
 | `rrising-math` | Ported math surface; known numeric deviations remain |
 | `rrising-ecs` | Entity store, queries, World, deterministic schedule and one transform system; not a running game |
-| `rrising-content` | Unity archives, objects, entity scene streams, settings, localization |
+| `rrising-content` | Unity archives, objects, scenes, saves, settings, localization |
 | `rrising-core` | Scene assembly and base-map selection for the showcase |
 | `rrising-render` | Shared GPU pipeline, texture uploads with BC CPU fallback, scene transfers, readback |
 | `rrising-app` | Native window, offscreen capture and local scene export |

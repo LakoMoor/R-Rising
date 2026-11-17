@@ -1,0 +1,66 @@
+{
+  "evidence_kind": "original-runtime-derived",
+  "original_server_binary_sha256": "41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7",
+  "job_stats_fields": ["bytes", "archetypes", "chunks", "entities", "columns", "buffer_entities"],
+  "saves": [
+    {
+      "file": "AutoSave_4.save.gz",
+      "jobs": {
+        "SerializationJob_0.save": [15867153, 16, 1872, 224552, 14936, 225743],
+        "SerializationJob_1.save": [12068726, 37, 693, 46115, 4563, 47621],
+        "SerializationJob_2.save": [578231, 87, 108, 3571, 1253, 5460],
+        "SerializationJob_3.save": [0, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "file": "AutoSave_5.save.gz",
+      "jobs": {
+        "SerializationJob_0.save": [15866088, 15, 1871, 224551, 14934, 225742],
+        "SerializationJob_1.save": [12068726, 37, 693, 46115, 4563, 47621],
+        "SerializationJob_2.save": [578054, 86, 107, 3570, 1245, 5460],
+        "SerializationJob_3.save": [0, 0, 0, 0, 0, 0]
+      }
+    }
+  ],
+  "scalar_samples": [
+    {
+      "job": "SerializationJob_2.save",
+      "component": "ProjectM.EntityInput",
+      "archetype_offset_bits": 4334304,
+      "entity_array_offset": 542397,
+      "entity": [152830, 4],
+      "offset": 542777,
+      "bytes": 96,
+      "fnv1a64": "a8ccafb656293df8",
+      "sha256": "34c18d7acb2e85f14865c859d072aaa51db63e4237248c490b3de54080e689e9"
+    },
+    {
+      "job": "SerializationJob_2.save",
+      "component": "ProjectM.MapCollision",
+      "archetype_offset_bits": 4334304,
+      "entity_array_offset": 542397,
+      "entity": [152830, 4],
+      "offset": 543694,
+      "bytes": 20,
+      "fnv1a64": "7089fbeb99b26c49",
+      "sha256": "94cf432e140fda890534380321d91433fefdff119473fc68167edb29848a6557"
+    }
+  ],
+  "buffer_sample": {
+    "job": "SerializationJob_1.save",
+    "component": "ProjectM.MegaStaticDestroyedBuffer",
+    "archetype_ordinal": 1,
+    "omission_flags": 11,
+    "chunk_ordinal": 9,
+    "buffers": 128,
+    "nonempty_buffers": 2,
+    "total_elements": 5,
+    "empty_entity_ordinal": 0,
+    "empty_entity": [260332, 2],
+    "nonempty_entity_ordinal": 99,
+    "nonempty_entity": [275012, 2],
+    "nonempty_elements": 1,
+    "nonempty_offset": 2899033,
+    "nonempty_fnv1a64": "f1e8509d7ce11581"
+  }
+}

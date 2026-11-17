@@ -14,6 +14,9 @@ use std::sync::Arc;
 mod scene_view;
 
 use anyhow::{Context, Result};
+use rrising_content::persistence::{
+    PersistentSave, SerializationJob, SerializationJobRegistry, CONTAINER_VERSION,
+};
 use rrising_content::{list_archives, GameContent};
 use rrising_core::scene::{self, SceneSpec};
 use rrising_math::{float3, float4, float4x4};
@@ -1290,8 +1293,9 @@ fn main() -> Result<()> {
     env_logger::init();
     let opt = parse_args()?;
     if let Some(path) = &opt.inspect_save {
-        let save = rrising_content::persistence::PersistentSave::open(path)?;
+        let save = PersistentSave::open(path)?;
         let header = save.header()?;
+        let registry = SerializationJobRegistry::new(&header)?;
         let linked_entities: usize = header.prefabs.iter().map(|p| p.linked_entities.len()).sum();
         let members: Vec<_> = save
             .members()
@@ -1302,12 +1306,31 @@ fn main() -> Result<()> {
                 })
             })
             .collect();
+        let mut serialization_jobs = Vec::new();
+        for (index, member) in save.members().iter().enumerate() {
+            if !member.name.starts_with("SerializationJob_") {
+                continue;
+            }
+            let bytes = save
+                .member_data(index)
+                .context("missing serialization job data")?;
+            let job = SerializationJob::read(bytes, &registry)
+                .with_context(|| format!("decoding {}", member.name))?;
+            let stats = job.stats();
+            serialization_jobs.push(serde_json::json!({
+                "member_name": member.name, "bytes": bytes.len(),
+                "archetypes": stats.archetypes, "chunks": stats.chunks,
+                "entities": stats.entities, "columns": stats.columns,
+                "buffer_entities": stats.buffer_entities,
+            }));
+        }
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "kind": "save-container-inspection", "container_version": 2,
+                "kind": "save-container-inspection", "container_version": CONTAINER_VERSION,
                 "uncompressed_bytes": save.uncompressed_bytes(),
                 "table_bytes": save.table_bytes(), "members": members,
+                "serialization_jobs": serialization_jobs,
                 "header": {
                     "serialization_format_version": header.serialization_format_version,
                     "persistence_version": header.persistence_version,
