@@ -40,7 +40,7 @@ regression tests must not be presented as proof of 1:1 compatibility.
   - Executed: macOS aarch64 only (build, tests, GPU via Metal). Browser execution is covered by the subsequent browser milestone.
   - Type-checked only, not linked or run: `cargo check --locked --workspace --target` passed for x86_64-apple-darwin, x86_64-pc-windows-msvc and x86_64-unknown-linux-gnu. This proves the code compiles for those targets, not that it runs there.
   - `cargo build --locked -p rrising-web --target wasm32-unknown-unknown` passed. The whole-workspace wasm check still fails in `primase-foundations` (see above), because `rrising-content` is native-only.
-  - Configured in `.github/workflows/ci.yml` but not yet run: fmt, clippy `-D warnings` and `cargo test` on ubuntu, windows and macOS runners, plus the wasm build. The two GPU tests (`draws_a_hand_built_triangle`, `serialized_transfer_matches_direct_gpu_upload`) are skipped there, so GPU rendering is not covered by CI on any platform. Ignored original-data tests are not run in CI.
+  - Run in CI (`.github/workflows/ci.yml`, GitHub run 44058518223, commit c33dd90, all green): fmt, clippy `-D warnings` and `cargo test` on ubuntu, windows and macOS runners, plus the wasm build. The first CI run failed because some original-data tests had a hard-coded local path; they now read `VRISING_DATA` and skip when no install exists, so CI green says nothing about original-content behaviour. The two GPU tests (`draws_a_hand_built_triangle`, `serialized_transfer_matches_direct_gpu_upload`) are skipped there, so GPU rendering is not covered by CI on any platform. Ignored original-data tests are not run in CI.
   - Android and iOS: not verified.
 
 ## Publication
