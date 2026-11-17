@@ -21,7 +21,9 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 fn install() -> PathBuf {
-    PathBuf::from("/Users/lakomoor/ported/VRising/VRising_Data")
+    std::env::var_os("VRISING_DATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../VRising_Data"))
 }
 
 #[test]

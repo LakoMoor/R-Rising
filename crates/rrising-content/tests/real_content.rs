@@ -3,25 +3,30 @@
 use std::path::Path;
 use std::time::Instant;
 
-const DATA: &str = "/Users/lakomoor/ported/VRising/VRising_Data";
-const TPK: &str = "/Users/lakomoor/ported/VRising/R-Rising/assets/typetrees.tpk";
+fn data_dir() -> String {
+    std::env::var("VRISING_DATA").unwrap_or_else(|_| {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../../VRising_Data").to_string()
+    })
+}
+
+const TPK: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/typetrees.tpk");
 
 fn install_present() -> bool {
-    Path::new(DATA).is_dir() && Path::new(TPK).is_file()
+    Path::new(&data_dir()).is_dir() && Path::new(TPK).is_file()
 }
 
 #[test]
 fn opens_a_slice_of_the_content_archives() {
     if !install_present() {
-        eprintln!("skipping: no V Rising install at {DATA}");
+        eprintln!("skipping: no V Rising install at {}", data_dir());
         return;
     }
-    let dir = Path::new(DATA).join("StreamingAssets/ContentArchives");
+    let dir = Path::new(&data_dir()).join("StreamingAssets/ContentArchives");
     let all = rrising_content::list_archives(&dir).unwrap();
     let slice: Vec<_> = all.iter().take(200).cloned().collect();
     let t = Instant::now();
     let content =
-        rrising_content::GameContent::open(Path::new(DATA), &slice, Path::new(TPK)).unwrap();
+        rrising_content::GameContent::open(Path::new(&data_dir()), &slice, Path::new(TPK)).unwrap();
     let elapsed = t.elapsed();
     let counts = content.class_counts();
     println!(
@@ -46,14 +51,14 @@ fn opens_a_slice_of_the_content_archives() {
 #[test]
 fn reads_a_real_mesh_and_its_textures() {
     if !install_present() {
-        eprintln!("skipping: no V Rising install at {DATA}");
+        eprintln!("skipping: no V Rising install at {}", data_dir());
         return;
     }
-    let dir = Path::new(DATA).join("StreamingAssets/ContentArchives");
+    let dir = Path::new(&data_dir()).join("StreamingAssets/ContentArchives");
     let all = rrising_content::list_archives(&dir).unwrap();
     let slice: Vec<_> = all.iter().take(400).cloned().collect();
     let content =
-        rrising_content::GameContent::open(Path::new(DATA), &slice, Path::new(TPK)).unwrap();
+        rrising_content::GameContent::open(Path::new(&data_dir()), &slice, Path::new(TPK)).unwrap();
 
     let mesh_entry = content
         .entries()
@@ -133,16 +138,16 @@ fn reads_a_real_mesh_and_its_textures() {
 #[test]
 fn localization_and_settings_load() {
     if !install_present() {
-        eprintln!("skipping: no V Rising install at {DATA}");
+        eprintln!("skipping: no V Rising install at {}", data_dir());
         return;
     }
-    let en = Path::new(DATA).join("StreamingAssets/Localization/English.json");
+    let en = Path::new(&data_dir()).join("StreamingAssets/Localization/English.json");
     let table = rrising_content::localization::LocalizationTable::load(&en).unwrap();
     println!("English localization: {} strings", table.len());
     assert!(table.len() > 100, "expected a real string table");
 
     let presets = rrising_content::settings::list_presets(
-        &Path::new(DATA).join("StreamingAssets/GameSettingPresets"),
+        &Path::new(&data_dir()).join("StreamingAssets/GameSettingPresets"),
     )
     .unwrap();
     println!("setting presets: {:?}", presets.len());
@@ -152,7 +157,7 @@ fn localization_and_settings_load() {
     );
 
     let doc = rrising_content::settings::load_json(
-        &Path::new(DATA).join("StreamingAssets/GameSettingPresets/StandardPvE.json"),
+        &Path::new(&data_dir()).join("StreamingAssets/GameSettingPresets/StandardPvE.json"),
     )
     .unwrap();
     println!(
@@ -166,15 +171,15 @@ fn localization_and_settings_load() {
 #[test]
 fn opens_the_whole_content_archive_folder() {
     if !install_present() {
-        eprintln!("skipping: no V Rising install at {DATA}");
+        eprintln!("skipping: no V Rising install at {}", data_dir());
         return;
     }
-    let dir = Path::new(DATA).join("StreamingAssets/ContentArchives");
+    let dir = Path::new(&data_dir()).join("StreamingAssets/ContentArchives");
     let all = rrising_content::list_archives(&dir).unwrap();
     println!("archives on disk: {}", all.len());
     let t = Instant::now();
     let content =
-        rrising_content::GameContent::open(Path::new(DATA), &all, Path::new(TPK)).unwrap();
+        rrising_content::GameContent::open(Path::new(&data_dir()), &all, Path::new(TPK)).unwrap();
     let elapsed = t.elapsed();
     let counts = content.class_counts();
     let total: usize = counts.values().sum();

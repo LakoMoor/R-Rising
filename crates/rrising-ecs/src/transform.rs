@@ -11,7 +11,15 @@
 //! `LocalToWorld` values the original stored in its scene files*
 //! (`crates/rrising-content/tests/transform_golden.rs`, `docs/COMPATIBILITY.md`). Where a variant was
 //! measured and rejected, the module says so rather than keeping both.
+use anyhow::{ensure, Result};
 use rrising_math::{float3, float4, float4x4, quaternion};
+
+use crate::chunk::ChunkIndex;
+use crate::entity::Entity;
+use crate::schedule::{FrameContext, System};
+use crate::store::EntityQuery;
+use crate::type_table::TypeIndex;
+use crate::world::World;
 
 /// A column-major 4x4 as serialized (`c0.xyzw, c1.xyzw, c2.xyzw, c3.xyzw`).
 pub type Mat = [f32; 16];
@@ -92,6 +100,381 @@ pub fn post_transform(local: &Mat, post: &Mat) -> Mat {
 /// Child world matrix: `mul(parent_world, local)`.
 pub fn child_to_world(parent_world: &Mat, local: &Mat) -> Mat {
     mul(parent_world, local)
+}
+
+/// The authoring components of one entity (raw serialized values), before composition.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Authoring {
+    pub lt: Option<LocalTransform>,
+    pub translation: Option<[f32; 3]>,
+    pub rotation: Option<[f32; 4]>,
+    pub scale: Option<f32>,
+    pub post: Option<Mat>,
+}
+
+fn f32s<const N: usize>(b: &[u8]) -> [f32; N] {
+    let mut r = [0f32; N];
+    for (v, c) in r.iter_mut().zip(b.as_chunks::<4>().0) {
+        *v = f32::from_le_bytes(*c);
+    }
+    r
+}
+
+fn mat_bytes(m: &Mat) -> [u8; 64] {
+    let mut out = [0u8; 64];
+    for (o, v) in out.as_chunks_mut::<4>().0.iter_mut().zip(m) {
+        o.copy_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+impl Authoring {
+    /// Source rule measured against stored scene data (module docs, `docs/COMPATIBILITY.md`):
+    /// `Translation`/`Rotation` drive the matrix when present, with `Scale`, else
+    /// `LocalTransform.Scale`, as uniform scale; otherwise `LocalTransform` alone; then
+    /// `PostTransformMatrix`. `None` when there is no local transform at all.
+    pub fn local_matrix(&self) -> Option<Mat> {
+        let m = if self.translation.is_some() || self.rotation.is_some() {
+            let scale = self.scale.or(self.lt.map(|l| l.scale)).unwrap_or(1.0);
+            trs_matrix(
+                self.translation.unwrap_or([0.0; 3]),
+                self.rotation.unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                scale,
+            )
+        } else if let Some(lt) = &self.lt {
+            local_transform_matrix(lt)
+        } else {
+            return None;
+        };
+        Some(match &self.post {
+            Some(p) => post_transform(&m, p),
+            None => m,
+        })
+    }
+}
+
+/// Component types the transform system reads/writes. Optional ones may be absent from the world.
+#[derive(Clone, Copy, Debug)]
+pub struct TransformTypes {
+    /// `Unity.Transforms.LocalToWorld` (64 bytes), the output.
+    pub local_to_world: TypeIndex,
+    /// `LocalTransform` (32 bytes).
+    pub local_transform: Option<TypeIndex>,
+    /// `Translation` (12 bytes).
+    pub translation: Option<TypeIndex>,
+    /// `Rotation` (16 bytes).
+    pub rotation: Option<TypeIndex>,
+    /// Uniform `Scale` (4 bytes).
+    pub scale: Option<TypeIndex>,
+    /// `PostTransformMatrix` (64 bytes).
+    pub post_transform: Option<TypeIndex>,
+    /// `Parent` (8 bytes, `Value` entity first).
+    pub parent: Option<TypeIndex>,
+}
+
+/// What the last [`TransformSystem`] update did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TransformStats {
+    pub root_chunks_written: usize,
+    pub root_chunks_skipped: usize,
+    pub root_entities_written: usize,
+    pub children_written: usize,
+    pub children_skipped: usize,
+    /// Children left untouched: parent not live, no matrix to inherit, or chain deeper than 64
+    /// (or cyclic).
+    pub children_unresolved: usize,
+}
+
+impl TransformStats {
+    pub fn entities_written(&self) -> usize {
+        self.root_entities_written + self.children_written
+    }
+}
+
+/// Computes `LocalToWorld` from authoring components and the `Parent` hierarchy, parents before
+/// children, skipping chunks whose inputs did not change since the system last ran.
+///
+/// Roots (no `Parent`) are handled chunk-wise: if no input component's chunk change version is
+/// newer than the system's last version the chunk is skipped. Children (with `Parent`) are ordered
+/// by hierarchy depth (ties by query order, so the order is deterministic) and recomputed when
+/// their own inputs changed or the parent's `LocalToWorld` chunk is newer than the last run (which
+/// includes parents rewritten earlier in this very update; the check is per chunk, so it is
+/// conservative). A parent that has no authoring source of its own is not recomputed: its current
+/// `LocalToWorld` bytes in the world are inherited, which for scene data are the stored ones.
+/// Entities with a `Parent` but no authoring source keep their `LocalToWorld` untouched.
+///
+/// Not a translation of the original system (no body exists in the corpus): see the module docs.
+#[derive(Debug)]
+pub struct TransformSystem {
+    types: TransformTypes,
+    stats: TransformStats,
+}
+
+const MAX_DEPTH: u32 = 64;
+const UNSET: u32 = u32::MAX;
+const BAD: u32 = u32::MAX - 1;
+
+struct Child {
+    entity: Entity,
+    parent: Entity,
+    chunk: ChunkIndex,
+    slot: usize,
+}
+
+impl TransformSystem {
+    pub const NAME: &'static str = "TransformSystem";
+
+    pub fn new(types: TransformTypes) -> Self {
+        Self {
+            types,
+            stats: TransformStats::default(),
+        }
+    }
+
+    /// Stats of the most recent update.
+    pub fn stats(&self) -> TransformStats {
+        self.stats
+    }
+
+    fn inputs(&self) -> Vec<TypeIndex> {
+        let t = &self.types;
+        [
+            t.local_transform,
+            t.translation,
+            t.rotation,
+            t.scale,
+            t.post_transform,
+            t.parent,
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    fn has_source(&self, w: &World, c: ChunkIndex) -> bool {
+        let t = &self.types;
+        [t.local_transform, t.translation, t.rotation]
+            .into_iter()
+            .flatten()
+            .any(|ty| w.store.chunk_has_component(c, ty))
+    }
+
+    fn chunk_inputs_changed(&self, w: &World, c: ChunkIndex, ctx: &FrameContext) -> Result<bool> {
+        for ty in self.inputs() {
+            if w.store.chunk_has_component(c, ty)
+                && ctx.did_change(w.store.chunk_change_version(c, ty)?)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Authoring of slot `i` from per-chunk (or per-entity, `i == 0`) byte arrays.
+    fn authoring_at(&self, w: &World, c: ChunkIndex, i: usize, count: usize) -> Result<Authoring> {
+        let t = &self.types;
+        let get = |ty: Option<TypeIndex>, size: usize| -> Result<Option<&[u8]>> {
+            let Some(ty) = ty else { return Ok(None) };
+            if !w.store.chunk_has_component(c, ty) {
+                return Ok(None);
+            }
+            let b = w.store.chunk_component_bytes(c, ty)?;
+            ensure!(
+                b.len() == size * count,
+                "component {:?} is {} bytes for {count} entities, expected stride {size}",
+                ty,
+                b.len()
+            );
+            Ok(Some(&b[i * size..(i + 1) * size]))
+        };
+        Ok(Authoring {
+            lt: get(t.local_transform, 32)?.map(|b| {
+                let v = f32s::<8>(b);
+                LocalTransform {
+                    position: [v[0], v[1], v[2]],
+                    scale: v[3],
+                    rotation: [v[4], v[5], v[6], v[7]],
+                }
+            }),
+            translation: get(t.translation, 12)?.map(f32s::<3>),
+            rotation: get(t.rotation, 16)?.map(f32s::<4>),
+            scale: get(t.scale, 4)?.map(|b| f32s::<1>(b)[0]),
+            post: get(t.post_transform, 64)?.map(f32s::<16>),
+        })
+    }
+
+    fn update_roots(&mut self, w: &mut World, ctx: &FrameContext) -> Result<()> {
+        let ltw = self.types.local_to_world;
+        let q = EntityQuery {
+            all: vec![ltw],
+            none: self.types.parent.into_iter().collect(),
+            include_disabled: true,
+            include_prefab: true,
+        };
+        for c in w.store.query_chunks(&q) {
+            if !self.has_source(w, c) {
+                continue;
+            }
+            if !self.chunk_inputs_changed(w, c, ctx)? {
+                self.stats.root_chunks_skipped += 1;
+                continue;
+            }
+            let count = w.store.chunk(c).map_or(0, |ch| ch.count as usize);
+            let mut mats: Vec<Option<Mat>> = Vec::with_capacity(count);
+            for i in 0..count {
+                mats.push(self.authoring_at(w, c, i, count)?.local_matrix());
+            }
+            let out = w.store.chunk_component_bytes_mut(c, ltw)?;
+            ensure!(out.len() == 64 * count, "LocalToWorld is not 64 bytes");
+            for (i, m) in mats.iter().enumerate() {
+                if let Some(m) = m {
+                    out[i * 64..(i + 1) * 64].copy_from_slice(&mat_bytes(m));
+                    self.stats.root_entities_written += 1;
+                }
+            }
+            self.stats.root_chunks_written += 1;
+        }
+        Ok(())
+    }
+
+    fn update_children(&mut self, w: &mut World, ctx: &FrameContext) -> Result<()> {
+        let (ltw, Some(parent_ty)) = (self.types.local_to_world, self.types.parent) else {
+            return Ok(());
+        };
+        let q = EntityQuery {
+            all: vec![ltw, parent_ty],
+            none: Vec::new(),
+            include_disabled: true,
+            include_prefab: true,
+        };
+        let mut kids: Vec<Child> = Vec::new();
+        for c in w.store.query_chunks(&q) {
+            if !self.has_source(w, c) {
+                continue;
+            }
+            let ents = w.store.chunk_entities(c)?;
+            let pb = w.store.chunk_component_bytes(c, parent_ty)?;
+            ensure!(pb.len() == 8 * ents.len(), "Parent is not 8 bytes");
+            for (slot, (e, b)) in ents.iter().zip(pb.as_chunks::<8>().0).enumerate() {
+                kids.push(Child {
+                    entity: *e,
+                    parent: Entity::new(
+                        i32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+                        i32::from_le_bytes([b[4], b[5], b[6], b[7]]),
+                    ),
+                    chunk: c,
+                    slot,
+                });
+            }
+        }
+        // entity index -> position in `kids` (dense table, no hash iteration)
+        let cap = usize::try_from(w.store.capacity()).unwrap_or(0);
+        let mut pos = vec![UNSET; cap.max(1)];
+        for (i, k) in kids.iter().enumerate() {
+            if let Some(p) = pos.get_mut(k.entity.index as usize) {
+                *p = i as u32;
+            }
+        }
+        let in_list = |p: Entity| -> Option<usize> {
+            let i = *pos.get(usize::try_from(p.index).ok()?)?;
+            (i != UNSET && kids[i as usize].entity == p).then_some(i as usize)
+        };
+        // depth among listed ancestors; BAD = unresolvable/cyclic/too deep
+        let mut depth = vec![UNSET; kids.len()];
+        for start in 0..kids.len() {
+            if depth[start] != UNSET {
+                continue;
+            }
+            let mut path: Vec<usize> = Vec::new();
+            let mut cur = start;
+            // depth of the chain's top element: Some(d) once known, None while unresolved
+            let top = loop {
+                if path.contains(&cur) || path.len() as u32 > MAX_DEPTH {
+                    break BAD; // cycle or too deep
+                }
+                path.push(cur);
+                match in_list(kids[cur].parent) {
+                    Some(n) if depth[n] != UNSET => {
+                        break if depth[n] == BAD || depth[n] >= MAX_DEPTH {
+                            BAD
+                        } else {
+                            depth[n] + 1
+                        };
+                    }
+                    Some(n) => cur = n,
+                    None => break 0, // parent is not a listed child: this one is a chain root
+                }
+            };
+            let mut d = top;
+            for &n in path.iter().rev() {
+                depth[n] = d;
+                d = if d == BAD || d >= MAX_DEPTH {
+                    BAD
+                } else {
+                    d + 1
+                };
+            }
+        }
+        let mut order: Vec<usize> = (0..kids.len()).filter(|&i| depth[i] != BAD).collect();
+        self.stats.children_unresolved += kids.len() - order.len();
+        order.sort_by_key(|&i| (depth[i], i));
+
+        let mut last_chunk: Option<(ChunkIndex, bool)> = None;
+        for i in order {
+            let k = &kids[i];
+            let count = w.store.chunk(k.chunk).map_or(0, |ch| ch.count as usize);
+            // the parent's current matrix (stored, or computed earlier because depth is smaller)
+            let Some(eic) = w
+                .resolve(k.parent)
+                .and_then(|p| w.store.entity_in_chunk(p.index))
+                .map(|e| e.chunk)
+            else {
+                self.stats.children_unresolved += 1;
+                continue;
+            };
+            let Some(pw) = w.store.try_component_bytes(k.parent, ltw)? else {
+                self.stats.children_unresolved += 1;
+                continue;
+            };
+            let pw: Mat = f32s::<16>(pw);
+            let own_changed = match last_chunk {
+                Some((c, v)) if c == k.chunk => v,
+                _ => {
+                    let v = self.chunk_inputs_changed(w, k.chunk, ctx)?;
+                    last_chunk = Some((k.chunk, v));
+                    v
+                }
+            };
+            let parent_changed = ctx.did_change(w.store.chunk_change_version(eic, ltw)?);
+            if !(own_changed || parent_changed) {
+                self.stats.children_skipped += 1;
+                continue;
+            }
+            let Some(local) = self.authoring_at(w, k.chunk, k.slot, count)?.local_matrix() else {
+                self.stats.children_unresolved += 1;
+                continue;
+            };
+            let world_m = child_to_world(&pw, &local);
+            w.store
+                .set_component_bytes(k.entity, ltw, &mat_bytes(&world_m))?;
+            self.stats.children_written += 1;
+        }
+        Ok(())
+    }
+}
+
+impl System for TransformSystem {
+    fn name(&self) -> &str {
+        Self::NAME
+    }
+    fn update(&mut self, world: &mut World, ctx: &FrameContext) -> Result<()> {
+        self.stats = TransformStats::default();
+        self.update_roots(world, ctx)?;
+        self.update_children(world, ctx)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]

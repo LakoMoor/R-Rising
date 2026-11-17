@@ -232,4 +232,70 @@ impl World {
             .map(|c| c.count as usize)
             .sum()
     }
+    /// FNV-1a 64 over all per-entity component bytes (archetype order, chunk-list order, type
+    /// order inside the archetype), plus entity counts. Independent of change versions. A
+    /// determinism fingerprint, not an original-engine hash.
+    pub fn state_hash(&self) -> u64 {
+        let mut h = Fnv::new();
+        for sa in self.store.archetypes() {
+            h.write(&(sa.chunk_data.chunk_indices().len() as u64).to_le_bytes());
+            for &c in sa.chunk_data.chunk_indices() {
+                let Some(ch) = self.store.chunk(c) else {
+                    continue;
+                };
+                h.write(&ch.count.to_le_bytes());
+                for t in &sa.archetype.types {
+                    if let Ok(b) = self.store.chunk_component_bytes(c, t.type_index) {
+                        h.write(b);
+                    }
+                }
+            }
+        }
+        h.finish()
+    }
+
+    fn all_chunks_with(&self, t: TypeIndex) -> Vec<crate::chunk::ChunkIndex> {
+        self.store.query_chunks(&EntityQuery {
+            all: vec![t],
+            include_disabled: true,
+            include_prefab: true,
+            ..Default::default()
+        })
+    }
+
+    /// FNV-1a 64 over one component's bytes in every chunk that has it (query order).
+    pub fn component_hash(&self, t: TypeIndex) -> u64 {
+        let mut h = Fnv::new();
+        for c in self.all_chunks_with(t) {
+            if let Ok(b) = self.store.chunk_component_bytes(c, t) {
+                h.write(b);
+            }
+        }
+        h.finish()
+    }
+
+    /// Change version of one component per chunk, in the same order as [`Self::component_hash`].
+    pub fn component_versions(&self, t: TypeIndex) -> Vec<u32> {
+        self.all_chunks_with(t)
+            .into_iter()
+            .filter_map(|c| self.store.chunk_change_version(c, t).ok())
+            .collect()
+    }
+}
+
+/// FNV-1a 64.
+struct Fnv(u64);
+
+impl Fnv {
+    fn new() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+    fn write(&mut self, b: &[u8]) {
+        for &x in b {
+            self.0 = (self.0 ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }

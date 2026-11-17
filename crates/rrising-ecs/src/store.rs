@@ -785,6 +785,74 @@ impl EntityComponentStore {
         Ok(())
     }
 
+    /// Advance `GlobalSystemVersion` (Unity increments it after each system update so later writes
+    /// compare newer than that system's recorded version). Port-side scheduling helper; the
+    /// schedule calls it, not user code.
+    pub fn increment_global_system_version(&mut self) {
+        // Unity skips 0 on wrap-around; 0 means "never changed".
+        self.global_system_version = self.global_system_version.wrapping_add(1).max(1);
+    }
+
+    fn chunk_type_slot(&self, c: ChunkIndex, t: TypeIndex) -> Result<(usize, usize, usize, usize)> {
+        let ch = self
+            .chunk(c)
+            .ok_or_else(|| anyhow::anyhow!("chunk {} is not allocated", c.value))?;
+        let arch = ch.archetype_index as usize;
+        let a = &self.archetypes[arch].archetype;
+        let ti = a
+            .index_of_type(t)
+            .ok_or_else(|| anyhow::anyhow!("chunk lacks that component"))?;
+        let sz = a.layout().size_of(ti) as usize;
+        let off = a.layout().offset_of(ti) as usize;
+        Ok((arch, ti, off, sz * ch.count as usize))
+    }
+
+    /// Whether the chunk's archetype holds the component.
+    pub fn chunk_has_component(&self, c: ChunkIndex, t: TypeIndex) -> bool {
+        self.chunk(c).is_some_and(|ch| {
+            self.archetypes[ch.archetype_index as usize]
+                .archetype
+                .index_of_type(t)
+                .is_some()
+        })
+    }
+
+    /// The component's bytes for every entity of the chunk (`count * size`, slot order).
+    pub fn chunk_component_bytes(&self, c: ChunkIndex, t: TypeIndex) -> Result<&[u8]> {
+        let (_, _, off, len) = self.chunk_type_slot(c, t)?;
+        Ok(&self.chunk(c).unwrap().buffer[off..off + len])
+    }
+
+    /// Mutable component array of the chunk; stamps the component's change version with the
+    /// current `GlobalSystemVersion` (the `GetComponentDataRW` convention), so call it only when
+    /// writing.
+    pub fn chunk_component_bytes_mut(&mut self, c: ChunkIndex, t: TypeIndex) -> Result<&mut [u8]> {
+        let (arch, ti, off, len) = self.chunk_type_slot(c, t)?;
+        let li = self.chunk(c).unwrap().list_index as usize;
+        let gsv = self.global_system_version;
+        self.archetypes[arch]
+            .chunk_data
+            .set_change_version(ti, li, gsv)?;
+        Ok(&mut self.chunk_mut(c)?.buffer[off..off + len])
+    }
+
+    /// Change version of one component in one chunk (`DidChange(v) == version > v`).
+    pub fn chunk_change_version(&self, c: ChunkIndex, t: TypeIndex) -> Result<u32> {
+        let (arch, ti, _, _) = self.chunk_type_slot(c, t)?;
+        let li = self.chunk(c).unwrap().list_index as usize;
+        self.archetypes[arch].chunk_data.get_change_version(ti, li)
+    }
+
+    /// Like [`Self::component_bytes`] but `None` when the entity lacks the component.
+    pub fn try_component_bytes(&self, e: Entity, t: TypeIndex) -> Result<Option<&[u8]>> {
+        ensure!(self.exists(e)?, "entity {:?} does not exist", e);
+        let eic = self.entity_in_chunk[e.index as usize];
+        if !self.chunk_has_component(eic.chunk, t) {
+            return Ok(None);
+        }
+        self.component_bytes(e, t).map(Some)
+    }
+
     /// Non-empty chunks of every archetype matching the query, in archetype then chunk-list order.
     pub fn query_chunks(&self, q: &EntityQuery) -> Vec<ChunkIndex> {
         let mut out = Vec::new();

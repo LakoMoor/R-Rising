@@ -36,7 +36,12 @@ regression tests must not be presented as proof of 1:1 compatibility.
   610,085 non-background pixels. This is a showcase grid, not original scene placement.
 - `cargo check --workspace --target wasm32-unknown-unknown --locked`: failed in
   transitive `primase-foundations` Oodle backend (`libloading::Library` unavailable).
-- Windows, Linux, Android and iOS execution have not been verified. Browser execution is covered by the subsequent browser milestone.
+- Platform status (verified locally on an Apple Silicon macOS host, 2026-11-17, Rust 1.99.0):
+  - Executed: macOS aarch64 only (build, tests, GPU via Metal). Browser execution is covered by the subsequent browser milestone.
+  - Type-checked only, not linked or run: `cargo check --locked --workspace --target` passed for x86_64-apple-darwin, x86_64-pc-windows-msvc and x86_64-unknown-linux-gnu. This proves the code compiles for those targets, not that it runs there.
+  - `cargo build --locked -p rrising-web --target wasm32-unknown-unknown` passed. The whole-workspace wasm check still fails in `primase-foundations` (see above), because `rrising-content` is native-only.
+  - Configured in `.github/workflows/ci.yml` but not yet run: fmt, clippy `-D warnings` and `cargo test` on ubuntu, windows and macOS runners, plus the wasm build. The two GPU tests (`draws_a_hand_built_triangle`, `serialized_transfer_matches_direct_gpu_upload`) are skipped there, so GPU rendering is not covered by CI on any platform. Ignored original-data tests are not run in CI.
+  - Android and iOS: not verified.
 
 ## Publication
 
@@ -382,6 +387,60 @@ formula. (2) `Parent` children 15,246 of 21,732 and `PostTransformMatrix` roots 
 `mul` is exact, so the stored values come from a composition or inputs not recovered here, and
 parent-with-scale remains weakest (61 of 885). (3) Entities without authoring source and
 `Static` entities with baked mismatches are unchanged.
+
+#### Update: first runtime loop (schedule and `TransformSystem` scenario)
+
+`rrising_ecs::schedule` adds a deterministic `System` trait and `Schedule`: groups run in creation
+order, systems inside a group in registration order refined by `update_after` constraints (stable
+topological sort, ties by registration index; unknown names and cycles are errors), time advances in
+whole fixed steps of integer nanoseconds (`run_frame`, or `advance` with an accumulator and a step
+cap), and there is no hash-map iteration. Change versions follow the Unity convention: each system
+remembers the `GlobalSystemVersion` it last ran at, a chunk "changed" for it when the component's
+chunk change version is newer, its own writes are stamped with the version it runs at (so it does
+not see them as changes next frame), and the global version is incremented after each system.
+**Provenance: port-side design from the documented convention, not a translation of
+`ComponentSystemGroup`/`SystemState`** (those bodies were not re-read). `EntityComponentStore` gained
+chunk-level accessors (`chunk_component_bytes[_mut]`, `chunk_change_version`, `chunk_has_component`,
+`try_component_bytes`, `increment_global_system_version`) and `World` gained `state_hash`,
+`component_hash` and `component_versions` (FNV-1a 64 over component bytes; determinism
+fingerprints, not original hashes).
+
+`rrising_ecs::transform::TransformSystem` runs the measured transform step as a system. Roots (no
+`Parent`) are processed per chunk and skipped when no input component's chunk version is newer than the
+system's last run; children are ordered by hierarchy depth (parents before children, ties by query
+order) and recomputed when their own inputs or their parent's `LocalToWorld` chunk changed. The matrix
+is computed from authoring data only; a parent without an authoring source contributes the
+`LocalToWorld` bytes currently in the `World` (the stored ones). Results are written into the
+`LocalToWorld` component bytes. Entities without an authoring source are never written.
+
+Scenario (`crates/rrising-content/tests/scene_scenario.rs`, ignored, needs the install and layout
+report). **This is a data-based scenario on baked scene data, not execution of the original runtime**:
+no original system code runs and the stored `LocalToWorld` is only a reference to compare with. For each
+scene that has `LocalToWorld` (372 of 1,183; the other 811 contain no `LocalToWorld` at all, so the
+system has nothing to write) it builds a `World` twice independently, snapshots the stored
+`LocalToWorld`, then runs 1 and 3 fixed frames. Measured on the pinned build:
+
+- Determinism: all 372 scenes give identical state hash, `LocalToWorld` hash and `LocalToWorld` change
+  versions across the two independent builds, after frame 1 and after frame 3.
+- Skip semantics: frame 1 wrote 89,513 root and 22,664 child matrices (112,177 total, 0 unresolved
+  parents); frames 2 and 3 wrote 0 entities, left the state hash unchanged and bumped no
+  `LocalToWorld` change version. The 807,029 entities with a stored `LocalToWorld` but no authoring
+  source (all lie in these 372 scenes) were bit-identical to the snapshot afterwards (0 violations).
+  Skipping on a later input change is covered by a synthetic test (`tests/schedule.rs`).
+- Produced vs stored, hierarchy mode with computed parents, same tolerance as the golden test
+  (relative to `max(|v|,1)`): 112,177 compared, 77,195 bit-identical (77,212 treating +-0 as equal),
+  111,368 within 1e-5, 809 worse (781 over 1e-3, max relative error 7.07). These are exactly the golden
+  test's "chain" numbers, so the system reproduces that composition; the causes of the remaining
+  differences are the unchanged ones listed above (post-transform products, `Static` bake drift, 1 ulp tail).
+- Frame time per scene world, release build, Apple M4, single run, scenes with `LocalToWorld` only,
+  excluding scene decode and world build: frame 1 (everything computed) 29.5 microseconds mean, 11.0 ms
+  total, worst 1.3 ms (`0eb9943b...`); a steady-state frame with nothing to do 7.3 microseconds mean,
+  2.7 ms total. Single-threaded.
+
+Limits: one system; no entity creation or destruction at runtime, no structural changes, no jobs or
+parallelism; change filtering is per chunk (conservative); `NonUniformScale`/`CompositeScale` do not
+exist in this build and are not handled; the frame-time numbers are for this tiny workload, not a
+measure of the original game's simulation.
 
 ### Original-scene viewer follow-up: sub-meshes, transparency, base maps, array mapping
 

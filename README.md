@@ -16,9 +16,9 @@ performance improvement has been demonstrated.
 
 | Metric | Measured | Share / status |
 | --- | --- | --- |
-| Managed API member name matches | 5,107 / 187,377 | **2.7% heuristic coverage** |
+| Managed API member name matches | 5,110 / 187,377 | **2.7% heuristic coverage** |
 | `Unity.Mathematics` member name matches | 4,850 / 4,961 | **97.8% heuristic coverage** |
-| `Unity.Entities` member name matches | 256 / 8,486 | **3.0% heuristic coverage** |
+| `Unity.Entities` member name matches | 259 / 8,486 | **3.0% heuristic coverage** |
 | Game-authored member name matches | 1 / 79,642 | **0.0013%**, not gameplay coverage |
 | Content archives indexed | 4,409 / 4,409 | **100% of this installation** |
 | RuntimeContentCatalog | 1 / 1 | Parsed and used by native startup; 1,904 dependency sets |
@@ -136,7 +136,7 @@ installation is counted as a successful original-game compatibility test.
 | Crate | Responsibility |
 | --- | --- |
 | `rrising-math` | Ported math surface; known numeric deviations remain |
-| `rrising-ecs` | ECS primitives and storage layout, not a running game world |
+| `rrising-ecs` | Entity store, queries, World, deterministic schedule and one transform system; not a running game |
 | `rrising-content` | Unity archives, objects, entity scene streams, settings, localization |
 | `rrising-core` | Scene assembly and base-map selection for the showcase |
 | `rrising-render` | Shared GPU pipeline, mesh/texture uploads, scene transfers, readback |

@@ -109,7 +109,10 @@ fn mean_bc3(data: &[u8]) -> [f32; 3] {
 }
 
 fn install() -> std::path::PathBuf {
-    std::path::PathBuf::from("/Users/lakomoor/ported/VRising/VRising_Data")
+    use std::path::PathBuf;
+    std::env::var_os("VRISING_DATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../VRising_Data"))
 }
 
 fn mean_of(name: &str) -> Option<(String, u32, u32, i64, [f32; 3])> {
@@ -167,6 +170,10 @@ fn base_colour_maps_decode_to_colour() {
         // with such a texture bound is the art's doing, not the sampler's.
         assert!(spread >= 0.0, "{name}: mean rgb is not finite: {mean:?}");
         checked += 1;
+    }
+    if checked == 0 && !install().is_dir() {
+        println!("no V Rising install at {}, skipping", install().display());
+        return;
     }
     assert!(checked > 0, "none of the named textures were found");
 }
