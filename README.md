@@ -70,8 +70,13 @@ Both images below come from the current build (the browser capture is Chrome / W
 r-rising --scene .../EntityScenes/c6d34432693f24046ae5916650cc70ef.0.entities \
   --type-layouts /tmp/rrising-type-layouts.json --archives 100000 --offscreen scene.png
 r-rising --scene ... --export-web scene.rrscene.json   # same scene for the browser viewer
+r-rising --scene ... --type-layouts /tmp/rrising-type-layouts.json --archives 100000 \
+  --scene-sim 3 --compare /tmp/scene-comparison.json
 ```
 Without `--offscreen` the window has a fly camera (WASD, Q/E, arrow keys, Shift).
+`--scene-sim N` runs N fixed transform frames before drawing or exporting the scene.
+`--compare` writes stored-versus-simulated PNGs, a pixel diff and timings. This compares
+two Rust renders using the same GPU data, not a screenshot from the original game.
 
 ## Native build
 

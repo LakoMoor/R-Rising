@@ -442,6 +442,35 @@ parallelism; change filtering is per chunk (conservative); `NonUniformScale`/`Co
 exist in this build and are not handled; the frame-time numbers are for this tiny workload, not a
 measure of the original game's simulation.
 
+#### Update: Burst hypothesis tested, stored `LocalToWorld` is not reproducible from the stored inputs
+
+Searched for the shipped transform job bodies: `evidence/decompiled` has no `Unity.Transforms` module (only
+`LocalToWorld`/`LocalToParent`/`TransformHelpers` accessor call sites); `lib_burst_generated.dll`
+(151 MB) is stripped of job names (strings show only `Unity.Transforms.PostTransformMa...` in a type
+registration table, nothing for TRS/hierarchy/post-transform jobs), and the REA session on the large
+binaries was not retried in depth, so no Burst body was read. Instead the hypothesis was tested on data
+(112,177 comparable entities, temporary harness, nothing committed): fused multiply-add contraction of the
+`float3x3(quaternion)` element (`a*b - c*d + k`, 7 contraction/association variants), of the
+`float4x4` `mul` (8 variants including pairwise sums), different dot-product orders and several
+quaternion normalizations (`q * (1/sqrt)`, `q / sqrt`, rsqrt estimate with a Newton step, fma dot).
+None beats the current formulas: exact counts on the isolated step for roots without post
+66,674 / 67,879 (best variant, `q / sqrt(fma dot)`, 66,734, within fitting noise and not adopted),
+children without scale 15,246 / 21,732 (all fma `mul` variants lower, best 15,230), children with
+scale 61 / 885 (no variant above 61), roots with post 5,612 / 20,602 (best 5,620). A double-precision
+matrix from the f32 quaternion, with or without normalization, is worse (61,9xx).
+
+Decisive observation: for roots with a pure Y rotation (`x = z = 0`) the stored sine lane differs by
+exactly 1 ulp from `round(2*y*w)` in 370 of 76,282 cases, and the same happens with an identity
+`PostTransformMatrix`. A single rounded product of the two serialized floats cannot produce another value
+by any operation order, fma or normalization, so the stored `LocalToWorld` was not computed from the
+stored `Rotation` bits. The stored matrices most plausibly come from the baker (the GameObject transform's
+native matrix or a higher-precision source quaternion that was rounded to float afterwards), not from
+the runtime TRS system, and so cannot be bit-reproduced from the scene's authoring components. The
+rotation errors then also propagate into `Parent` children and scaled children, which explains why
+those categories are weakest and why exact `mul` and TRS leaves do not close the gap. This is an
+inference from the data; it is not verified against the baker. No formula or threshold changed; the
+numbers above are the unchanged baseline (88,660 / 112,177 step, 77,195 chain, 111,368 within 1e-5).
+
 ### Original-scene viewer follow-up: sub-meshes, transparency, base maps, array mapping
 
 Findings from the install and what changed in `--scene` (placement is original data; none of this is a
@@ -492,3 +521,31 @@ rendering-parity claim):
   not re-verified for this change** (the Chrome tools were unavailable in this session); the committed
   `browser-original-scene.png` predates it and is unchanged. Still not done: lighting, LODs, skinned
   meshes, real material parameters, terrain blending.
+
+### 2026-11-17 continuation: transform World feeds the viewer
+
+Reviewed Claude's committed work through `b9e6da0` and finished its uncommitted viewer integration.
+`--scene-sim N` now builds the original scene World, runs N fixed transform frames, and reads
+`LocalToWorld` back by the original entity handle for each mesh/marker instance. Windowed,
+offscreen and browser-export paths use this integration. Missing readbacks are counted and retain
+the stored matrix; this is explicit partial coverage. Zero frames and simulation without `--scene`
+are rejected.
+
+`--compare report.json` renders stored and simulated matrices with identical GPU resources and
+camera, writes both PNGs and a pixel diff, and records matrix-bit differences, missing readbacks,
+world-build, schedule and render-plus-readback timings. An extra close-up is produced when matrices
+differ. Empty draw lists are errors: a blank image is not a successful compatibility test.
+This is a Rust integration regression, **not an original-game screenshot comparison**.
+
+Verified with the pinned install, all 4,409 archives, release, Apple M4 / Metal, 1280x720:
+`c6d34432693f24046ae5916650cc70ef.0.entities` (Silver_Mountain01), 3 fixed frames,
+9,477 instance readbacks (9,474 meshes and 3 unresolved markers), 0 missing, 0 differing matrix bits
+and 0 differing pixels. The system wrote 289 entities on frame 1 and none on frame 3; this scene's
+drawn instances had no matrix differences. The large `0eb9943b...` scene has no drawable instances
+and is excluded from image evidence. Report: [scene-transform-render.json](verification/scene-transform-render.json).
+
+Re-ran the original-data scenario: 372 scene Worlds, 112,177 computed transforms, 77,195 bit-exact,
+111,368 within 1e-5, 0 untouched-entity violations, 0 writes on frames 2–3. These reproduce Claude's
+recorded counts. Portable workspace tests: 129 passed, 7 ignored original-data tests; both GPU
+regressions passed separately outside the GPU-restricted sandbox. `cargo fmt --check` and strict
+workspace Clippy passed. Original-system execution and original-game performance remain unverified.

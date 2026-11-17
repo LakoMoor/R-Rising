@@ -1,0 +1,38 @@
+{
+  "scene": "c6d34432693f24046ae5916650cc70ef.0.entities",
+  "kind": "stored original LocalToWorld vs Rust TransformSystem LocalToWorld, same camera, same GPU data",
+  "not_a_comparison_with_the_original_game": true,
+  "resolution": [
+    1280,
+    720
+  ],
+  "fixed_frames": 3,
+  "instances": 9477,
+  "instances_read_back_from_world": 9477,
+  "instances_missing_in_world": 0,
+  "instances_with_different_matrix_bits": 0,
+  "max_abs_matrix_element_delta": 0.0,
+  "pixels": 921600,
+  "pixels_differing": 0,
+  "pixels_differing_percent": 0.0,
+  "max_channel_delta": 0,
+  "mean_abs_diff_per_channel": 0.0,
+  "timing_ms": {
+    "world_build": 3.468667,
+    "schedule_first_frame": 0.028541999999999998,
+    "schedule_steady_median": 0.003459,
+    "transform_entities_written_first_frame": 289,
+    "transform_entities_written_last_frame": 0,
+    "render_plus_readback_stored_median_of_5": 6.802207999999999,
+    "render_plus_readback_sim_median_of_5": 5.736708
+  },
+  "close_up_at_max_delta_instance": null,
+  "environment": {
+    "date": "2026-11-17",
+    "hardware": "Apple M4",
+    "backend": "Metal",
+    "profile": "release",
+    "archives_opened": 4409,
+    "timings": "single run; rendering includes GPU readback; not an original-game benchmark"
+  }
+}

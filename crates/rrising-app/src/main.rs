@@ -37,6 +37,10 @@ struct Options {
     inspect_scene: Option<PathBuf>,
     scene: Option<PathBuf>,
     type_layouts: Option<PathBuf>,
+    /// `--scene-sim N`: run N fixed transform frames in a World and draw from its LocalToWorld.
+    scene_sim: Option<usize>,
+    /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
+    compare: Option<PathBuf>,
     bench: bool,
     frames: usize,
 }
@@ -61,6 +65,8 @@ fn parse_args() -> Result<Options> {
         inspect_scene: None,
         scene: None,
         type_layouts: None,
+        scene_sim: None,
+        compare: None,
         bench: false,
         frames: 60,
     };
@@ -78,6 +84,10 @@ fn parse_args() -> Result<Options> {
             "--height" => opt.height = take()?.parse().context("--height takes a number")?,
             "--inspect-scene" => opt.inspect_scene = Some(PathBuf::from(take()?)),
             "--scene" => opt.scene = Some(PathBuf::from(take()?)),
+            "--scene-sim" => {
+                opt.scene_sim = Some(take()?.parse().context("--scene-sim takes a frame count")?)
+            }
+            "--compare" => opt.compare = Some(PathBuf::from(take()?)),
             "--type-layouts" => opt.type_layouts = Some(PathBuf::from(take()?)),
             "--import-web" => opt.import_web = Some(PathBuf::from(take()?)),
             "--export-web" => opt.export_web = Some(PathBuf::from(take()?)),
@@ -90,6 +100,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         opt.width > 0 && opt.height > 0,
         "frame dimensions must be positive"
+    );
+    anyhow::ensure!(
+        opt.scene_sim.is_none() || (opt.scene.is_some() && opt.scene_sim != Some(0)),
+        "--scene-sim needs --scene and a positive frame count"
     );
     Ok(opt)
 }
@@ -112,6 +126,19 @@ struct Loaded {
 }
 
 impl Loaded {
+    /// Re-point the instance lists at (possibly simulated) matrices; items follow the group
+    /// order, with the marker draw last.
+    fn sync(&mut self, data: &scene_view::SceneData) {
+        for (it, g) in self.items.iter_mut().zip(&data.groups) {
+            it.instances.clone_from(&g.instances);
+        }
+        if !data.markers.is_empty() {
+            if let Some(it) = self.items.get_mut(data.groups.len()) {
+                it.instances.clone_from(&data.markers);
+            }
+        }
+    }
+
     /// Borrow the frame's draw list out of the owned buffers.
     fn draws<'a>(&'a self, neutral: &'a wgpu::TextureView) -> Vec<DrawCall<'a>> {
         self.items
@@ -604,6 +631,7 @@ fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCa
     if let Some(scene_path) = &opt.scene {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        apply_sim(&opt, &layouts, scene_path, &mut data)?;
         let loaded = load_scene_view(renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
         return Ok((loaded, Some(scene_view::FlyCam::framing(data.bounds))));
@@ -611,6 +639,232 @@ fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCa
     let spec = scene::showcase(&content, opt.items);
     println!("scene: {} items", spec.len());
     Ok((load_scene(renderer, &content, &spec)?, None))
+}
+
+/// With `--scene-sim N`, replace the stored matrices by the ones the Schedule produced.
+fn apply_sim(
+    opt: &Options,
+    layouts: &Path,
+    scene_path: &Path,
+    data: &mut scene_view::SceneData,
+) -> Result<()> {
+    let Some(frames) = opt.scene_sim else {
+        return Ok(());
+    };
+    let sim = scene_view::simulate(layouts, scene_path, frames)?;
+    let (ok, missing) = sim.apply(data);
+    println!(
+        "scene-sim: {frames} fixed frames, world built in {:.0} ms, {ok} instances read back from the World ({missing} kept stored); transform writes frame 1: {}, last: {}",
+        sim.build_ms, sim.written_first, sim.written_last
+    );
+    Ok(())
+}
+
+/// (differing pixels, max RGB channel delta, sum of RGB deltas, visual diff image).
+fn diff_images(a: &[u8], b: &[u8]) -> (usize, u8, u64, Vec<u8>) {
+    let mut differing = 0usize;
+    let (mut max_delta, mut sum) = (0u8, 0u64);
+    let mut diff = vec![255u8; a.len()];
+    for ((a, b), d) in a.chunks(4).zip(b.chunks(4)).zip(diff.chunks_mut(4)) {
+        let deltas = [0, 1, 2].map(|k| a[k].abs_diff(b[k]));
+        let m = deltas.into_iter().max().unwrap_or(0);
+        sum += deltas.iter().map(|&x| u64::from(x)).sum::<u64>();
+        max_delta = max_delta.max(m);
+        if m > 0 {
+            differing += 1;
+            d.copy_from_slice(&[255, 0, 0, 255]);
+        } else {
+            let g = (u16::from(a[0]) + u16::from(a[1]) + u16::from(a[2])) / 3 / 3 + 40;
+            d.copy_from_slice(&[g as u8, g as u8, g as u8, 255]);
+        }
+    }
+    (differing, max_delta, sum, diff)
+}
+
+/// Put the stored (pre-simulation) matrices back into the draw lists, in `all` order.
+fn loaded_swap(loaded: &mut Loaded, data: &scene_view::SceneData, all: &[Instance]) {
+    let mut at = 0;
+    for (it, g) in loaded.items.iter_mut().zip(&data.groups) {
+        it.instances = all[at..at + g.instances.len()].to_vec();
+        at += g.instances.len();
+    }
+    if !data.markers.is_empty() {
+        if let Some(it) = loaded.items.get_mut(data.groups.len()) {
+            it.instances = all[at..].to_vec();
+        }
+    }
+}
+
+fn median(v: &[f64]) -> f64 {
+    let mut s = v.to_vec();
+    s.sort_by(|a, b| a.total_cmp(b));
+    s.get(s.len() / 2).copied().unwrap_or(0.0)
+}
+
+/// Render the scene with stored matrices and with World-simulated matrices (same camera, same GPU
+/// data) and report how the images differ. This is not a comparison with the original game.
+fn compare_scene(opt: &Options, out: &Path) -> Result<()> {
+    let scene_path = opt.scene.as_ref().context("--compare needs --scene")?;
+    let frames = opt.scene_sim.unwrap_or(3).max(1);
+    let renderer = pollster::block_on(Renderer::new_offscreen(opt.width, opt.height))?;
+    let content = open_content(opt)?;
+    let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
+    let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+    anyhow::ensure!(
+        !data.groups.is_empty() || !data.markers.is_empty(),
+        "--compare: scene has no drawable instances; empty images are not a comparison"
+    );
+    let mut loaded = load_scene_view(&renderer, &content, &mut data)?;
+    let mut renderer = renderer;
+    let uniforms =
+        scene_view::FlyCam::framing(data.bounds).uniforms(opt.width as f32 / opt.height as f32);
+    let neutral = renderer.neutral_view();
+    let mut shoot = |loaded: &Loaded| -> Result<(Vec<u8>, f64)> {
+        let mut times = Vec::new();
+        let mut img = Vec::new();
+        for _ in 0..5 {
+            let draws = loaded.draws(&neutral);
+            let t = std::time::Instant::now();
+            img = renderer.render_to_image(&uniforms, &draws)?.2;
+            times.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+        Ok((img, median(&times)))
+    };
+    let (stored_img, stored_ms) = shoot(&loaded)?;
+
+    let stored_inst: Vec<Instance> = data
+        .groups
+        .iter()
+        .flat_map(|g| g.instances.iter().copied())
+        .chain(data.markers.iter().copied())
+        .collect();
+    let sim = scene_view::simulate(&layouts, scene_path, frames)?;
+    let (read_back, missing) = sim.apply(&mut data);
+    let sim_inst: Vec<Instance> = data
+        .groups
+        .iter()
+        .flat_map(|g| g.instances.iter().copied())
+        .chain(data.markers.iter().copied())
+        .collect();
+    let bits = |i: &Instance| i.model.map(|r| r.map(f32::to_bits));
+    let matrices_differing = stored_inst
+        .iter()
+        .zip(&sim_inst)
+        .filter(|(a, b)| bits(a) != bits(b))
+        .count();
+    let mut max_matrix_delta = 0f32;
+    for (a, b) in stored_inst.iter().zip(&sim_inst) {
+        for (ra, rb) in a.model.iter().zip(&b.model) {
+            for (x, y) in ra.iter().zip(rb) {
+                max_matrix_delta = max_matrix_delta.max((x - y).abs());
+            }
+        }
+    }
+    loaded.sync(&data);
+    let (sim_img, sim_render_ms) = shoot(&loaded)?;
+
+    let (w, h) = (opt.width as usize, opt.height as usize);
+    let (differing, max_delta, sum, diff) = diff_images(&stored_img, &sim_img);
+    // Close-up on the instance whose matrix moved the most, so a sub-pixel change at the framed
+    // distance is looked at where it could show.
+    let close_up = if max_matrix_delta > 0.0 {
+        let (mut at, mut best) = (0usize, 0f32);
+        for (k, (a, b)) in stored_inst.iter().zip(&sim_inst).enumerate() {
+            let d = a
+                .model
+                .iter()
+                .flatten()
+                .zip(b.model.iter().flatten())
+                .map(|(x, y)| (x - y).abs())
+                .fold(0f32, f32::max);
+            if d > best {
+                (at, best) = (k, d);
+            }
+        }
+        let t = sim_inst[at].model[3];
+        let mut cam = scene_view::FlyCam::framing(data.bounds);
+        cam.pitch = -0.5;
+        cam.yaw = 0.0;
+        let fw = cam.forward();
+        cam.eye = [0, 1, 2].map(|k| t[k] - fw[k] * 3.0);
+        cam.near = 0.05;
+        cam.far = 500.0;
+        let u = cam.uniforms(opt.width as f32 / opt.height as f32);
+        loaded_swap(&mut loaded, &data, &stored_inst);
+        let a = renderer.render_to_image(&u, &loaded.draws(&neutral))?.2;
+        loaded.sync(&data);
+        let b = renderer.render_to_image(&u, &loaded.draws(&neutral))?.2;
+        let (n, mx, sm, d) = diff_images(&a, &b);
+        let stem = out.with_extension("");
+        write_png(
+            &stem.with_extension("closeup.diff.png"),
+            w as u32,
+            h as u32,
+            &d,
+        )?;
+        write_png(
+            &stem.with_extension("closeup.sim.png"),
+            w as u32,
+            h as u32,
+            &b,
+        )?;
+        Some(serde_json::json!({
+            "camera_eye": cam.eye, "target_instance": at, "target_matrix_delta": best,
+            "pixels_differing": n, "pixels_differing_percent": 100.0 * n as f64 / (w * h) as f64,
+            "max_channel_delta": mx, "mean_abs_diff_per_channel": sm as f64 / ((w * h) as f64 * 3.0),
+        }))
+    } else {
+        None
+    };
+    let px = (w * h) as f64;
+    let stem = out.with_extension("");
+    write_png(
+        &stem.with_extension("stored.png"),
+        w as u32,
+        h as u32,
+        &stored_img,
+    )?;
+    write_png(
+        &stem.with_extension("sim.png"),
+        w as u32,
+        h as u32,
+        &sim_img,
+    )?;
+    let diff_path = stem.with_extension("diff.png");
+    write_png(&diff_path, w as u32, h as u32, &diff)?;
+    let step_ms = &sim.frame_ms;
+    let steady: Vec<f64> = step_ms.iter().skip(1).copied().collect();
+    let report = serde_json::json!({
+        "scene": scene_path.file_name().and_then(|n| n.to_str()),
+        "kind": "stored original LocalToWorld vs Rust TransformSystem LocalToWorld, same camera, same GPU data",
+        "not_a_comparison_with_the_original_game": true,
+        "resolution": [w, h],
+        "fixed_frames": frames,
+        "instances": stored_inst.len(),
+        "instances_read_back_from_world": read_back,
+        "instances_missing_in_world": missing,
+        "instances_with_different_matrix_bits": matrices_differing,
+        "max_abs_matrix_element_delta": max_matrix_delta,
+        "pixels": w * h,
+        "pixels_differing": differing,
+        "pixels_differing_percent": 100.0 * differing as f64 / px,
+        "max_channel_delta": max_delta,
+        "mean_abs_diff_per_channel": sum as f64 / (px * 3.0),
+        "timing_ms": {
+            "world_build": sim.build_ms,
+            "schedule_first_frame": step_ms.first().copied().unwrap_or(0.0),
+            "schedule_steady_median": if steady.is_empty() { serde_json::Value::Null } else { median(&steady).into() },
+            "transform_entities_written_first_frame": sim.written_first,
+            "transform_entities_written_last_frame": sim.written_last,
+            "render_plus_readback_stored_median_of_5": stored_ms,
+            "render_plus_readback_sim_median_of_5": sim_render_ms,
+        },
+        "close_up_at_max_delta_instance": close_up,
+        "images": {"diff": diff_path, "stored": stem.with_extension("stored.png"), "sim": stem.with_extension("sim.png")},
+    });
+    std::fs::write(out, serde_json::to_vec_pretty(&report)?)?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
 }
 
 fn run_offscreen(opt: &Options) -> Result<()> {
@@ -637,6 +891,7 @@ fn run_offscreen(opt: &Options) -> Result<()> {
         let content = open_content(opt)?;
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+        apply_sim(opt, &layouts, scene_path, &mut data)?;
         let loaded = load_scene_view(&renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
         let mut renderer = renderer;
@@ -768,6 +1023,7 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
     let content = open_content(opt)?;
     let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
     let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
+    apply_sim(opt, &layouts, scene_path, &mut data)?;
     let mut pool = Vec::new();
     let mut slot: std::collections::HashMap<unity_formats::player::ObjRef, Option<usize>> =
         Default::default();
@@ -1029,6 +1285,9 @@ fn main() -> Result<()> {
     }
     if let Some(path) = &opt.inspect_scene {
         return inspect_scene(&opt, path);
+    }
+    if let Some(path) = &opt.compare {
+        return compare_scene(&opt, path);
     }
     if let Some(path) = &opt.export_web {
         return export_web(&opt, path);

@@ -23,7 +23,7 @@ use rrising_content::catalog::RuntimeContentCatalog;
 use rrising_content::entity_scenes::SceneFile;
 use rrising_content::type_layouts::{TypeLayouts, LOCAL_TO_WORLD_HASH};
 use rrising_content::GameContent;
-use rrising_ecs::MaterialMeshInfo;
+use rrising_ecs::{Entity, MaterialMeshInfo};
 use rrising_math::{float3, float4x4};
 use rrising_render::{mesh, FrameUniforms, Instance, Vertex};
 use unity_formats::player::{ObjRef, PPtr};
@@ -98,11 +98,14 @@ pub struct ReadyGroup {
     /// Alpha-tested material: drawn through the cutout pipeline.
     pub cutout: bool,
     pub instances: Vec<Instance>,
+    /// Stored entity id of each instance (same order), to find it again in the simulated world.
+    pub entities: Vec<Entity>,
 }
 
 pub struct SceneData {
     pub groups: Vec<ReadyGroup>,
     pub markers: Vec<Instance>,
+    pub marker_entities: Vec<Entity>,
     pub stats: SceneStats,
     /// Percentile-trimmed world bounds of everything drawn.
     pub bounds: ([f32; 3], [f32; 3]),
@@ -112,6 +115,7 @@ struct RawGroup {
     cutout: bool,
     texture: Option<ObjRef>,
     instances: Vec<Instance>,
+    entities: Vec<Entity>,
 }
 
 fn guid_windows_to_file_name(value: [u32; 4]) -> String {
@@ -583,10 +587,25 @@ pub fn collect(
     let mut mat_cache: HashMap<ObjRef, Option<MatInfo>> = HashMap::new();
     let mut raw: HashMap<(ObjRef, u16, Option<ObjRef>, bool), RawGroup> = HashMap::new();
     let mut markers: Vec<Instance> = Vec::new();
+    let mut marker_entities: Vec<Entity> = Vec::new();
 
     for (ci, chunk) in resolved.chunks.iter().enumerate() {
+        let id_base = resolved
+            .archetypes
+            .get(chunk.header.archetype_index as usize)
+            .and_then(|a| a.as_ref())
+            .map(|a| a.data.layout.offsets[0] as usize);
         for e in 0..chunk.header.count as usize {
             stats.entities += 1;
+            let id = id_base
+                .and_then(|b| chunk.buffer.get(b + 8 * e..b + 8 * e + 8))
+                .map(|b| {
+                    Entity::new(
+                        i32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+                        i32::from_le_bytes([b[4], b[5], b[6], b[7]]),
+                    )
+                })
+                .unwrap_or(Entity::NULL);
             let Some(ltw) = resolved.component_f32s::<16>(ci, e, LOCAL_TO_WORLD_HASH)? else {
                 continue;
             };
@@ -601,12 +620,18 @@ pub fn collect(
             let info = MaterialMeshInfo::from_bytes(bytes)?;
             if info.has_material_mesh_index_range() || info.is_runtime_mesh() {
                 stats.unresolved_runtime_or_range += 1;
-                markers.push(inst);
+                {
+                    markers.push(inst);
+                    marker_entities.push(id);
+                }
                 continue;
             }
             let Some(table) = array_for_chunk(ci) else {
                 stats.unresolved_no_array += 1;
-                markers.push(inst);
+                {
+                    markers.push(inst);
+                    marker_entities.push(id);
+                }
                 continue;
             };
             let mesh_ref = usize::try_from(info.mesh_array_index())
@@ -615,7 +640,10 @@ pub fn collect(
                 .filter(|r| r.path_id != 0);
             let Some(mesh_ref) = mesh_ref else {
                 stats.unresolved_index += 1;
-                markers.push(inst);
+                {
+                    markers.push(inst);
+                    marker_entities.push(id);
+                }
                 continue;
             };
             let material = usize::try_from(info.material_array_index())
@@ -653,19 +681,21 @@ pub fn collect(
                     continue;
                 }
             }
-            raw.entry((
-                mesh_ref.clone(),
-                info.sub_mesh(),
-                texture.clone(),
-                surface == Surface::Cutout,
-            ))
-            .or_insert_with(|| RawGroup {
-                cutout: surface == Surface::Cutout,
-                texture,
-                instances: vec![],
-            })
-            .instances
-            .push(inst);
+            let g = raw
+                .entry((
+                    mesh_ref.clone(),
+                    info.sub_mesh(),
+                    texture.clone(),
+                    surface == Surface::Cutout,
+                ))
+                .or_insert_with(|| RawGroup {
+                    cutout: surface == Surface::Cutout,
+                    texture,
+                    instances: vec![],
+                    entities: vec![],
+                });
+            g.instances.push(inst);
+            g.entities.push(id);
         }
     }
 
@@ -697,6 +727,7 @@ pub fn collect(
         let Some(mesh) = mesh.as_ref() else {
             stats.unresolved_mesh_read += g.instances.len();
             markers.extend(g.instances);
+            marker_entities.extend(g.entities);
             continue;
         };
         let next_id = sub_ids.len();
@@ -726,6 +757,7 @@ pub fn collect(
                     texture: g.texture,
                     cutout: g.cutout,
                     instances: g.instances,
+                    entities: g.entities,
                 });
             }
             None => stats.excluded_submesh += g.instances.len(),
@@ -773,6 +805,7 @@ pub fn collect(
     Ok(SceneData {
         groups,
         markers,
+        marker_entities,
         stats,
         bounds: (lo, hi),
     })
@@ -924,4 +957,106 @@ pub fn layouts_path(opt: Option<&PathBuf>) -> Result<PathBuf> {
     opt.cloned()
         .or_else(|| std::env::var_os("RRISING_LAYOUT_REPORT").map(PathBuf::from))
         .context("--scene needs --type-layouts or RRISING_LAYOUT_REPORT")
+}
+
+/// A scene built as a `World` and stepped by the `Schedule` (`TransformSystem`).
+pub struct SimWorld {
+    pub world: rrising_ecs::World,
+    pub ltw: rrising_ecs::TypeIndex,
+    /// Wall time of building the world from the decoded scene.
+    pub build_ms: f64,
+    /// Wall time of each fixed frame, in order.
+    pub frame_ms: Vec<f64>,
+    /// Entities the last frame wrote / the first frame wrote.
+    pub written_first: usize,
+    pub written_last: usize,
+}
+
+const SCALE_HASH: u64 = 0xadc0_56c7_729e_d01e;
+const POST_HASH: u64 = 0x0233_3773_b807_e90d;
+const STEP_NS: u64 = 16_666_667;
+
+/// Build the scene's world through the adapter and run `frames` fixed frames of the transform
+/// system. Nothing but `LocalToWorld` is changed by the system.
+pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result<SimWorld> {
+    use rrising_content::type_layouts::{LOCAL_TRANSFORM_HASH, ROTATION_HASH, TRANSLATION_HASH};
+    use rrising_content::world_adapter::{build_scene_world, PARENT_HASH};
+    use rrising_ecs::transform::{TransformSystem, TransformTypes};
+    use rrising_ecs::Schedule;
+    let layouts = TypeLayouts::from_json(&std::fs::read(layouts_path)?)?;
+    let scene = SceneFile::open(scene_path)?;
+    let t = std::time::Instant::now();
+    let mut sw = build_scene_world(&layouts, &scene)?;
+    let build_ms = t.elapsed().as_secs_f64() * 1e3;
+    let ty = |h: u64| sw.type_of_hash.get(&h).copied();
+    let ltw = ty(LOCAL_TO_WORLD_HASH).context("scene has no LocalToWorld")?;
+    let tt = TransformTypes {
+        local_to_world: ltw,
+        local_transform: ty(LOCAL_TRANSFORM_HASH),
+        translation: ty(TRANSLATION_HASH),
+        rotation: ty(ROTATION_HASH),
+        scale: ty(SCALE_HASH),
+        post_transform: ty(POST_HASH),
+        parent: ty(PARENT_HASH),
+    };
+    let mut sched = Schedule::new(STEP_NS)?;
+    sched.add_group("Simulation")?;
+    sched.add_system("Simulation", Box::new(TransformSystem::new(tt)))?;
+    let mut frame_ms = Vec::with_capacity(frames);
+    let (mut written_first, mut written_last) = (0, 0);
+    for i in 0..frames {
+        let t = std::time::Instant::now();
+        sched.run_frame(&mut sw.world)?;
+        frame_ms.push(t.elapsed().as_secs_f64() * 1e3);
+        let w = sched
+            .system::<TransformSystem>(TransformSystem::NAME)
+            .context("system")?
+            .stats()
+            .entities_written();
+        if i == 0 {
+            written_first = w;
+        }
+        written_last = w;
+    }
+    Ok(SimWorld {
+        world: sw.world,
+        ltw,
+        build_ms,
+        frame_ms,
+        written_first,
+        written_last,
+    })
+}
+
+impl SimWorld {
+    fn instance(&self, e: Entity) -> Option<Instance> {
+        let b = self.world.store.try_component_bytes(e, self.ltw).ok()??;
+        let mut m = [0f32; 16];
+        for (v, c) in m.iter_mut().zip(b.as_chunks::<4>().0) {
+            *v = f32::from_le_bytes(*c);
+        }
+        matrix_instance(m)
+    }
+
+    /// Replace every instance's matrix with the one now in the world. Returns
+    /// (read back, missing); a missing instance keeps its stored matrix.
+    pub fn apply(&self, data: &mut SceneData) -> (usize, usize) {
+        let (mut ok, mut missing) = (0, 0);
+        let mut fix = |inst: &mut Instance, e: Entity| match self.instance(e) {
+            Some(i) => {
+                *inst = i;
+                ok += 1;
+            }
+            None => missing += 1,
+        };
+        for g in &mut data.groups {
+            for (inst, &e) in g.instances.iter_mut().zip(&g.entities) {
+                fix(inst, e);
+            }
+        }
+        for (inst, &e) in data.markers.iter_mut().zip(&data.marker_entities) {
+            fix(inst, e);
+        }
+        (ok, missing)
+    }
 }
