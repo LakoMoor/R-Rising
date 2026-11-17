@@ -22,7 +22,7 @@ original assets, executables or decompiled sources should be distributed.
 It measures heuristic **member name matches** only. It can credit unrelated
 identifiers and does not prove overload coverage, correctness, or runtime wiring.
 Behavioral parity and overall game completion are unknown, not 2.7%.
-There are no full-game original-runtime golden scenarios. Original-function replay oracles exist only for pure x86-64 leaf functions executed under Rosetta, not a running game: 7 earlier captures with 1,024 cases each (type flags, MaterialMeshInfo) and 87 further captures with 2,048 cases each (including matrix/quaternion and change-version targets; two TypeIndex getters overlap the earlier captures, giving 92 distinct addresses). Matrix capture links calls between captured functions and stubs the sqrt helper. Goldens are in `evidence/oracles/`; see [original_leaf_oracles.md](../evidence/original_leaf_oracles.md). The replay found and fixed three Rust divergences: integer `clamp` with lo > hi, `abs(i32::MIN)`, and `Archetype.HasChunkComponents` (`!=`, not `> 0`). Reader tests and GPU
+There are no full-game original-runtime golden scenarios. Original-function replay oracles exist only for pure x86-64 leaf functions executed under Rosetta, not a running game: 7 earlier captures with 1,024 cases each (type flags, MaterialMeshInfo) and 87 captures with 2,048 cases each plus one waypoint capture with 4,096 cases (two TypeIndex getters overlap the earlier captures, giving 93 distinct addresses). Matrix capture links calls between captured functions and stubs the sqrt helper. Goldens are in `evidence/oracles/`; see [original_leaf_oracles.md](../evidence/original_leaf_oracles.md). The replay found and fixed three Rust divergences: integer `clamp` with lo > hi, `abs(i32::MIN)`, and `Archetype.HasChunkComponents` (`!=`, not `> 0`). Reader tests and GPU
 regression tests must not be presented as proof of 1:1 compatibility.
 
 ## Validation in this session
@@ -615,3 +615,14 @@ Verification on Apple M4 / Metal:
 Release WASM, strict Clippy, formatting, portable tests and existing GPU regressions passed.
 Physical Android/iOS GPUs, mobile memory limits, touch input, WebGL and gameplay remain unverified.
 The shader, terrain-layer assumptions, transparency exclusions and other viewer limits are unchanged.
+
+### 2026-11-17: movement waypoint selector
+
+Ported `PathfindingUtility.TryGetTargetPositionFromWaypoints` to `rrising-core::pathfinding`.
+The original instructions were captured first: 4,096 cases, no helper stubs, all bool results and
+output float bits match, including unusual flags, int extremes, signed zero, infinity and NaN.
+Native `comiss`/`ja` advances on unordered dots, unlike the decompiler's apparent `<=` branch;
+the observed failing case was corrected without dropping inputs or widening comparisons.
+[Movement contract and evidence](../evidence/movement_contract.md) records the exact caller and
+component layouts. All 32 real scene query candidates are baked Prefabs with no active waypoints
+and null targets; this does not exercise live steering. No gameplay completion percentage claimed.

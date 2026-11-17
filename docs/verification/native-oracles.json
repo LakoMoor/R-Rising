@@ -2,8 +2,8 @@
   "schema_version": 1,
   "metric": "captured_original_function_addresses",
   "original_sha256": "a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56",
-  "distinct_functions": 92,
-  "function_evaluations_including_overlapping_captures": 185344,
+  "distinct_functions": 93,
+  "function_evaluations_including_overlapping_captures": 189440,
   "behavioral_parity_percent": null,
   "warning": "Function replays are not full-game scenarios or a game-completion percentage.",
   "captures": [
@@ -144,6 +144,14 @@
       "helper_stubs": [
         "IL2CPP sqrt wrapper replaced by sqrtss for quaternion normalize"
       ]
+    },
+    {
+      "golden": "evidence/oracles/pathfinding.tsv",
+      "rvas": [
+        "0x75c6390"
+      ],
+      "cases_per_function": 4096,
+      "helper_stubs": []
     },
     {
       "golden": "evidence/oracles/typeindex_flags.tsv",

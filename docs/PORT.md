@@ -585,3 +585,9 @@ unsigned Unity BC6H and partial block-row mip chains. Native GPU tests, WASM, an
 of the same original scene with and without BC enabled passed. Five CPU tests and the dedicated
 640-block GPU comparison document precision limits; physical mobile devices remain untested.
 See COMPATIBILITY.md and docs/verification/bc-textures.json. No new game-parity percentage claimed.
+
+
+Movement continuation: first native waypoint selector in rrising-core, with a 4,096-case original
+replay and metadata/caller ledger at evidence/movement_contract.md. The next boundary is executing
+the whole shared steering body with controlled component inputs, then connecting that behavior
+to the World. Baked prefab data alone cannot prove live movement.

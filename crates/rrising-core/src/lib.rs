@@ -5,6 +5,7 @@
 //! drawable scenes from the original's archives. The gameplay systems themselves wait on the
 //! decompiled bodies, which `docs/PORT.md` tracks.
 
+pub mod pathfinding;
 pub mod scene;
 
 pub use scene::{base_map_name, showcase, SceneItem, SceneSpec};

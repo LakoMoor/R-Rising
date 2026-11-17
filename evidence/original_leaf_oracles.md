@@ -113,9 +113,17 @@ the fix. `change_version.rs` now implements the two functions; `FrameContext` an
 them. Both oracle tests pass, plus a transform-hierarchy integration test checks a post-wrap input
 version of 1 against a pre-wrap last-system version of `0xffffffff`.
 
-Across all recorded groups: 92 distinct native function addresses (7 earlier captures, 87 further
-captures with 2 overlapping TypeIndex getters). This is function evidence, not gameplay parity.
+Across all recorded groups: 93 distinct native function addresses (7 earlier captures, 87 captures
+of 2,048 cases and one waypoint capture of 4,096 cases, with 2 overlapping TypeIndex getters). This is function evidence, not gameplay parity.
 `python3 tools/oracle_inventory.py` regenerates
 [native-oracles.json](../docs/verification/native-oracles.json) directly from the pinned golden headers:
-185,344 function evaluations including repeated captures of the same function. CI checks the report.
+189,440 function evaluations including repeated captures of the same function. CI checks the report.
 This corrects the earlier scalar/ECS subtotal of 75: the actual captured list has 77 addresses.
+
+
+## First movement-path function
+
+`capture_pathfinding.py` adds the original waypoint selector (RVA 0x75c6390),
+4,096 cases with no helper stubs. Returns and float bits match `rrising-core/tests/pathfinding.rs`.
+See [movement_contract.md](movement_contract.md) for controlled-replay evidence, exact metadata,
+NaN-branch correction and the limit of the baked-prefab corpus. This is not live movement.
