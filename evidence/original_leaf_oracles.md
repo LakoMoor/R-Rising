@@ -113,11 +113,14 @@ the fix. `change_version.rs` now implements the two functions; `FrameContext` an
 them. Both oracle tests pass, plus a transform-hierarchy integration test checks a post-wrap input
 version of 1 against a pre-wrap last-system version of `0xffffffff`.
 
-Across all recorded groups: 93 distinct native function addresses (7 earlier captures, 87 captures
-of 2,048 cases and one waypoint capture of 4,096 cases, with 2 overlapping TypeIndex getters). This is function evidence, not gameplay parity.
+Across all recorded groups: 95 distinct native function addresses (7 earlier captures, 87 captures
+of 2,048 cases, one waypoint capture of 4,096 cases, and a shared-job/helper capture with
+4,096 evaluations each; 2 TypeIndex getters overlap earlier captures). This is function evidence,
+not gameplay parity. The shared-job capture substitutes five component accessors; the pure-leaf
+label does not apply to that capture.
 `python3 tools/oracle_inventory.py` regenerates
 [native-oracles.json](../docs/verification/native-oracles.json) directly from the pinned golden headers:
-189,440 function evaluations including repeated captures of the same function. CI checks the report.
+197,632 function evaluations including repeated captures of the same function. CI checks the report.
 This corrects the earlier scalar/ECS subtotal of 75: the actual captured list has 77 addresses.
 
 
@@ -127,3 +130,9 @@ This corrects the earlier scalar/ECS subtotal of 75: the actual captured list ha
 4,096 cases with no helper stubs. Returns and float bits match `rrising-core/tests/pathfinding.rs`.
 See [movement_contract.md](movement_contract.md) for controlled-replay evidence, exact metadata,
 NaN-branch correction and the limit of the baked-prefab corpus. This is not live movement.
+
+The shared steering job (`0x669a880`) and normalizer (`0x63354f0`) now also have
+4,096 controlled cases each. Five ECS accessors supply values and record the write;
+metadata is preinitialized and sqrt uses a stub. Rust math and complete EntityInput bytes
+match the captured set, including through the Rust World/schedule integration. Original
+ECS lookups and the running original scheduler remain outside this replay's boundary.

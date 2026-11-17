@@ -1,0 +1,38 @@
+{
+  "build": "VRisingServer: v1.1.13.0-r99712-b17 (202605251709)",
+  "platform": "Windows x64 IL2CPP dedicated server",
+  "engine": "Unity 2022.3.58f1",
+  "role": "Additional original runtime reference; client function RVAs in reference.lock.json do not apply to this image.",
+  "files": [
+    {
+      "path": "VERSION",
+      "size": 52,
+      "sha256": "5e7f9ea5fad7246f0717d1dd6211f32230251197428ff63390149c1f4b755e34"
+    },
+    {
+      "path": "VRisingServer.exe",
+      "size": 140616,
+      "sha256": "75cae40ec1b02d81b8e98fd5b05e600b43202370b083dcd7e48e54247469872c"
+    },
+    {
+      "path": "GameAssembly.dll",
+      "size": 248598344,
+      "sha256": "41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7"
+    },
+    {
+      "path": "VRisingServer_Data/il2cpp_data/Metadata/global-metadata.dat",
+      "size": 36542456,
+      "sha256": "80ec821655b86d5a891c0268e3b10891de810535a099cbed8a45bfc647141bb5"
+    },
+    {
+      "path": "UnityPlayer.dll",
+      "size": 30907312,
+      "sha256": "f13b562edf6f3812d79345bbb382c1742dae639a291905ba36dd4729f74e5340"
+    },
+    {
+      "path": "VRisingServer_Data/Plugins/x86_64/lib_burst_generated.dll",
+      "size": 161005896,
+      "sha256": "157e227bdb67c1f3b83bb70b2393fbc4468505098b1fadadb79ee2be089b0701"
+    }
+  ]
+}

@@ -587,7 +587,18 @@ of the same original scene with and without BC enabled passed. Five CPU tests an
 See COMPATIBILITY.md and docs/verification/bc-textures.json. No new game-parity percentage claimed.
 
 
-Movement continuation: first native waypoint selector in rrising-core, with a 4,096-case original
-replay and metadata/caller ledger at evidence/movement_contract.md. The next boundary is executing
-the whole shared steering body with controlled component inputs, then connecting that behavior
-to the World. Baked prefab data alone cannot prove live movement.
+Movement continuation: native waypoint selector plus the original shared steering job and
+normalizer now have 4,096 controlled cases each, and all shared-job cases run through the Rust
+World/schedule. The job oracle substitutes five component accessors and the sqrt wrapper; it does
+not execute original ECS lookup or scheduling. The loader resolves special type identities so
+default queries exclude baked Prefabs. The viewer runs shared steering before transforms when
+live query candidates exist, but all 32 candidates in shipped scenes are inactive templates.
+See evidence/movement_contract.md. Next acceptance is live runtime state, buff instantiation,
+locomotion/navigation/collision and an original input-driven comparison. No gameplay parity claim.
+
+CrossOver continuation: the original dedicated server now reaches world startup and produces
+six autosaves with persistence debug dumps. The additional server image has its own pinned lock;
+client RVAs are not reused. A fresh bottle, cloned install and local profile are created by
+tools/probe_crossover_server.py. Raw outputs stay outside Git. See evidence/crossover_runtime.md
+for measured results and the Steam initialization error. This removes the server launch blocker,
+but does not establish deterministic gameplay or save-loading support in Rust.

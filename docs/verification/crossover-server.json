@@ -1,0 +1,185 @@
+{
+  "observed_at_utc": "2026-11-17T17:01:47.688738+00:00",
+  "kind": "original-server-startup-and-persistence-observation",
+  "reference": "reference.server.lock.json",
+  "original_build": "VRisingServer: v1.1.13.0-r99712-b17 (202605251709)",
+  "crossover_version": "26.3",
+  "bottle_template": "win10_64",
+  "profile_settings": {
+    "Name": "R-Rising Reference",
+    "Address": "127.0.0.1",
+    "Port": 19876,
+    "QueryPort": 19877,
+    "MaxConnectedUsers": 1,
+    "MaxConnectedAdmins": 1,
+    "SaveName": "rrising-reference",
+    "LanMode": true,
+    "Secure": false,
+    "ListOnSteam": false,
+    "ListOnEOS": false,
+    "AnalyticsEnabled": false,
+    "AutoSaveCount": 1,
+    "AutoSaveInterval": 10,
+    "AutoSaveIntervalVariance": 0,
+    "DumpPersistenceSummaryOnSave": true,
+    "StorePersistenceDebugData": true,
+    "ServerFps": 30,
+    "LowerFPSWhenEmpty": false,
+    "Rcon": {
+      "Enabled": false,
+      "BindAddress": "127.0.0.1"
+    },
+    "API": {
+      "Enabled": false,
+      "BindAddress": "127.0.0.1"
+    }
+  },
+  "requested_observation_seconds": 90,
+  "elapsed_seconds": 90.582,
+  "startup_completed": true,
+  "startup_first_observed_seconds": 17.055,
+  "streamed_scene_log_events": 261,
+  "loaded_chunk_log_events": 248,
+  "steam_gameserver_initialization_error": true,
+  "exit_code": 1,
+  "reason": "bounded_observation",
+  "cleanup": "owned_prefix_wineserver_kill",
+  "owned_wineserver_wait_exit_code": 0,
+  "source_pinned_files_unchanged": true,
+  "clone_pinned_files_unchanged": true,
+  "unity_log": {
+    "size": 116681,
+    "sha256": "f6251071ac1b4e5239657bf0f55742153d2c0a0b59baab6d927173e0ef6fb50f"
+  },
+  "profile_files": [
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_0.save.gz_DebugDump.txt",
+      "size": 3149640,
+      "sha256": "fabe7955f67b22afa7f837951e362c73564ff3d4425d2f2225fce3cbdaf21c93"
+    },
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_1.save.gz_DebugDump.txt",
+      "size": 3149640,
+      "sha256": "349277b6032b60c8e88641e8747925268fd2483552037e3f5d90b27f1a2a61f0"
+    },
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_2.save.gz_DebugDump.txt",
+      "size": 3147762,
+      "sha256": "a356d063e38503fd8564e8277517b6c7646c5124b21198a6429de420ead4bc83"
+    },
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_3.save.gz_DebugDump.txt",
+      "size": 3148718,
+      "sha256": "c757cbe67e24870aaf5c3269a8bc890dd46f4ebbc477a69d85f2336cb905816e"
+    },
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_4.save.gz",
+      "size": 7592269,
+      "sha256": "529ab7f4ae8768e1b091aa6568d848cdb09b21e1b4d78abc4e01435809490215"
+    },
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_4.save.gz_DebugDump.txt",
+      "size": 3149126,
+      "sha256": "d492555b212ec28e05496260ff6a9949e072c6eb9abbc246244b876e0dc00c72"
+    },
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_5.save.gz",
+      "size": 7592236,
+      "sha256": "b7a52e50280ff5e4f0cd90918285384ed42fdbe04883c7c9f7285926f008728d"
+    },
+    {
+      "path": "Saves/v4/rrising-reference/AutoSave_5.save.gz_DebugDump.txt",
+      "size": 3147767,
+      "sha256": "cd76dc8fbe80b18293d41859d32d39d936f4274d160b11c9455e4a550311eaa0"
+    }
+  ],
+  "coverage": {
+    "scripted_player_inputs": 0,
+    "rust_state_comparisons": 0,
+    "deterministic_gameplay_scenarios": 0
+  },
+  "completed_persistence_log_events": [
+    {
+      "autosave_index": 0,
+      "persistent_chunks": 2672,
+      "compressed_bytes": 7596160,
+      "uncompressed_bytes": 35996745
+    },
+    {
+      "autosave_index": 1,
+      "persistent_chunks": 2672,
+      "compressed_bytes": 7594891,
+      "uncompressed_bytes": 35994501
+    },
+    {
+      "autosave_index": 2,
+      "persistent_chunks": 2671,
+      "compressed_bytes": 7594796,
+      "uncompressed_bytes": 35992752
+    },
+    {
+      "autosave_index": 3,
+      "persistent_chunks": 2672,
+      "compressed_bytes": 7594070,
+      "uncompressed_bytes": 35990241
+    },
+    {
+      "autosave_index": 4,
+      "persistent_chunks": 2673,
+      "compressed_bytes": 7592269,
+      "uncompressed_bytes": 35989910
+    },
+    {
+      "autosave_index": 5,
+      "persistent_chunks": 2671,
+      "compressed_bytes": 7592236,
+      "uncompressed_bytes": 35988668
+    }
+  ],
+  "debug_dump_totals": [
+    {
+      "name": "AutoSave_0.save.gz_DebugDump.txt",
+      "archetypes": 139,
+      "chunks": 2672,
+      "entities": 274231
+    },
+    {
+      "name": "AutoSave_1.save.gz_DebugDump.txt",
+      "archetypes": 139,
+      "chunks": 2672,
+      "entities": 274231
+    },
+    {
+      "name": "AutoSave_2.save.gz_DebugDump.txt",
+      "archetypes": 138,
+      "chunks": 2671,
+      "entities": 274233
+    },
+    {
+      "name": "AutoSave_3.save.gz_DebugDump.txt",
+      "archetypes": 139,
+      "chunks": 2672,
+      "entities": 274234
+    },
+    {
+      "name": "AutoSave_4.save.gz_DebugDump.txt",
+      "archetypes": 140,
+      "chunks": 2673,
+      "entities": 274238
+    },
+    {
+      "name": "AutoSave_5.save.gz_DebugDump.txt",
+      "archetypes": 138,
+      "chunks": 2671,
+      "entities": 274236
+    }
+  ],
+  "limitations": [
+    "Headless original dedicated server, not the client image in reference.lock.json.",
+    "Steam GameServer initialization logged an error; authenticated networking was not tested.",
+    "Stopped at the observation deadline using only the owned-prefix wineserver; this was not a graceful application shutdown.",
+    "No fixed seed or deterministic time control; no player input or Rust state comparison.",
+    "Raw logs, game files, save payloads and debug dumps remain outside Git.",
+    "REA process-capture cleanup could not establish Wine helper ownership on an earlier cmd.exe smoke run; this launch used an explicitly owned prefix and verified wineserver -w exit 0."
+  ]
+}

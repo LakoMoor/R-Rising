@@ -1,0 +1,67 @@
+# Original dedicated server through CrossOver
+
+The original Windows x64 **dedicated server** now runs on this Apple M4 Mac.
+It reaches `Startup Completed`, runs the world, and writes autosaves with its
+built-in persistence debug data enabled. This removes the server-launch blocker;
+it is not an original-client render capture or a deterministic gameplay test.
+
+## Identity and isolation
+
+The additional target is pinned separately in [reference.server.lock.json](../reference.server.lock.json):
+`VRisingServer: v1.1.13.0-r99712-b17 (202605251709)`, Unity 2022.3.58f1,
+GameAssembly SHA-256 `41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7`.
+The client image and its function RVAs in `reference.lock.json` remain different.
+CrossOver reports version 26.3 (installed product 26.3.0.39832), win10_64 template.
+
+The launcher creates an APFS clone of the server, a new bottle and a new persistent
+profile in an external work directory. The existing user bottle and saves are not
+used. Game/query bind is 127.0.0.1, public listings and analytics are disabled,
+RCON/API are disabled. The observation is bounded; cleanup uses `WINEPREFIX` plus
+`wineserver -k/-w` for only the owned bottle. It does not identify/kill arbitrary
+Wine processes. The six pinned source and clone files still match after the run.
+
+```sh
+python3 tools/probe_crossover_server.py \
+  --server ../VRising_Server \
+  --work-dir /private/tmp/rrising-reference-new-run \
+  --duration 90
+```
+
+The work directory must not already exist or overlap the repository, original
+server or CrossOver. It contains **private original files and saves** and must not
+be committed. Only derived observations and hashes are published here.
+
+## Observed result, 2026-11-17
+
+[Machine-readable report](../docs/verification/crossover-server.json): world startup
+first observed at 17.055 s; 261 streamed-scene events and 248 loaded-chunk events.
+During the 90 s observation the original completed **six autosaves**. The saved
+worlds have roughly 274,000 entities and 2,671–2,673 persistent chunks; their debug
+dumps expose the original included/excluded archetype component sets. Two gzip
+save payloads and all six text dumps remained after original autosave retention.
+The snapshot sizes are about 7.6 MB compressed / 36 MB uncompressed.
+
+`AutoSaveInterval=10`, variance zero, `DumpPersistenceSummaryOnSave=true` and
+`StorePersistenceDebugData=true` are acknowledged in the original log. These are
+real original persistence outputs, not reconstructed Rust state. Their timestamps,
+AI and other world updates are not deterministic across runs. The built-in debug
+mode logs a separate-world load test, but no independently checked state equivalence
+has been established from that message.
+
+Known failure: `Unable to Initialize Steam GameServer` is logged during bootstrap.
+World startup and autosaves nevertheless complete. Network authentication, client
+connection and multiplayer are untested. The deadline uses a forced owned-prefix
+stop (wrapper exit 1), not a graceful game shutdown; `wineserver -w` then exits 0.
+
+An earlier REA `cmd.exe /c ver` capture observed exit 0, but its ownership checks
+could not classify Wine helper processes during cleanup. That provider limitation
+is not reported as a clean runtime capture. The reproducible launcher and its own
+private-prefix cleanup were used for the server observation above.
+
+## Next comparison boundary
+
+The captured saves can supply actual runtime Entity/component data after their
+container, persistence header and serialization jobs are decoded. No original
+save is loaded into the Rust World yet. No fixed seed/time control, scripted
+player input, original-client screenshot or original-vs-Rust state comparison
+was captured. Original-game parity scenarios therefore remain **zero**.

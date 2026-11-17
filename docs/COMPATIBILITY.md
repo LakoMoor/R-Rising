@@ -22,7 +22,16 @@ original assets, executables or decompiled sources should be distributed.
 It measures heuristic **member name matches** only. It can credit unrelated
 identifiers and does not prove overload coverage, correctness, or runtime wiring.
 Behavioral parity and overall game completion are unknown, not 2.7%.
-There are no full-game original-runtime golden scenarios. Original-function replay oracles exist only for pure x86-64 leaf functions executed under Rosetta, not a running game: 7 earlier captures with 1,024 cases each (type flags, MaterialMeshInfo) and 87 captures with 2,048 cases each plus one waypoint capture with 4,096 cases (two TypeIndex getters overlap the earlier captures, giving 93 distinct addresses). Matrix capture links calls between captured functions and stubs the sqrt helper. Goldens are in `evidence/oracles/`; see [original_leaf_oracles.md](../evidence/original_leaf_oracles.md). The replay found and fixed three Rust divergences: integer `clamp` with lo > hi, `abs(i32::MIN)`, and `Archetype.HasChunkComponents` (`!=`, not `> 0`). Reader tests and GPU
+There are no full-game original-runtime golden scenarios. Original-function replays execute
+x86-64 instructions under Rosetta: 7 earlier captures with 1,024 cases each, 87 captures with
+2,048 cases each, one waypoint capture with 4,096 cases, and shared steering plus its normalizer
+with 4,096 cases each. Two overlapping TypeIndex getters leave **95 distinct addresses** and
+197,632 evaluations. Matrix capture links original bodies and stubs sqrt; steering additionally
+isolates five ECS accessors behind supplied-value callbacks and preinitializes metadata.
+This does not run the original scheduler. Goldens are in `evidence/oracles/`; see
+[original_leaf_oracles.md](../evidence/original_leaf_oracles.md). The replay found and fixed
+integer `clamp` with lo > hi, `abs(i32::MIN)`, `Archetype.HasChunkComponents`, wrapping change
+versions and the waypoint NaN branch. Reader tests and GPU
 regression tests must not be presented as proof of 1:1 compatibility.
 
 ## Validation in this session
@@ -656,3 +665,19 @@ the observed failing case was corrected without dropping inputs or widening comp
 [Movement contract and evidence](../evidence/movement_contract.md) records the exact caller and
 component layouts. All 32 real scene query candidates are baked Prefabs with no active waypoints
 and null targets; this does not exercise live steering. No gameplay completion percentage claimed.
+
+### 2026-11-17: shared steering and original runtime access
+
+The whole shared steering body and float2 normalizer now have 4,096 controlled native cases each.
+Rust matches full 96-byte EntityInput writes, also through World/schedule integration. Five original
+ECS accessors are replaced by supplied-value callbacks; metadata and sqrt initialization are
+isolated. Scene loading resolves special types so Prefabs are excluded from live queries. All 32
+shipped candidates remain inactive templates. See [movement_contract.md](../evidence/movement_contract.md).
+
+The original dedicated server also boots through CrossOver in an isolated bottle with a cloned
+install and fresh local profile. Six original autosaves and debug dumps were captured during a
+90 s run; no game payload is published. Steam GameServer initialization logged an error, while
+world startup and persistence completed. Cleanup was forced at the deadline and all owned Wine
+services stopped. This is a runtime observation, not a deterministic parity test. Reproduction,
+hashes, counts and limitations: [crossover_runtime.md](../evidence/crossover_runtime.md) and
+[crossover-server.json](verification/crossover-server.json).

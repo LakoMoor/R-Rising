@@ -1,6 +1,6 @@
-# Movement waypoint boundary — pinned build
+# Movement steering boundary — pinned build
 
-This is a partial reconstruction of `MoveTowardsPositionSystem_Shared_Update`, not a
+This is a reconstruction of the shared steering job and waypoint selector, not a
 player controller, path search, collision solver or a running gameplay scenario.
 All identities refer to `reference.lock.json` (GameAssembly SHA-256 `a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56`).
 Raw code and original content are not included.
@@ -29,7 +29,7 @@ comparisons advance too: the original uses `comiss` then `ja`. A literal transla
 decompiler's `<= 0` failed at row 87 and was corrected from native instruction evidence.
 The Rust implementation matches every return and output float bit in the captured set.
 
-## Metadata and caller contract (static evidence)
+## Metadata and caller contract
 
 | Type | Scene stable hash | Size | Relevant managed offsets |
 | --- | --- | ---: | --- |
@@ -49,12 +49,46 @@ lookups for target Translation/MapCollision/Velocity and writable EntityInput. I
 Buff.Target selects the lookups; the buff entity's own Translation is the no-waypoint fallback.
 The normalization helper is `0x63354f0`. Movement is gated by DistanceSq versus the squared
 XZ distance, while both aim fields point one normalized direction step from the target position.
-These caller semantics are static findings; the complete caller has not been executed by this oracle.
+These identities were established from metadata and instructions. The job body is now also
+executed with controlled component access, as described below.
 
 System attributes put the shared update in `ProjectM.SetInputGroup`, worlds `[2,4]`, with
 RequireMatchingQueriesForUpdate. Server_Update runs in the same group before Shared_Update;
 Server_Create runs in ReactToSpawnGroup, server world `[2]`. Porting the waypoint function does
 not establish that the original system ordering or scheduler is implemented.
+
+## Executed shared job, with isolated ECS access
+
+`tools/capture_movement_shared.py` executes the original shared job (`0x669a880`),
+waypoint selector and float2 normalization helper (`0x63354f0`) under Rosetta.
+The 4,096 rows in `oracles/movement_shared.tsv` retain supplied inputs, normalization
+outputs and all 96 bytes of the resulting EntityInput. REA controlled-replay evidence:
+`ev_4387628803de500de7b8fbcda60f72e16b1ba3572aa0ce161917b9f9596ad625`.
+
+Five ECS accessors are **supplied-value callbacks**, not original store execution:
+Translation (`0x208f70`), MapCollision (`0x2027b0`), Velocity (`0x20a300`),
+EntityInput read (`0x1fdbb0`) and write (`0x21e380`). Each callback verifies the
+Buff.Target handle (index 77, version 3) and must run exactly once. Metadata is
+preinitialized, float2.zero is local static data, and the sqrt wrapper is replaced
+by `sqrtss`. Unexpected metadata initialization traps. The harness checks output
+write guards, read-only buff bytes and preservation of input bytes 32..96.
+This bounds the claim to original job control flow and math; scheduler, metadata
+initialization, ECS lookup implementation and missing-target behavior are not native-tested.
+
+`rrising-core::movement` matches every captured float bit, including NaNs, and
+the complete 96-byte result. Its World integration repeats all 4,096 cases through
+the Rust schedule with the same target handle. Additional tests check Prefab/Disabled
+exclusion and the port's explicit missing-target error. The normalizer keeps the
+original `y*y + x*x` order, smallest-normal threshold and SSE invalid-result NaN sign.
+The stop comparison is strictly greater; an unordered distance does not stop movement.
+
+`scene_view::simulate` runs the system in SetInput before transforms when the initial
+World has live query matches. The scene loader now resolves the store's special types
+from the registry; previously its unset Prefab slot admitted all 32 templates and hit
+null-target errors. The original-scene regression was observed failing, then passing
+with the default query correctly excluding them. The dependency-light core also builds
+for wasm32 without the default `content` feature. Gameplay is not connected to the
+browser viewer, and locomotion/path search/collision remain absent.
 
 ## Real content boundary
 
