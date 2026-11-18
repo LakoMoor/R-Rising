@@ -49,12 +49,13 @@
 
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 
 /// `DotsSerialization.FileHeader.MagicValue` — the eight bytes `DOTSBIN!`.
 pub const MAGIC: u64 = 0x214e_4942_5354_4f44;
 /// `DotsSerialization.FileHeader.FileVersion` in this build.
 pub const FILE_VERSION: i32 = 77;
+pub const SERVER_CHUNK_SIZE: usize = 65536;
 /// `DotsSerialization.FileHeader.HeaderSize` in this build.
 pub const HEADER_SIZE: usize = 152;
 /// `DotsSerialization.NodeHeader` — nine fields ending at 0x40, so 72 bytes.
@@ -531,25 +532,36 @@ impl SceneFile {
         if base + len > self.bytes.len() {
             bail!("chunks stream at {base} claims {len} bytes, past the end of the file");
         }
-        if !len.is_multiple_of(rrising_ecs::K_CHUNK_SIZE) {
-            bail!(
-                "chunks stream is {len} bytes, not a multiple of the {}-byte chunk size",
+        let block_size = if let Some(buffers) = self.stream(SceneStream::BufferData) {
+            let count = usize::try_from(Cursor::new(&buffers.data, "buffer data stream").i32()?)?;
+            if count.checked_mul(rrising_ecs::K_CHUNK_SIZE) == Some(len) {
                 rrising_ecs::K_CHUNK_SIZE
+            } else if count.checked_mul(SERVER_CHUNK_SIZE) == Some(len) {
+                SERVER_CHUNK_SIZE
+            } else {
+                bail!("chunks stream has {len} bytes for {count} buffer groups; unknown chunk geometry");
+            }
+        } else {
+            ensure!(
+                len.is_multiple_of(rrising_ecs::K_CHUNK_SIZE),
+                "invalid client chunk stream length"
             );
-        }
+            rrising_ecs::K_CHUNK_SIZE
+        };
+        let max_entities = ((block_size - rrising_ecs::K_BUFFER_OFFSET) / 8) as i32;
         // Block slices feed a slice-based header reader; array chunks would add nothing.
         #[allow(clippy::chunks_exact_to_as_chunks)]
-        let blocks = self.bytes[base..base + len].chunks_exact(rrising_ecs::K_CHUNK_SIZE);
+        let blocks = self.bytes[base..base + len].chunks_exact(block_size);
         let mut out = Vec::with_capacity(blocks.len());
         for (i, block) in blocks.enumerate() {
             let Some(header) = rrising_ecs::Chunk::read_serialized_header(block) else {
                 bail!("chunk block {i} is too short for a serialized chunk header");
             };
-            if header.count < 0 || header.count > rrising_ecs::K_MAXIMUM_ENTITIES_PER_CHUNK {
+            if header.count < 0 || header.count > max_entities {
                 bail!(
                     "chunk block {i} claims {} entities, outside 0..={}",
                     header.count,
-                    rrising_ecs::K_MAXIMUM_ENTITIES_PER_CHUNK
+                    max_entities
                 );
             }
             out.push(SceneChunk {
@@ -691,12 +703,12 @@ impl SceneFile {
             for j in 0..patch_count {
                 let chunk_offset = c.i32()?;
                 let alloc_size_bytes = c.i32()?;
-                if chunk_offset < 0 || chunk_offset as usize + 8 > rrising_ecs::K_BUFFER_SIZE {
+                if chunk_offset < 0 || chunk_offset as usize + 8 > chunk.buffer.len() {
                     bail!(
                         "chunk {} patch {j} points at buffer offset {chunk_offset}, outside the \
                          {} bytes a chunk buffer holds",
                         chunk.index,
-                        rrising_ecs::K_BUFFER_SIZE
+                        chunk.buffer.len()
                     );
                 }
                 if alloc_size_bytes < 0 {

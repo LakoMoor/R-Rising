@@ -624,5 +624,6 @@ The version table, nonpersistent diagnostics and system record envelope are
 decoded. Native loading allocates fresh handles and binds saved prefab GUIDs
 to current prefab entities before remapping references. The
 [binding stage](../evidence/save_bindings.md) accepts fresh handles and current
-prefab groups. Building those groups from booted server content, patching
-component fields, restoring typed system state and replay comparisons remain.
+prefab groups. The [server scene reader](../evidence/server_prefab_catalog.md)
+recovers all 23,583 catalog registrations and linked group sizes. Installing
+those scenes with live handles, restoring typed state and comparing replays remain.

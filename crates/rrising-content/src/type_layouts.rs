@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, ensure, Context, Result};
 use rrising_ecs::{
-    create_archetype_data, ArchetypeData, Entity, SpecialTypes, TypeCategory, TypeIndex,
-    TypeManager, TypeSpec,
+    archetype::create_archetype_data_for_buffer, ArchetypeData, Entity, SpecialTypes, TypeCategory,
+    TypeIndex, TypeManager, TypeSpec,
 };
 use serde_json::Value;
 
@@ -66,6 +66,14 @@ fn hex(v: &Value, key: &str) -> Result<u64> {
 
 impl TypeLayouts {
     pub fn from_json(bytes: &[u8]) -> Result<Self> {
+        Self::from_pinned_json(bytes, false)
+    }
+
+    pub fn from_server_json(bytes: &[u8]) -> Result<Self> {
+        Self::from_pinned_json(bytes, true)
+    }
+
+    fn from_pinned_json(bytes: &[u8], server: bool) -> Result<Self> {
         let report: Value = serde_json::from_slice(bytes).context("type layout report JSON")?;
         ensure!(
             integer(&report, "schema_version")? == 1,
@@ -77,10 +85,19 @@ impl TypeLayouts {
         );
         let binary_sha256 = string(&report, "binary_sha256")?.to_owned();
         let metadata_sha256 = string(&report, "metadata_sha256")?.to_owned();
+        let (expected_binary, expected_metadata) = if server {
+            (
+                "41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7",
+                "80ec821655b86d5a891c0268e3b10891de810535a099cbed8a45bfc647141bb5",
+            )
+        } else {
+            (
+                "a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56",
+                "b8f9f76ffb72a0c77079082aac8eb78da839094e9d090e8461b49230e8831271",
+            )
+        };
         ensure!(
-            binary_sha256 == "a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56"
-                && metadata_sha256
-                    == "b8f9f76ffb72a0c77079082aac8eb78da839094e9d090e8461b49230e8831271",
+            binary_sha256 == expected_binary && metadata_sha256 == expected_metadata,
             "layout report is for a different original build"
         );
         let mut by_hash = BTreeMap::new();
@@ -263,6 +280,12 @@ impl TypeLayouts {
 
     pub fn resolve_scene<'a>(&self, scene: &'a SceneFile) -> Result<ResolvedScene<'a>> {
         let source = scene.archetypes()?;
+        let chunks = scene.chunks()?;
+        let buffer_size = chunks
+            .first()
+            .map_or(rrising_ecs::K_CHUNK_BUFFER_SIZE, |chunk| {
+                chunk.buffer.len() as i32
+            });
         let mut registry = TypeManager::default();
         registry.register(TypeSpec::tag("<reserved null>"))?;
         let entity = registry.register(self.by_hash[&ENTITY_HASH].spec.clone())?;
@@ -310,8 +333,9 @@ impl TypeLayouts {
                 }
                 types.push(index);
             }
-            let data = create_archetype_data(&types, registry.infos(), &special)
-                .with_context(|| format!("layout for archetype {arch_index}"))?;
+            let data =
+                create_archetype_data_for_buffer(&types, registry.infos(), &special, buffer_size)
+                    .with_context(|| format!("layout for archetype {arch_index}"))?;
             let mut all_hashes = vec![ENTITY_HASH];
             all_hashes.extend(hashes);
             archetypes.push(Some(ResolvedArchetype {
@@ -320,7 +344,6 @@ impl TypeLayouts {
                 data,
             }));
         }
-        let chunks = scene.chunks()?;
         let patches = scene.buffer_data()?;
         ensure!(
             patches.per_chunk.len() == chunks.len(),
@@ -487,6 +510,65 @@ fn slice_component<'a>(
 }
 
 impl<'a> ResolvedScene<'a> {
+    /// The used range of an inline or patched external buffer, without its serialized header.
+    pub fn buffer_payload(
+        &self,
+        buffers: &crate::entity_scenes::SceneBufferData<'a>,
+        chunk_index: usize,
+        entity: usize,
+        stable_hash: u64,
+        element_size: usize,
+    ) -> Result<Option<&'a [u8]>> {
+        let chunk = self
+            .chunks
+            .get(chunk_index)
+            .context("chunk index missing")?;
+        let Some(arch) = self
+            .archetypes
+            .get(chunk.header.archetype_index as usize)
+            .context("archetype index missing")?
+        else {
+            return Ok(None);
+        };
+        let Some(slot) = arch.hashes.iter().position(|&hash| hash == stable_hash) else {
+            return Ok(None);
+        };
+        ensure!(
+            arch.types[slot].is_buffer() && !arch.types[slot].is_chunk_component(),
+            "requested scene component is not a per-entity buffer"
+        );
+        ensure!(element_size > 0, "zero-size buffer elements");
+        let bytes = slice_component(chunk, arch, slot, entity)?;
+        let length = usize::try_from(i32::from_le_bytes(
+            bytes
+                .get(8..12)
+                .context("truncated scene buffer header")?
+                .try_into()?,
+        ))?;
+        let offset = usize::try_from(arch.data.layout.offsets[slot])?
+            + entity * usize::from(arch.data.layout.sizeofs[slot]);
+        let patches = &buffers
+            .per_chunk
+            .get(chunk.index)
+            .context("missing scene buffer patches")?
+            .patches;
+        let external = patches
+            .iter()
+            .find(|patch| patch.chunk_offset as usize == offset);
+        let data = if let Some(patch) = external {
+            patch.data
+        } else {
+            bytes.get(16..).context("truncated inline scene buffer")?
+        };
+        let used = length
+            .checked_mul(element_size)
+            .context("scene buffer length overflow")?;
+        Ok(Some(
+            data.get(..used)
+                .context("used scene buffer range exceeds storage")?,
+        ))
+    }
+
     /// Returns only per-entity storage in an admitted archetype. No pointer chasing.
     pub fn component_bytes(
         &self,

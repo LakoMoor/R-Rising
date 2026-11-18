@@ -407,6 +407,20 @@ pub fn create_archetype_data(
     infos: &[TypeInfo],
     special: &SpecialTypes,
 ) -> anyhow::Result<ArchetypeData> {
+    create_archetype_data_for_buffer(types, infos, special, K_CHUNK_BUFFER_SIZE)
+}
+
+/// Computes column placement for one of the pinned serialized chunk geometries.
+pub fn create_archetype_data_for_buffer(
+    types: &[TypeIndex],
+    infos: &[TypeInfo],
+    special: &SpecialTypes,
+    buffer_size: i32,
+) -> anyhow::Result<ArchetypeData> {
+    anyhow::ensure!(
+        matches!(buffer_size, K_CHUNK_BUFFER_SIZE | 65472),
+        "unsupported chunk buffer size {buffer_size}"
+    );
     let count = types.len();
     anyhow::ensure!(count <= i32::MAX as usize, "archetype has too many types");
 
@@ -487,17 +501,18 @@ pub fn create_archetype_data(
         .iter()
         .map(|&s| s as i32)
         .sum();
+    let maximum_entities = buffer_size / 8;
     let mut capacity = if total_size > 0 {
-        K_CHUNK_BUFFER_SIZE / total_size
+        buffer_size / total_size
     } else {
-        K_MAXIMUM_ENTITIES_PER_CHUNK
+        maximum_entities
     };
     loop {
         let mut used = 0i32;
         for &s in &sizeofs[..first_tag as usize] {
             used += align64(s as i32 * capacity);
         }
-        if used <= K_CHUNK_BUFFER_SIZE || capacity <= 0 {
+        if used <= buffer_size || capacity <= 0 {
             break;
         }
         capacity -= 1;
@@ -506,7 +521,7 @@ pub fn create_archetype_data(
         capacity = min_max_capacity;
     }
     anyhow::ensure!(
-        capacity > 0 && capacity <= K_MAXIMUM_ENTITIES_PER_CHUNK,
+        capacity > 0 && capacity <= maximum_entities,
         "chunk capacity {capacity} out of range for an archetype of {count} types"
     );
 

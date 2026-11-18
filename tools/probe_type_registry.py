@@ -567,13 +567,15 @@ def scene_hashes(directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install', type=Path, default=Path('..'))
+    parser.add_argument('--server', action='store_true', help='read a dedicated-server install')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--check', action='store_true', help='check pinned-build identity and scene-derived layout anchors')
     args = parser.parse_args()
     binary = args.install/'GameAssembly.dll'
-    metadata = args.install/'VRising_Data/il2cpp_data/Metadata/global-metadata.dat'
+    data = args.install/('VRisingServer_Data' if args.server else 'VRising_Data')
+    metadata = data/'il2cpp_data/Metadata/global-metadata.dat'
     probe = Probe(binary, metadata)
-    observed, files = scene_hashes(args.install/'VRising_Data/StreamingAssets/EntityScenes')
+    observed, files = scene_hashes(data/'StreamingAssets/EntityScenes')
     matched, unsupported = [], 0
     # Constructed-generic field signatures (native kind 0x15) and explicit layouts
     # are hashed by the generic identity probe; it reproduces the same algorithm.
@@ -635,7 +637,12 @@ def main():
                                'These are offline-derived layout inputs, not a runtime TypeInfo dump; write groups, reference-counting and serialization flags are not reconstructed'],
                   identity_only_count=len(identity_only), identity_only=identity_only, unresolved_scene_hashes=unresolved,
                   matches=sorted(matched,key=lambda item:item['name']))
-    if args.check:
+    if args.check and args.server:
+        if result['binary_sha256'] != '41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7' or result['metadata_sha256'] != '80ec821655b86d5a891c0268e3b10891de810535a099cbed8a45bfc647141bb5':
+            raise ValueError('pinned server build identity changed')
+        if files != 372 or len(observed) != 1390 or len(known) != 1390 or identity_only or unresolved:
+            raise ValueError('pinned server scene layout coverage changed')
+    if args.check and not args.server:
         if result['binary_sha256'] != 'a23f36d5b5b0e393fb77dc0680a9600016173fea6c0590bf2634f732862b0a56' or result['metadata_sha256'] != 'b8f9f76ffb72a0c77079082aac8eb78da839094e9d090e8461b49230e8831271':
             raise ValueError('pinned-build identity changed; anchors are not transferable')
         if len(matched) != EXPECTED_MATCHES or len({row['stable_hash'] for row in matched}) != EXPECTED_MATCHES:
