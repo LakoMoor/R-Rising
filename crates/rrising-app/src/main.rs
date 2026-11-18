@@ -1323,6 +1323,8 @@ fn main() -> Result<()> {
                 "buffer_rows": restored.copied_buffer_rows,
                 "buffer_elements": restored.copied_buffer_elements,
                 "prefab_linked_groups": restored.prefab_linked_groups,
+                "admitted_saved_types": restored.admitted_saved_types,
+                "skipped_saved_types": restored.skipped_saved_types,
                 "cleared_references": restored.cleared_references,
             }))
         } else {

@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 
 use anyhow::{ensure, Context, Result};
-use rrising_ecs::{Entity, EntityComponentStore, SpecialTypes, TypeIndex, TypeManager, TypeSpec};
+use rrising_ecs::{
+    Entity, EntityComponentStore, SpecialTypes, TypeCategory, TypeIndex, TypeManager, TypeSpec,
+};
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -41,6 +43,8 @@ pub struct RestoredWorldProjection {
     pub copied_buffer_elements: usize,
     pub prefab_linked_groups: usize,
     pub cleared_references: usize,
+    pub admitted_saved_types: usize,
+    pub skipped_saved_types: usize,
 }
 
 impl RestoredWorldProjection {
@@ -89,7 +93,7 @@ impl RestoredWorldProjection {
             );
             scalars.insert(
                 component.saved_type_index,
-                (register(hash)?, stride, offsets),
+                (register(hash)?, stride, offsets.to_vec()),
             );
         }
         let mut buffers = FxHashMap::default();
@@ -116,9 +120,88 @@ impl RestoredWorldProjection {
             if hash == LINKED_GROUP {
                 linked_group = Some(ty);
             }
-            buffers.insert(component.saved_type_index, (ty, stride, offsets));
+            buffers.insert(component.saved_type_index, (ty, stride, offsets.to_vec()));
         }
         let linked_group = linked_group.context("missing live linked group type")?;
+        let observed: BTreeSet<_> = snapshot
+            .jobs()
+            .iter()
+            .flat_map(|(_, job)| &job.archetypes)
+            .flat_map(|archetype| &archetype.chunks)
+            .flat_map(|chunk| &chunk.columns)
+            .map(|column| column.saved_type_index)
+            .collect();
+        let blob_types: BTreeSet<_> = snapshot
+            .header()
+            .blobs
+            .iter()
+            .map(|blob| blob.component_stable_type_hash)
+            .collect();
+        let mut registered = FxHashMap::from_iter([
+            (ENTITY_HASH, entity_type),
+            (PREFAB_TAG, prefab_tag),
+            (PREFAB_GUID, prefab_guid),
+        ]);
+        for component in &snapshot.header().persistent_components {
+            let saved_type = component.saved_type_index;
+            let hash = component.stable_type_hash;
+            if !observed.contains(&saved_type)
+                || scalars.contains_key(&saved_type)
+                || buffers.contains_key(&saved_type)
+                || blob_types.contains(&hash)
+            {
+                continue;
+            }
+            let Some(layout) = layouts.get(hash) else {
+                continue;
+            };
+            let category = layout.spec.category;
+            let buffer = category == TypeCategory::BufferData;
+            let excluded = TypeIndex::K_MANAGED_MASK
+                | TypeIndex::K_CLEANUP_MASK
+                | TypeIndex::K_ENABLEABLE_MASK
+                | TypeIndex::K_CHUNK_COMPONENT_MASK;
+            let stride = if buffer {
+                layout.spec.element_size
+            } else {
+                layout.spec.size_in_chunk
+            };
+            if !layout.portable_value
+                || stride <= 0
+                || stride != component.component_size
+                || buffer != saved_type.is_buffer()
+                || saved_type.has_entity_references() == layout.entity_offsets.is_empty()
+                || (layout.spec.flags | saved_type.value as u32) & excluded != 0
+                || !matches!(
+                    category,
+                    TypeCategory::BufferData | TypeCategory::ComponentData
+                )
+            {
+                continue;
+            }
+            let mut offsets: Vec<_> = layout
+                .entity_offsets
+                .iter()
+                .map(|&offset| offset as usize)
+                .collect();
+            offsets.sort_unstable();
+            if offsets.iter().any(|&offset| offset + 8 > stride as usize)
+                || offsets.windows(2).any(|pair| pair[0] + 8 > pair[1])
+            {
+                continue;
+            }
+            let live_type = match registered.entry(hash) {
+                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::hash_map::Entry::Vacant(entry) => *entry.insert(register(hash)?),
+            };
+            let target = if buffer { &mut buffers } else { &mut scalars };
+            target.insert(saved_type, (live_type, stride as usize, offsets));
+        }
+        let admitted_saved_types = observed
+            .iter()
+            .filter(|ty| scalars.contains_key(ty) || buffers.contains_key(ty))
+            .count();
+        let skipped_saved_types = observed.len() - admitted_saved_types;
         let mut store = EntityComponentStore::new(
             i32::try_from(snapshot.entity_count() + 2)?,
             SpecialTypes {
@@ -223,44 +306,53 @@ impl RestoredWorldProjection {
             for archetype in &job.archetypes {
                 for chunk in &archetype.chunks {
                     for column in &chunk.columns {
-                        if let Some(&(live_type, stride, offsets)) =
+                        if let Some((live_type, stride, offsets)) =
                             buffers.get(&column.saved_type_index)
                         {
                             let payloads =
                                 column.buffers().context("expected saved buffer rows")?;
                             let mut data = Vec::new();
                             for (source, payload) in chunk.entities().zip(payloads) {
-                                data.clear();
-                                data.extend_from_slice(payload);
-                                cleared_references +=
-                                    bindings.patch_references(&mut data, stride, offsets)?;
+                                let payload = if offsets.is_empty() {
+                                    payload
+                                } else {
+                                    data.clear();
+                                    data.extend_from_slice(payload);
+                                    cleared_references +=
+                                        bindings.patch_references(&mut data, *stride, offsets)?;
+                                    &data
+                                };
                                 store.set_buffer_payload(
                                     &types,
                                     bindings.target(source).context("missing live entity")?,
-                                    live_type,
-                                    &data,
+                                    *live_type,
+                                    payload,
                                 )?;
                                 copied_buffer_rows += 1;
-                                copied_buffer_elements += data.len() / stride;
+                                copied_buffer_elements += payload.len() / *stride;
                             }
                             continue;
                         }
-                        let Some(&(live_type, stride, offsets)) =
+                        let Some((live_type, stride, offsets)) =
                             scalars.get(&column.saved_type_index)
                         else {
                             continue;
                         };
-                        let mut data = vec![0; stride];
+                        let mut data = vec![0; *stride];
                         for (row, source) in chunk.entities().enumerate() {
-                            data.copy_from_slice(
-                                column.scalar(row).context("missing saved scalar row")?,
-                            );
-                            cleared_references +=
-                                bindings.patch_references(&mut data, stride, offsets)?;
+                            let payload = column.scalar(row).context("missing saved scalar row")?;
+                            let payload = if offsets.is_empty() {
+                                payload
+                            } else {
+                                data.copy_from_slice(payload);
+                                cleared_references +=
+                                    bindings.patch_references(&mut data, *stride, offsets)?;
+                                &data
+                            };
                             store.set_component_bytes(
                                 bindings.target(source).context("missing live entity")?,
-                                live_type,
-                                &data,
+                                *live_type,
+                                payload,
                             )?;
                             copied_scalar_values += 1;
                         }
@@ -282,6 +374,8 @@ impl RestoredWorldProjection {
             copied_buffer_elements,
             prefab_linked_groups,
             cleared_references,
+            admitted_saved_types,
+            skipped_saved_types,
         })
     }
 }

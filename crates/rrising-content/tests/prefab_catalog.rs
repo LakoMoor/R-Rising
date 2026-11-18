@@ -70,11 +70,50 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
             restored.bindings.len(),
             if number == 4 { 315444 } else { 315442 }
         );
-        assert_eq!(
-            restored.copied_scalar_values,
-            if number == 4 { 157 } else { 156 }
-        );
-        assert_eq!(restored.cleared_references, 0);
+        let extended = layouts
+            .get(rrising_content::type_layouts::ENTITY_HASH)
+            .unwrap()
+            .portable_value;
+        if extended {
+            assert_eq!(restored.admitted_saved_types, 263);
+            assert_eq!(
+                restored.skipped_saved_types,
+                if number == 4 { 20 } else { 18 }
+            );
+            assert_eq!(
+                restored.copied_scalar_values,
+                if number == 4 { 1826360 } else { 1826352 }
+            );
+            assert_eq!(restored.copied_buffer_rows, 276642);
+            assert_eq!(
+                restored.copied_buffer_elements,
+                if number == 4 { 794036 } else { 793963 }
+            );
+            assert_eq!(restored.cleared_references, 471190);
+            for (name, owner) in [
+                ("Unity.Transforms.Translation", Entity::new(40534, 2)),
+                ("ProjectM.Velocity", Entity::new(2167, 1)),
+            ] {
+                let component = snapshot.header().persistent_component_named(name).unwrap();
+                let original = snapshot
+                    .entity(owner)
+                    .unwrap()
+                    .scalar(component.saved_type_index)
+                    .unwrap();
+                let current = restored.bindings.target(owner).unwrap();
+                let live_type = restored.types.type_index_of(name).unwrap();
+                assert_eq!(
+                    restored.store.component_bytes(current, live_type)?,
+                    original
+                );
+            }
+        } else {
+            assert_eq!(
+                restored.copied_scalar_values,
+                if number == 4 { 157 } else { 156 }
+            );
+            assert_eq!(restored.cleared_references, 0);
+        }
         let group = restored
             .types
             .type_index_of("Unity.Entities.LinkedEntityGroup")
@@ -153,8 +192,10 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
                 }
             }
         }
-        assert_eq!(restored.copied_buffer_rows, rows);
-        assert_eq!(restored.copied_buffer_elements, elements);
+        if !extended {
+            assert_eq!(restored.copied_buffer_rows, rows);
+            assert_eq!(restored.copied_buffer_elements, elements);
+        }
         assert_eq!((rows, elements), (3153, 142));
         println!("Autosave {number}: {rows} saved buffer rows, {elements} elements");
         let assert_ref = |name, owner, offset, target| -> Result<()> {

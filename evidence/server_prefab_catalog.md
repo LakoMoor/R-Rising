@@ -63,3 +63,25 @@ cargo run --locked -p rrising-app -- \
 
 The report includes an `ecs_projection` summary and still reports
 `world_restored: false`.
+
+A freshly generated server layout report also identifies value types whose
+nested fields have no managed references, native addresses or unknown
+storage. The loader admits observed columns only when their stable hash,
+serialized stride, buffer category and entity-reference flag agree with the
+server layout. It leaves blob-bearing types and types that require managed,
+cleanup, enable-mask or chunk-component handling out of this projection.
+Older reports without this classification still select the six individually
+verified types.
+
+| Original save | Admitted / observed types with columns | Scalar rows | Buffer rows | Buffer elements |
+| --- | ---: | ---: | ---: | ---: |
+| 4 | 263 / 283 | 1,826,360 | 276,642 | 794,036 |
+| 5 | 263 / 281 | 1,826,352 | 276,642 | 793,963 |
+
+Counts are projected values, not counts of implemented component behavior.
+Integration tests compare live translation and velocity bytes along with the
+previously checked references and buffers. The projected map leaves 471,190
+reference occurrences unresolved in each save. They are cleared by the
+inspected loader rule for a missing binding; whether the original would have
+additional bindings has not been established. A full boot and restore,
+including scene entities beyond this prefab projection, remains unverified.

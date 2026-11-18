@@ -32,6 +32,7 @@ pub struct RecoveredType {
     pub name: String,
     pub spec: TypeSpec,
     pub entity_offsets: Vec<i32>,
+    pub portable_value: bool,
 }
 
 /// Storage inputs recovered offline; unknown hashes remain unknown.
@@ -237,6 +238,10 @@ impl TypeLayouts {
             spec.memory_ordering = hex(ecs, "memory_ordering")?;
             spec.stable_type_hash = stable_hash;
             spec.entity_offset_count = i32::try_from(entity_offsets.len())?;
+            let portable_value = ecs
+                .get("portable_value")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             ensure!(
                 by_hash
                     .insert(
@@ -245,7 +250,8 @@ impl TypeLayouts {
                             stable_hash,
                             name: name.to_owned(),
                             spec,
-                            entity_offsets
+                            entity_offsets,
+                            portable_value,
                         }
                     )
                     .is_none(),

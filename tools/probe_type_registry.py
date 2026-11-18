@@ -303,6 +303,22 @@ class Probe:
                     raise Unsupported('generic field contains Entity offsets that are not recovered')
         return offsets
 
+    @functools.lru_cache(None)
+    def portable_value(self, expression):
+        """Exclude process-local addresses, object references and unknown fields."""
+        if expression[0] != 'type':
+            return False
+        row = self.type_rows[expression[1]]
+        name = self.full_name(expression[1])
+        if not row['bitfield'] & 1 or name in ('System.IntPtr', 'System.UIntPtr', 'System.TypedReference'):
+            return False
+        if row['bitfield'] & 2 or name in self.identities.SCALARS:
+            return True
+        try:
+            return all(self.portable_value(field) for _, field, _ in self.identities.fields(expression))
+        except (Unsupported, RecursionError, struct.error):
+            return False
+
     def ecs_layout(self, i, stable):
         row = self.type_rows[i]
         name = self.full_name(i)
@@ -623,6 +639,19 @@ def main():
     identity_only = [dict(name=row['name'], stable_hash=row['stable_hash'], generic_arguments=row['generic_arguments'])
                      for row in identity_matches.values() if int(row['stable_hash'], 16) not in known]
     identity_only.sort(key=lambda row: row['name'])
+    for row in matched:
+        if row['ecs']['managed']:
+            row['ecs']['portable_value'] = False
+            continue
+        try:
+            stable = int(row['stable_hash'], 16)
+            expression = identities.expressions.get(stable)
+            if expression is None:
+                typedef = probe.type_rows[row['metadata_type_index']]
+                expression = identities.expr(probe.native(typedef['byval']))
+            row['ecs']['portable_value'] = probe.portable_value(expression)
+        except (Unsupported, RecursionError, struct.error):
+            row['ecs']['portable_value'] = False
     unresolved = len(observed) - len(known) - len(identity_only)
     result = dict(schema_version=1, evidence_kind='offline-derived-and-scene-hash-matched',
                   binary_sha256=hashlib.sha256(probe.binary).hexdigest(),
