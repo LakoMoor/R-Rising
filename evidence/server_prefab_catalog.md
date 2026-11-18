@@ -37,3 +37,25 @@ remap the scene entities before joining the catalogs or using them for save
 restoration. The test compares group sizes and validates that group entries
 refer to their source scene; it does not compare newly allocated runtime
 handles or restore the game.
+
+The live ECS projection allocates fresh handles for 41,205 prefab roots and
+children and for every persistent job row. It restores scalar columns for
+`ProjectM.Buff`, `ProjectM.EntityOwner`, `ProjectM.EntityInput` and
+`ProjectM.MapCollision` (157 values in save 4 and 156 in save 5). The
+integration test verifies the liveness of every mapped entity and checks
+rewritten fields in ECS storage, including a buff target and an owner that
+points to a scene prefab. Prefab roles and GUIDs live in the ECS; linked
+groups are represented by the runtime catalog. Other archetype members,
+prefab component bodies, gameplay scheduling, and system and buffer state
+are outside this first projection.
+
+To run the projection from the native CLI after generating the layout report:
+
+```sh
+cargo run --locked -p rrising-app -- \
+  --data /path/to/VRisingServer_Data --type-layouts /tmp/rrising-server-layouts.json \
+  --inspect-save /path/to/AutoSave_4.save.gz --restore-projection
+```
+
+The report includes an `ecs_projection` summary and still reports
+`world_restored: false`.

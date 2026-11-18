@@ -9,6 +9,18 @@ pub const REGISTER_PREFAB_HASH: u64 = 0xa965_c72e_229a_11cf;
 pub const REGISTER_PREFAB_EVENT_HASH: u64 = 0x340f_ac1f_a9e0_4679;
 pub const LINKED_ENTITY_GROUP_HASH: u64 = 0xbea7_9ca4_5e4b_e521;
 
+pub const SERVER_PREFAB_SCENES: [(&str, usize); 9] = [
+    ("ad37c0edd53365b40acb48df81e07046", 2023),
+    ("8137c0edd53365b40acb48df81e07046", 1189),
+    ("153b723300728974d8e2bad70c3fd1f2", 3687),
+    ("3429e7b0ff91dfa4db4318bcdb0e63bc", 1558),
+    ("4361b3a547128724892dae4688ec7146", 395),
+    ("b2f35358da120c04c92b9256f40d76ce", 4842),
+    ("295c92b7a799a3443b40e9ef192b5727", 8548),
+    ("5e3be03ad2064bc4a9644c4a1a30af42", 364),
+    ("de0ffb819455f8f4c8eea0748b1012b6", 977),
+];
+
 #[derive(Debug, Default)]
 pub struct ScenePrefabCatalog {
     pub prefabs: Vec<PrefabReference>,
@@ -17,6 +29,26 @@ pub struct ScenePrefabCatalog {
 }
 
 impl ScenePrefabCatalog {
+    pub fn read_server_game_data(
+        data_dir: &std::path::Path,
+        layouts: &TypeLayouts,
+    ) -> Result<Vec<Self>> {
+        let directory = data_dir.join("StreamingAssets/EntityScenes");
+        SERVER_PREFAB_SCENES
+            .iter()
+            .map(|(scene_id, expected)| {
+                let scene = SceneFile::open(&directory.join(format!("{scene_id}.0.entities")))?;
+                let catalog = Self::read(&scene, layouts)
+                    .with_context(|| format!("reading {scene_id} prefab registrations"))?;
+                ensure!(
+                    catalog.unresolved_rows == 0 && catalog.prefabs.len() == *expected,
+                    "unexpected prefab registration counts in {scene_id}"
+                );
+                Ok(catalog)
+            })
+            .collect()
+    }
+
     /// Extracts scene-local handles. Different scenes must be remapped before joining catalogs.
     pub fn read(scene: &SceneFile, layouts: &TypeLayouts) -> Result<Self> {
         let resolved = layouts.resolve_scene(scene)?;

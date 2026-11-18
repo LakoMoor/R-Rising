@@ -37,6 +37,7 @@ struct Options {
     import_web: Option<PathBuf>,
     inspect_scene: Option<PathBuf>,
     inspect_save: Option<PathBuf>,
+    restore_projection: bool,
     scene: Option<PathBuf>,
     type_layouts: Option<PathBuf>,
     /// `--scene-sim N`: run fixed steering/transform frames and draw the World's LocalToWorld.
@@ -66,6 +67,7 @@ fn parse_args() -> Result<Options> {
         import_web: None,
         inspect_scene: None,
         inspect_save: None,
+        restore_projection: false,
         scene: None,
         type_layouts: None,
         scene_sim: None,
@@ -87,6 +89,7 @@ fn parse_args() -> Result<Options> {
             "--height" => opt.height = take()?.parse().context("--height takes a number")?,
             "--inspect-scene" => opt.inspect_scene = Some(PathBuf::from(take()?)),
             "--inspect-save" => opt.inspect_save = Some(PathBuf::from(take()?)),
+            "--restore-projection" => opt.restore_projection = true,
             "--scene" => opt.scene = Some(PathBuf::from(take()?)),
             "--scene-sim" => {
                 opt.scene_sim = Some(take()?.parse().context("--scene-sim takes a frame count")?)
@@ -104,6 +107,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         opt.width > 0 && opt.height > 0,
         "frame dimensions must be positive"
+    );
+    anyhow::ensure!(
+        !opt.restore_projection || (opt.inspect_save.is_some() && opt.type_layouts.is_some()),
+        "--restore-projection requires --inspect-save, --type-layouts and server data via --data"
     );
     anyhow::ensure!(
         opt.scene_sim.is_none() || (opt.scene.is_some() && opt.scene_sim != Some(0)),
@@ -1297,6 +1304,27 @@ fn main() -> Result<()> {
         let world = snapshot.world_data();
         let world_stats = world.stats();
         let systems = snapshot.systems();
+        let projection = if opt.restore_projection {
+            use rrising_content::{
+                prefab_catalog::ScenePrefabCatalog, restore_world::RestoredWorldProjection,
+                type_layouts::TypeLayouts,
+            };
+            let path = opt
+                .type_layouts
+                .as_ref()
+                .context("missing server layout report")?;
+            let layouts = TypeLayouts::from_server_json(&std::fs::read(path)?)?;
+            let catalogs = ScenePrefabCatalog::read_server_game_data(&opt.data, &layouts)?;
+            let restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
+            Some(serde_json::json!({
+                "live_entities": restored.bindings.len() - 1,
+                "prefab_roots": restored.prefabs.len(),
+                "scalar_values": restored.copied_scalar_values,
+                "cleared_references": restored.cleared_references,
+            }))
+        } else {
+            None
+        };
         let linked_entities: usize = header.prefabs.iter().map(|p| p.linked_entities.len()).sum();
         let members: Vec<_> = save
             .members()
@@ -1326,6 +1354,7 @@ fn main() -> Result<()> {
                 "table_bytes": save.table_bytes(), "members": members,
                 "serialization_jobs": serialization_jobs,
                 "indexed_entity_count": snapshot.entity_count(),
+                "ecs_projection": projection,
                 "world_data": {
                     "entity_capacity": world.entity_capacity(),
                     "debug_archetypes": world_stats.archetypes,

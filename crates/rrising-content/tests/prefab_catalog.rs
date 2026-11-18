@@ -2,21 +2,13 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use anyhow::{ensure, Context, Result};
 use rrising_content::{
-    entity_scenes::SceneFile, persistence::PersistentSave, prefab_catalog::ScenePrefabCatalog,
+    entity_scenes::SceneFile,
+    persistence::{PersistentSave, SavedSnapshot},
+    prefab_catalog::{ScenePrefabCatalog, SERVER_PREFAB_SCENES},
+    restore_world::RestoredWorldProjection,
     type_layouts::TypeLayouts,
 };
-
-const SCENES: [(&str, usize); 9] = [
-    ("ad37c0edd53365b40acb48df81e07046", 2023),
-    ("8137c0edd53365b40acb48df81e07046", 1189),
-    ("153b723300728974d8e2bad70c3fd1f2", 3687),
-    ("3429e7b0ff91dfa4db4318bcdb0e63bc", 1558),
-    ("4361b3a547128724892dae4688ec7146", 395),
-    ("b2f35358da120c04c92b9256f40d76ce", 4842),
-    ("295c92b7a799a3443b40e9ef192b5727", 8548),
-    ("5e3be03ad2064bc4a9644c4a1a30af42", 364),
-    ("de0ffb819455f8f4c8eea0748b1012b6", 977),
-];
+use rrising_ecs::Entity;
 
 fn local_path(variable: &str) -> Result<PathBuf> {
     std::env::var_os(variable)
@@ -33,7 +25,8 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
     )?)?)?;
     let saves = local_path("RRISING_SAVE_DIR")?;
     let mut catalog = BTreeMap::new();
-    for (scene_id, expected_count) in SCENES {
+    let mut scene_catalogs = Vec::new();
+    for (scene_id, expected_count) in SERVER_PREFAB_SCENES {
         let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
         let roots = ScenePrefabCatalog::read(&scene, &layouts)
             .with_context(|| format!("building catalog for {scene_id}"))?;
@@ -42,7 +35,7 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
             (expected_count, 0),
             "{scene_id}"
         );
-        for root in roots.prefabs {
+        for root in &roots.prefabs {
             ensure!(
                 catalog
                     .insert(root.prefab_guid, root.linked_entities.len())
@@ -51,12 +44,14 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
                 root.prefab_guid
             );
         }
+        scene_catalogs.push(roots);
     }
     assert_eq!(catalog.len(), 23583);
     for number in [4, 5] {
-        let header =
-            PersistentSave::open(&saves.join(format!("AutoSave_{number}.save.gz")))?.header()?;
-        let expected: BTreeMap<_, _> = header
+        let save = PersistentSave::open(&saves.join(format!("AutoSave_{number}.save.gz")))?;
+        let snapshot = SavedSnapshot::read(&save)?;
+        let expected: BTreeMap<_, _> = snapshot
+            .header()
             .prefabs
             .iter()
             .map(|prefab| (prefab.prefab_guid, prefab.linked_entities.len()))
@@ -68,6 +63,52 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
                 Some(&linked_count),
                 "save {number}, GUID {guid}"
             );
+        }
+        let restored = RestoredWorldProjection::build(&snapshot, &layouts, &scene_catalogs)?;
+        assert_eq!(restored.prefabs.len(), 23583);
+        assert_eq!(
+            restored.bindings.len(),
+            if number == 4 { 315444 } else { 315442 }
+        );
+        assert_eq!(
+            restored.copied_scalar_values,
+            if number == 4 { 157 } else { 156 }
+        );
+        assert_eq!(restored.cleared_references, 0);
+        for source in snapshot.entities() {
+            assert!(restored
+                .store
+                .exists(restored.bindings.target(source).unwrap())?);
+        }
+        for prefab in &restored.prefabs {
+            for &handle in std::iter::once(&prefab.entity).chain(&prefab.linked_entities) {
+                assert!(restored.store.exists(handle)?);
+            }
+        }
+        let assert_ref = |name, owner, offset, target| -> Result<()> {
+            let component = restored.types.type_index_of(name).unwrap();
+            let owner = restored.bindings.target(owner).unwrap();
+            let target = restored.bindings.target(target).unwrap();
+            assert!(restored.store.exists(target)?);
+            let bytes = restored.store.component_bytes(owner, component)?;
+            let offset: usize = offset;
+            assert_eq!(bytes[offset..offset + 4], target.index.to_le_bytes());
+            assert_eq!(bytes[offset + 4..offset + 8], target.version.to_le_bytes());
+            Ok(())
+        };
+        assert_ref(
+            "ProjectM.Buff",
+            Entity::new(152839, 4),
+            8,
+            Entity::new(152830, 4),
+        )?;
+        if number == 4 {
+            assert_ref(
+                "ProjectM.EntityOwner",
+                Entity::new(559509, 3),
+                0,
+                Entity::new(36976, 1),
+            )?;
         }
     }
     Ok(())
