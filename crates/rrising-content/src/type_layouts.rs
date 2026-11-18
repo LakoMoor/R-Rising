@@ -106,11 +106,19 @@ impl TypeLayouts {
             .get("matches")
             .and_then(Value::as_array)
             .context("missing layout matches")?;
+        let server_tags = match report.get("server_tags") {
+            Some(tags) if server => tags.as_array().context("invalid server tags")?.as_slice(),
+            _ => &[],
+        };
         ensure!(
-            rows.len() < rrising_ecs::K_MAX_TYPE_COUNT - 1,
+            rows.len() + server_tags.len() < rrising_ecs::K_MAX_TYPE_COUNT - 1,
             "too many recovered types"
         );
-        for row in rows {
+        for (row, supplemental_tag) in rows
+            .iter()
+            .map(|row| (row, false))
+            .chain(server_tags.iter().map(|row| (row, true)))
+        {
             let name = string(row, "name")?;
             let stable_hash = hex(row, "stable_hash")?;
             let ecs = row.get("ecs").context("missing recovered storage shape")?;
@@ -135,6 +143,15 @@ impl TypeLayouts {
                 "per-entity managed storage shape is unrecovered: {name}"
             );
             let size = integer(ecs, "size_in_chunk")?;
+            if supplemental_tag {
+                ensure!(
+                    category == TypeCategory::ComponentData
+                        && size == 0
+                        && !managed
+                        && !boolean(ecs, "cleanup")?,
+                    "invalid supplemental server tag {name}"
+                );
+            }
             let element_size = integer(ecs, "element_size")?;
             let capacity = if category == TypeCategory::BufferData {
                 integer(ecs, "buffer_capacity")?
@@ -282,6 +299,10 @@ impl TypeLayouts {
     }
     pub fn get(&self, stable_hash: u64) -> Option<&RecoveredType> {
         self.by_hash.get(&stable_hash)
+    }
+
+    pub(crate) fn recovered_types(&self) -> impl Iterator<Item = &RecoveredType> {
+        self.by_hash.values()
     }
 
     pub fn resolve_scene<'a>(&self, scene: &'a SceneFile) -> Result<ResolvedScene<'a>> {

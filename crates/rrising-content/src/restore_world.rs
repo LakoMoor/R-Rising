@@ -19,7 +19,8 @@ const PREFAB_GUID: u64 = 0xb181_3197_8820_0ae1;
 const PREFAB_TAG: u64 = 0x616a_36e3_c0cf_ef8c;
 const LINKED_GROUP: u64 = 0xbea7_9ca4_5e4b_e521;
 const STATIC_INDEX: u64 = 0xdd17_1d94_8ccb_47ea;
-const SIMULATE_HASH: u64 = 0x2d63_24ec_1523_c9e0;
+const SIMULATE: &str = "Unity.Entities.Simulate";
+const DISABLED: &str = "Unity.Entities.Disabled";
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -53,7 +54,10 @@ pub struct RestoredWorldProjection {
     pub missing_references: MissingReferences,
     pub admitted_saved_types: usize,
     pub skipped_saved_types: usize,
+    pub admitted_saved_tag_types: usize,
+    pub skipped_saved_tag_types: usize,
     pub initialized_simulate_rows: usize,
+    pub restored_disabled_rows: usize,
 }
 
 #[derive(Debug, Default)]
@@ -206,29 +210,62 @@ impl RestoredWorldProjection {
             (PREFAB_TAG, prefab_tag),
             (PREFAB_GUID, prefab_guid),
         ]);
-        // Simulate is carried by the archetype; there is no persistent value column.
-        let mut simulate = None;
-        if let Some((saved, layout)) = snapshot
-            .header()
-            .required_components
+        // Tags are carried by archetype declarations and have no per-row value column.
+        let observed_tags: BTreeSet<_> = snapshot
+            .jobs()
             .iter()
-            .find(|component| component.full_name == "Unity.Entities.Simulate")
-            .zip(layouts.get(SIMULATE_HASH))
-        {
+            .flat_map(|(_, job)| &job.archetypes)
+            .flat_map(|archetype| archetype.types.iter().copied())
+            .filter(|ty| ty.is_zero_sized())
+            .collect();
+        let allowed_tag_flags = TypeIndex::K_ZERO_SIZED_MASK
+            | TypeIndex::K_HAS_ENTITY_REFERENCES_MASK
+            | TypeIndex::K_ENABLEABLE_MASK
+            | TypeIndex::K_IEQUATABLE_MASK;
+        let mut tag_layouts = FxHashMap::default();
+        for layout in layouts.recovered_types() {
+            if layout.spec.category != TypeCategory::ComponentData
+                || layout.spec.size_in_chunk != 0
+                || !layout.entity_offsets.is_empty()
+                || layout.spec.flags & !allowed_tag_flags != 0
+            {
+                continue;
+            }
             ensure!(
-                saved.saved_type_index.is_enableable()
-                    && saved.saved_type_index.is_zero_sized()
-                    && layout.spec.size_in_chunk == 0
-                    && layout.spec.name == saved.full_name,
-                "saved and server layouts disagree for Simulate"
+                tag_layouts.insert(layout.name.as_str(), layout).is_none(),
+                "ambiguous server tag layout for {}",
+                layout.name
             );
-            let live_type = register(SIMULATE_HASH)?;
-            ensure!(
-                live_type.is_enableable() && live_type.is_zero_sized(),
-                "invalid live Simulate type"
-            );
-            registered.insert(SIMULATE_HASH, live_type);
-            simulate = Some((saved.saved_type_index, live_type));
+        }
+        let mut tags = FxHashMap::default();
+        let mut simulate = None;
+        let mut disabled = None;
+        for component in &snapshot.header().required_components {
+            let saved_type = component.saved_type_index;
+            let name = component.full_name.as_str();
+            if !observed_tags.contains(&saved_type)
+                || (saved_type.is_enableable() && name != SIMULATE)
+            {
+                continue;
+            }
+            let Some(layout) = tag_layouts.get(name) else {
+                continue;
+            };
+            if saved_type.flags() != layout.spec.flags {
+                continue;
+            }
+            let live_type = match registered.entry(layout.stable_hash) {
+                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    *entry.insert(register(layout.stable_hash)?)
+                }
+            };
+            tags.insert(saved_type, live_type);
+            match name {
+                SIMULATE => simulate = Some(saved_type),
+                DISABLED => disabled = Some((saved_type, live_type)),
+                _ => {}
+            }
         }
         if let Some((index, translation, rotation)) = placement_types {
             registered.extend([
@@ -336,6 +373,7 @@ impl RestoredWorldProjection {
             SpecialTypes {
                 entity_type,
                 prefab: prefab_tag,
+                disabled: disabled.map_or(SpecialTypes::UNSET, |(_, live)| live),
                 ..Default::default()
             },
         )?;
@@ -404,11 +442,16 @@ impl RestoredWorldProjection {
         }
         let mut fresh = Vec::with_capacity(snapshot.entity_count());
         let mut initialized_simulate_rows = 0;
+        let mut restored_disabled_rows = 0;
         for (_, job) in snapshot.jobs() {
             for archetype in &job.archetypes {
-                let simulate_type = simulate
-                    .filter(|(saved, _)| archetype.types.contains(saved))
-                    .map(|(_, live)| live);
+                let projected_tags: Vec<_> = archetype
+                    .types
+                    .iter()
+                    .filter_map(|ty| tags.get(ty).copied())
+                    .collect();
+                let has_simulate = simulate.is_some_and(|ty| archetype.types.contains(&ty));
+                let is_disabled = disabled.is_some_and(|(ty, _)| archetype.types.contains(&ty));
                 for chunk in &archetype.chunks {
                     let mut projected: Vec<_> = chunk
                         .columns
@@ -420,12 +463,16 @@ impl RestoredWorldProjection {
                                 .map(|layout| layout.0)
                         })
                         .collect();
-                    if let Some(ty) = simulate_type {
-                        projected.push(ty);
-                        initialized_simulate_rows += chunk.entities().len();
+                    projected.extend(&projected_tags);
+                    let row_count = chunk.entities().len();
+                    if has_simulate {
+                        initialized_simulate_rows += row_count;
+                    }
+                    if is_disabled {
+                        restored_disabled_rows += row_count;
                     }
                     let arch = store.get_or_create_archetype(&types, &projected)?;
-                    fresh.extend(store.create_entities(arch, chunk.entities().len())?);
+                    fresh.extend(store.create_entities(arch, row_count)?);
                 }
             }
         }
@@ -639,7 +686,10 @@ impl RestoredWorldProjection {
             missing_references,
             admitted_saved_types,
             skipped_saved_types,
+            admitted_saved_tag_types: tags.len(),
+            skipped_saved_tag_types: observed_tags.len() - tags.len(),
             initialized_simulate_rows,
+            restored_disabled_rows,
         })
     }
 }

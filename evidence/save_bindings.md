@@ -23,6 +23,33 @@ test checks the enabled bit on all 274,238 and 274,236 corresponding Rust
 entities. This reproduces the allocation default. Later changes made by
 the original system schedule have yet to be compared.
 
+## Structural tags and default queries
+
+The saved job archetypes also specify 48 ordinary zero-sized component
+types. This includes `Unity.Entities.Disabled` (saved index `0x400212e8`,
+server stable hash `0x9225a4b002d710ea`). Rust resolves these names against
+the pinned server layout and requires the saved flag bits to agree. The
+server probe now emits 349 supplemental layouts for zero-sized components
+absent from the scene tables. The 1,390 scene-hash matches are unchanged.
+Reports generated before the supplemental layouts existed can still be
+read, with unrecovered types counted as skipped.
+
+The server's `EntityQueryManager.IsMatchingArchetype` tests the Disabled
+archetype bit at RVA `0x91b2a9d` and rejects the archetype when the matching
+query option is clear (`0x91b2aa6`). The integration test checks each
+restored Disabled entity against its source archetype and compares the
+row count for each of the 49 restored tag types against the autosave.
+
+| Save | Rows with Disabled | Default Simulate query | Simulate query including disabled |
+| --- | ---: | ---: | ---: |
+| AutoSave_4 | 262,167 | 12,071 | 274,238 |
+| AutoSave_5 | 262,167 | 12,069 | 274,236 |
+
+Six other zero-sized identities in the job archetypes are shared components.
+Their shared values and chunk grouping are still unmeasured in the Rust
+projection. Regenerate the server report with
+`python3 tools/probe_type_registry.py --install /path/to/server --server --check --output /tmp/rrising-server-layouts.json`.
+
 The same routine looks up prefab roots by the exact signed GUID
 (`0x7f0fa5e`). It maps the root first. When the current and saved linked
 groups have the same length, their entries pair by ordinal starting at 1

@@ -8,7 +8,7 @@ use rrising_content::{
     restore_world::RestoredWorldProjection,
     type_layouts::TypeLayouts,
 };
-use rrising_ecs::Entity;
+use rrising_ecs::{ComponentType, Entity, EntityQuery};
 
 fn local_path(variable: &str) -> Result<PathBuf> {
     std::env::var_os(variable)
@@ -65,6 +65,83 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
             );
         }
         let restored = RestoredWorldProjection::build(&snapshot, &layouts, &scene_catalogs)?;
+        let disabled_name = "Unity.Entities.Disabled";
+        let disabled = restored.types.type_index_of(disabled_name);
+        assert_eq!(
+            disabled.is_some(),
+            layouts.get(0x9225_a4b0_02d7_10ea).is_some()
+        );
+        if let Some(disabled) = disabled {
+            let saved_disabled = snapshot
+                .header()
+                .required_components
+                .iter()
+                .find(|component| component.full_name == disabled_name)
+                .unwrap()
+                .saved_type_index;
+            assert_eq!(saved_disabled.value, 0x4002_12e8);
+            assert!(snapshot
+                .header()
+                .persistent_component_named(disabled_name)
+                .is_none());
+            for (_, job) in snapshot.jobs() {
+                for archetype in &job.archetypes {
+                    let expected = archetype.types.contains(&saved_disabled);
+                    for source in archetype.chunks.iter().flat_map(|chunk| chunk.entities()) {
+                        let target = restored.bindings.target(source).unwrap();
+                        assert_eq!(
+                            restored
+                                .store
+                                .try_component_bytes(target, disabled)?
+                                .is_some(),
+                            expected
+                        );
+                    }
+                }
+            }
+            assert_eq!(restored.restored_disabled_rows, 262167);
+            assert_eq!(restored.admitted_saved_tag_types, 49);
+            assert_eq!(restored.skipped_saved_tag_types, 6);
+            let mut tag_counts = BTreeMap::new();
+            for (_, job) in snapshot.jobs() {
+                for archetype in &job.archetypes {
+                    let rows: usize = archetype
+                        .chunks
+                        .iter()
+                        .map(|chunk| chunk.entities().len())
+                        .sum();
+                    for ty in archetype.types.iter().filter(|ty| ty.is_zero_sized()) {
+                        *tag_counts.entry(*ty).or_insert(0) += rows;
+                    }
+                }
+            }
+            let mut checked_tags = 0;
+            for component in &snapshot.header().required_components {
+                let Some(&expected) = tag_counts.get(&component.saved_type_index) else {
+                    continue;
+                };
+                let Some(ty) = restored.types.type_index_of(&component.full_name) else {
+                    continue;
+                };
+                let query = EntityQuery {
+                    all: vec![ty],
+                    include_disabled: true,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    restored.store.query_entity_count(&query)?,
+                    expected,
+                    "{}",
+                    component.full_name
+                );
+                checked_tags += 1;
+            }
+            assert_eq!(checked_tags, 49);
+            let mut disabled_query = EntityQuery::new(&[ComponentType::read_only(disabled)]);
+            assert_eq!(restored.store.query_entity_count(&disabled_query)?, 0);
+            disabled_query.include_disabled = true;
+            assert_eq!(restored.store.query_entity_count(&disabled_query)?, 262167);
+        }
         let has_simulate_layout = layouts.get(0x2d63_24ec_1523_c9e0).is_some();
         let simulate = restored.types.type_index_of("Unity.Entities.Simulate");
         assert_eq!(simulate.is_some(), has_simulate_layout);
@@ -91,6 +168,18 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
                 }
             }
             assert_eq!(restored.initialized_simulate_rows, snapshot.entity_count());
+            if disabled.is_some() {
+                let mut simulate_query = EntityQuery::new(&[ComponentType::read_only(simulate)]);
+                assert_eq!(
+                    restored.store.query_entity_count(&simulate_query)?,
+                    snapshot.entity_count() - 262167
+                );
+                simulate_query.include_disabled = true;
+                assert_eq!(
+                    restored.store.query_entity_count(&simulate_query)?,
+                    snapshot.entity_count()
+                );
+            }
         } else {
             assert_eq!(restored.initialized_simulate_rows, 0);
         }
