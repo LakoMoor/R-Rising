@@ -45,6 +45,8 @@ pub struct RestoredWorldProjection {
     pub copied_buffer_elements: usize,
     pub prefab_linked_groups: usize,
     pub placed_mega_statics: usize,
+    pub mega_static_template_roots: usize,
+    pub mega_static_template_values: usize,
     pub cleared_references: usize,
     pub missing_references: MissingReferences,
     pub admitted_saved_types: usize,
@@ -192,6 +194,16 @@ impl RestoredWorldProjection {
                 (ROTATION_HASH, rotation),
             ]);
         }
+        for (saved_type, (live_type, _, _)) in scalars.iter().chain(&buffers) {
+            let hash = snapshot
+                .header()
+                .persistent_components
+                .iter()
+                .find(|component| component.saved_type_index == *saved_type)
+                .context("missing admitted saved component")?
+                .stable_type_hash;
+            registered.insert(hash, *live_type);
+        }
         for component in &snapshot.header().persistent_components {
             let saved_type = component.saved_type_index;
             let hash = component.stable_type_hash;
@@ -252,6 +264,30 @@ impl RestoredWorldProjection {
             .filter(|ty| scalars.contains_key(ty) || buffers.contains_key(ty))
             .count();
         let skipped_saved_types = observed.len() - admitted_saved_types;
+        let mut instance_templates = FxHashMap::default();
+        if placement.is_some() {
+            for catalog in catalogs {
+                for (&guid, values) in &catalog.instance_templates {
+                    let mut registered_values = Vec::new();
+                    for value in values {
+                        if blob_types.contains(&value.stable_hash) {
+                            continue;
+                        }
+                        let live_type = match registered.entry(value.stable_hash) {
+                            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                            std::collections::hash_map::Entry::Vacant(entry) => {
+                                *entry.insert(register(value.stable_hash)?)
+                            }
+                        };
+                        registered_values.push((live_type, value));
+                    }
+                    ensure!(
+                        instance_templates.insert(guid, registered_values).is_none(),
+                        "duplicate MegaStatic template"
+                    );
+                }
+            }
+        }
         let mut store = EntityComponentStore::new(
             i32::try_from(snapshot.entity_count() + 2)?,
             SpecialTypes {
@@ -349,13 +385,25 @@ impl RestoredWorldProjection {
             bindings.issues().first()
         );
         let mut placed_mega_statics = 0;
+        let mut mega_static_template_values = 0;
         if let (Some((plan, terrain)), Some((index, translation, rotation))) =
             (placement, placement_types)
         {
-            let arch = store
+            let fallback_arch = store
                 .get_or_create_archetype(&types, &[index, prefab_guid, translation, rotation])?;
-            let instances = store.create_entities(arch, plan.entries.len())?;
-            for (entry, instance) in plan.entries.iter().zip(instances) {
+            let mut template_archetypes = FxHashMap::default();
+            for (&guid, values) in &instance_templates {
+                let mut components = vec![index, prefab_guid, translation, rotation];
+                components.extend(values.iter().map(|(ty, _)| *ty));
+                template_archetypes
+                    .insert(guid, store.get_or_create_archetype(&types, &components)?);
+            }
+            for entry in &plan.entries {
+                let arch = template_archetypes
+                    .get(&entry.prefab_guid)
+                    .copied()
+                    .unwrap_or(fallback_arch);
+                let instance = store.create_entity(arch)?;
                 ensure!(
                     bindings.target(entry.saved_prefab_root).is_some()
                         && bindings.target(entry.saved_manager).is_some(),
@@ -372,6 +420,16 @@ impl RestoredWorldProjection {
                     prefab_guid,
                     &entry.prefab_guid.to_le_bytes(),
                 )?;
+                if let Some(values) = instance_templates.get(&entry.prefab_guid) {
+                    for (ty, value) in values {
+                        if value.is_buffer {
+                            store.set_buffer_payload(&types, instance, *ty, &value.bytes)?;
+                        } else {
+                            store.set_component_bytes(instance, *ty, &value.bytes)?;
+                        }
+                        mega_static_template_values += 1;
+                    }
+                }
                 store.set_component_bytes(
                     instance,
                     translation,
@@ -519,6 +577,8 @@ impl RestoredWorldProjection {
             copied_buffer_elements,
             prefab_linked_groups,
             placed_mega_statics,
+            mega_static_template_roots: instance_templates.len(),
+            mega_static_template_values,
             cleared_references,
             missing_references,
             admitted_saved_types,

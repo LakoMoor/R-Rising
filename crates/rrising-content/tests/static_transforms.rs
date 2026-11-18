@@ -1,5 +1,8 @@
 use rrising_ecs::{Entity, Hash128};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use rrising_content::{
@@ -23,7 +26,6 @@ fn original_static_transform_rows() -> Result<()> {
         TypeLayouts::from_server_json(&std::fs::read(env_path("RRISING_SERVER_LAYOUT_REPORT")?)?)?;
     let data = env_path("VRISING_SERVER_DATA")?;
     let catalog = StaticTransformCatalog::read_server(&data, &layouts)?;
-    let prefabs = ScenePrefabCatalog::read_server_game_data(&data, &layouts)?;
     assert_eq!(
         (
             catalog.chunk_count(),
@@ -54,10 +56,26 @@ fn original_static_transform_rows() -> Result<()> {
         )?;
         let snapshot = SavedSnapshot::read(&save)?;
         let plan = MegaStaticRestorePlan::read(&snapshot)?;
+        let requested: BTreeSet<_> = plan.entries.iter().map(|entry| entry.prefab_guid).collect();
+        let prefabs = ScenePrefabCatalog::read_server_game_data_for(&data, &layouts, &requested)?;
+        let templates: BTreeMap<_, _> = prefabs
+            .iter()
+            .flat_map(|catalog| &catalog.instance_templates)
+            .map(|(&guid, values)| (guid, values))
+            .collect();
+        let blob_types: BTreeSet<_> = snapshot
+            .header()
+            .blobs
+            .iter()
+            .map(|blob| blob.component_stable_type_hash)
+            .collect();
+        assert_eq!(templates.len(), requested.len());
         let restored = RestoredWorldProjection::build_with_terrain(
             &snapshot, &layouts, &prefabs, &plan, &catalog,
         )?;
         assert_eq!(restored.placed_mega_statics, 235589);
+        assert_eq!(restored.mega_static_template_roots, 1182);
+        assert_eq!(restored.mega_static_template_values, 4517725);
         assert_eq!(
             restored.bindings.len() - 1,
             if number == 4 { 551032 } else { 551030 }
@@ -73,6 +91,8 @@ fn original_static_transform_rows() -> Result<()> {
         let instance_type = type_of("ProjectM.MegaStaticInstanceBuffer");
         let prefab_guid = type_of("Stunlock.Core.PrefabGUID");
         let mut rotations = BTreeMap::new();
+        let mut copied = 0;
+        let mut copied_buffers = 0;
         assert_eq!(plan.entries.len(), 235589);
         for entry in &plan.entries {
             let transform = catalog
@@ -124,6 +144,20 @@ fn original_static_transform_rows() -> Result<()> {
             assert!((1.0 - dot.abs()).abs() < 1e-5);
             let entity = restored.bindings.target(entry.saved_instance).unwrap();
             assert!(restored.store.exists(entity)?);
+            for value in templates[&entry.prefab_guid] {
+                if blob_types.contains(&value.stable_hash) {
+                    continue;
+                }
+                let ty = type_of(&layouts.get(value.stable_hash).unwrap().name);
+                let actual = if value.is_buffer {
+                    copied_buffers += 1;
+                    restored.store.buffer_payload(&restored.types, entity, ty)?
+                } else {
+                    restored.store.component_bytes(entity, ty)?
+                };
+                assert_eq!(actual, value.bytes);
+                copied += 1;
+            }
             for (ty, packed) in [
                 (
                     static_index,
@@ -160,6 +194,8 @@ fn original_static_transform_rows() -> Result<()> {
             rotations,
             BTreeMap::from([(0, 143043), (90, 23792), (180, 22124), (270, 46630)])
         );
+        assert_eq!(copied, restored.mega_static_template_values);
+        assert!(copied_buffers > 0);
     }
     Ok(())
 }

@@ -70,3 +70,20 @@ before patching components, resolving 471,178 additional occurrences in
 each save. Only the 12 stale occurrences still clear. Tests read back all
 instance components and the referencing manager buffers. This stage does
 not copy full prefab archetypes or execute their behaviors.
+
+Original `MegaStaticInstantiationSystem.InstantiatePrefab` (RVA `0x7f83a80`)
+calls `EntityManager.Instantiate` at call site `0x7f83dcc`. The port now
+reads baked root rows for the 1,182 GUIDs requested by the placement plan,
+builds the projected archetype for each GUID, and copies its supported
+scalar values and buffers. Placement-specific transforms and the static
+index are written separately.
+
+With the extended server layout report, both retained autosaves copy
+4,517,725 additional component values from the prefab roots into the
+235,589 placed instances. The test compares every copied byte and keeps
+the prior checks of restored instance references. Eligibility excludes
+pointer-bearing values, types with entity or saved blob references,
+managed/shared/chunk components, tags, cleanup and enable-mask state,
+network state, and the prefab registration records themselves. Prefab
+children and intra-prefab reference rewriting are still to be ported for
+these instantiated copies.
