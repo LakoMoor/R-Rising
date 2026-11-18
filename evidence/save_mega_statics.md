@@ -87,3 +87,23 @@ managed/shared/chunk components, tags, cleanup and enable-mask state,
 network state, and the prefab registration records themselves. Prefab
 children and intra-prefab reference rewriting are still to be ported for
 these instantiated copies.
+
+The two captured saves use 1,182 MegaStatic prefab roots, and none has a
+linked child. This was checked against the actual scene catalogs for both
+captures; other server prefabs can have linked groups. This means the
+MegaStatic restore does not need to manufacture child entities for these
+saves. Native clone paths are `InstantiateEntitiesOne` at RVA `0x907b8a0`
+and `InstantiateEntitiesGroup` at `0x907bc10`.
+
+The root-copy pass now admits layout-validated reference fields when all
+targets in the value are null or the source root. Null remains null; a
+self-reference is scheduled to become the newly allocated root with its
+live version. Fields naming any other entity keep the value out of this
+projection. The two original saves exercise the null case and have no
+non-null self-reference patches. An isolated test checks self references
+in buffer elements and rejection of stale or foreign handles.
+
+The result on each original autosave is 4,753,277 copied component values,
+235,552 more than the pointer-free and reference-free pass. All copied
+values are compared after ECS installation. The 12 stale references
+reported by the save projection are unchanged.

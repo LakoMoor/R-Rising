@@ -58,6 +58,19 @@ fn original_static_transform_rows() -> Result<()> {
         let plan = MegaStaticRestorePlan::read(&snapshot)?;
         let requested: BTreeSet<_> = plan.entries.iter().map(|entry| entry.prefab_guid).collect();
         let prefabs = ScenePrefabCatalog::read_server_game_data_for(&data, &layouts, &requested)?;
+        let groups: BTreeMap<_, _> = prefabs
+            .iter()
+            .flat_map(|catalog| &catalog.prefabs)
+            .filter(|prefab| requested.contains(&prefab.prefab_guid))
+            .map(|prefab| {
+                (
+                    prefab.prefab_guid,
+                    prefab.linked_entities.len().saturating_sub(1),
+                )
+            })
+            .collect();
+        assert_eq!(groups.len(), 1182);
+        assert!(groups.values().all(|&children| children == 0));
         let templates: BTreeMap<_, _> = prefabs
             .iter()
             .flat_map(|catalog| &catalog.instance_templates)
@@ -75,7 +88,8 @@ fn original_static_transform_rows() -> Result<()> {
         )?;
         assert_eq!(restored.placed_mega_statics, 235589);
         assert_eq!(restored.mega_static_template_roots, 1182);
-        assert_eq!(restored.mega_static_template_values, 4517725);
+        assert_eq!(restored.mega_static_template_values, 4753277);
+        assert_eq!(restored.mega_static_template_self_references, 0);
         assert_eq!(
             restored.bindings.len() - 1,
             if number == 4 { 551032 } else { 551030 }

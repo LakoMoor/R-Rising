@@ -47,6 +47,7 @@ pub struct RestoredWorldProjection {
     pub placed_mega_statics: usize,
     pub mega_static_template_roots: usize,
     pub mega_static_template_values: usize,
+    pub mega_static_template_self_references: usize,
     pub cleared_references: usize,
     pub missing_references: MissingReferences,
     pub admitted_saved_types: usize,
@@ -386,6 +387,7 @@ impl RestoredWorldProjection {
         );
         let mut placed_mega_statics = 0;
         let mut mega_static_template_values = 0;
+        let mut mega_static_template_self_references = 0;
         if let (Some((plan, terrain)), Some((index, translation, rotation))) =
             (placement, placement_types)
         {
@@ -398,6 +400,7 @@ impl RestoredWorldProjection {
                 template_archetypes
                     .insert(guid, store.get_or_create_archetype(&types, &components)?);
             }
+            let mut patched = Vec::new();
             for entry in &plan.entries {
                 let arch = template_archetypes
                     .get(&entry.prefab_guid)
@@ -422,10 +425,24 @@ impl RestoredWorldProjection {
                 )?;
                 if let Some(values) = instance_templates.get(&entry.prefab_guid) {
                     for (ty, value) in values {
-                        if value.is_buffer {
-                            store.set_buffer_payload(&types, instance, *ty, &value.bytes)?;
+                        let bytes = if value.self_reference_offsets.is_empty() {
+                            value.bytes.as_slice()
                         } else {
-                            store.set_component_bytes(instance, *ty, &value.bytes)?;
+                            patched.clear();
+                            patched.extend_from_slice(&value.bytes);
+                            for &offset in &value.self_reference_offsets {
+                                patched[offset..offset + 4]
+                                    .copy_from_slice(&instance.index.to_le_bytes());
+                                patched[offset + 4..offset + 8]
+                                    .copy_from_slice(&instance.version.to_le_bytes());
+                                mega_static_template_self_references += 1;
+                            }
+                            &patched
+                        };
+                        if value.is_buffer {
+                            store.set_buffer_payload(&types, instance, *ty, bytes)?;
+                        } else {
+                            store.set_component_bytes(instance, *ty, bytes)?;
                         }
                         mega_static_template_values += 1;
                     }
@@ -579,6 +596,7 @@ impl RestoredWorldProjection {
             placed_mega_statics,
             mega_static_template_roots: instance_templates.len(),
             mega_static_template_values,
+            mega_static_template_self_references,
             cleared_references,
             missing_references,
             admitted_saved_types,

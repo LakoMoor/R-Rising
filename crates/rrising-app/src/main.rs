@@ -1358,6 +1358,7 @@ fn main() -> Result<()> {
                     "placed_instances": restored.placed_mega_statics,
                     "template_roots": restored.mega_static_template_roots,
                     "template_values_copied": restored.mega_static_template_values,
+                    "template_self_references": restored.mega_static_template_self_references,
                     "vacant_slots": mega_statics.vacant_slots,
                     "prefab_guids": mega_statics.distinct_prefab_guids,
                     "baked_transform_matches": baked_matches,

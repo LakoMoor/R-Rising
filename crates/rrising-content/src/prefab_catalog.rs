@@ -42,6 +42,7 @@ pub struct PrefabTemplateValue {
     pub stable_hash: u64,
     pub is_buffer: bool,
     pub bytes: Vec<u8>,
+    pub self_reference_offsets: Vec<usize>,
 }
 
 impl ScenePrefabCatalog {
@@ -191,7 +192,6 @@ impl ScenePrefabCatalog {
                     .get(stable_hash)
                     .context("missing prefab component layout")?;
                 if !layout.portable_value
-                    || !layout.entity_offsets.is_empty()
                     || layout.name.starts_with("ProjectM.Network.")
                     || ty.is_chunk_component()
                     || ty.is_zero_sized()
@@ -218,10 +218,21 @@ impl ScenePrefabCatalog {
                     resolved.component_bytes(chunk, row, stable_hash)?
                 }
                 .context("selected prefab component bytes missing")?;
+                let stride = usize::try_from(if ty.is_buffer() {
+                    layout.spec.element_size
+                } else {
+                    layout.spec.size_in_chunk
+                })?;
+                let Some(self_reference_offsets) =
+                    root_reference_offsets(bytes, stride, &layout.entity_offsets, prefab.entity)?
+                else {
+                    continue;
+                };
                 template.push(PrefabTemplateValue {
                     stable_hash,
                     is_buffer: ty.is_buffer(),
                     bytes: bytes.to_vec(),
+                    self_reference_offsets,
                 });
             }
             ensure!(
@@ -246,4 +257,56 @@ fn read_entity(bytes: &[u8]) -> Result<Entity> {
         i32::from_le_bytes(bytes[..4].try_into()?),
         i32::from_le_bytes(bytes[4..].try_into()?),
     ))
+}
+
+fn root_reference_offsets(
+    bytes: &[u8],
+    stride: usize,
+    offsets: &[i32],
+    root: Entity,
+) -> Result<Option<Vec<usize>>> {
+    ensure!(
+        stride > 0 && bytes.len().is_multiple_of(stride),
+        "invalid prefab component stride"
+    );
+    let mut patches = Vec::new();
+    for (index, element) in bytes.chunks_exact(stride).enumerate() {
+        for &offset in offsets {
+            let offset = usize::try_from(offset)?;
+            let source = read_entity(
+                element
+                    .get(offset..offset + 8)
+                    .context("prefab entity field outside element")?,
+            )?;
+            if source == Entity::NULL {
+                continue;
+            }
+            if source != root {
+                return Ok(None);
+            }
+            patches.push(index * stride + offset);
+        }
+    }
+    Ok(Some(patches))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefab_root_reference_patch_plan_checks_all_buffer_elements_and_versions() -> Result<()> {
+        let root = Entity::new(114, 2);
+        let mut buffer = [0; 24];
+        buffer[16..20].copy_from_slice(&root.index.to_le_bytes());
+        buffer[20..24].copy_from_slice(&root.version.to_le_bytes());
+        assert_eq!(
+            root_reference_offsets(&buffer, 12, &[4], root)?,
+            Some(vec![16])
+        );
+        buffer[20..24].copy_from_slice(&1i32.to_le_bytes());
+        assert_eq!(root_reference_offsets(&buffer, 12, &[4], root)?, None);
+        assert!(root_reference_offsets(&buffer, 12, &[5], root).is_err());
+        Ok(())
+    }
 }
