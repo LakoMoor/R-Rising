@@ -65,6 +65,35 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
             );
         }
         let restored = RestoredWorldProjection::build(&snapshot, &layouts, &scene_catalogs)?;
+        let has_simulate_layout = layouts.get(0x2d63_24ec_1523_c9e0).is_some();
+        let simulate = restored.types.type_index_of("Unity.Entities.Simulate");
+        assert_eq!(simulate.is_some(), has_simulate_layout);
+        if let Some(simulate) = simulate {
+            let saved_simulate = snapshot
+                .header()
+                .required_components
+                .iter()
+                .find(|component| component.full_name == "Unity.Entities.Simulate")
+                .unwrap()
+                .saved_type_index;
+            assert_eq!(saved_simulate.value, 0x4102_12eb);
+            assert!(snapshot
+                .header()
+                .persistent_component_named("Unity.Entities.Simulate")
+                .is_none());
+            for (_, job) in snapshot.jobs() {
+                for archetype in &job.archetypes {
+                    assert!(archetype.types.contains(&saved_simulate));
+                    for source in archetype.chunks.iter().flat_map(|chunk| chunk.entities()) {
+                        let target = restored.bindings.target(source).unwrap();
+                        assert!(restored.store.component_enabled(target, simulate)?);
+                    }
+                }
+            }
+            assert_eq!(restored.initialized_simulate_rows, snapshot.entity_count());
+        } else {
+            assert_eq!(restored.initialized_simulate_rows, 0);
+        }
         assert_eq!(restored.prefabs.len(), 23583);
         assert_eq!(
             restored.bindings.len(),

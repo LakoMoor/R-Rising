@@ -12,7 +12,7 @@ original assets, executables or decompiled sources should be distributed.
 | Math | Broad API coverage | Scene transforms and transform system | 23 scalar and 8 matrix/quaternion replay targets, 2,048 inputs each; normalization uses a sqrt stub | Remaining overloads, SIMD approximations and transcendental rounding deviations in PORT.md |
 | ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Scene Worlds, deterministic schedule and TransformSystem; `--scene-sim` feeds viewer/export | Store tests derived from decompiled bodies; native replay for pure getters, comparisons and change versions; 372 real-scene transform scenarios | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, original system scheduling |
 | Rendering | Basic lit meshes, sub-meshes and cutout pipeline | Original-scene viewer, optional transform-system output | GPU regressions; native/WebGPU screenshots; stored-vs-simulated Rust image comparison | Animation, HDRP, transparent materials, terrain blending and original-game visual parity |
-| Saves | Version-2 container, format-7 header, archetypes, chunks, entity handles and component columns | `--inspect-save` without GPU startup | Two actual CrossOver autosaves; 14 member fingerprints, every header field and 8 job boundaries match | World version table and system envelope decoded; typed values, shared and omitted values, entity remapping and live restoration remain |
+| Saves | Container, complete header, jobs and partial ECS restoration | `--inspect-save --restore-projection` without GPU startup | Two CrossOver autosaves, all eight jobs across the two saves, default-enabled `Unity.Entities.Simulate` checked on all 274,238 and 274,236 job rows | Remaining component types and values, full world and system restoration, original-runtime replay |
 | Gameplay / HUD / physics / sound / networking | Not implemented | None | No end-to-end parity cases | First original-scene playable slice |
 | Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, physical mobile-device verification, game world |
 | Performance | Rust-only absolute timings (see Performance measurement) | None | No comparable original-runtime benchmark | Same-scene release measurements on both runtimes |
@@ -22,7 +22,7 @@ original assets, executables or decompiled sources should be distributed.
 `progress.json` is reproducible with `python3 tools/port_coverage.py --json`.
 It measures heuristic **member name matches** only. It can credit unrelated
 identifiers and does not prove overload coverage, correctness, or runtime wiring.
-Behavioral parity and overall game completion are unknown, not 2.7%.
+Behavioral parity and overall game completion are still unmeasured.
 There are no full-game original-runtime golden scenarios. Original-function replays execute
 x86-64 instructions under Rosetta: 7 earlier captures with 1,024 cases each, 87 captures with
 2,048 cases each, one waypoint capture with 4,096 cases, and shared steering plus its normalizer

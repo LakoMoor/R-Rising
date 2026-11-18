@@ -1,6 +1,7 @@
 'use strict';
 const formatNumber = number => new Intl.NumberFormat('en-US').format(number);
 const formatPercent = number => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(number);
+const formatCoveragePercent = new Intl.NumberFormat('en-US', { maximumFractionDigits: 4, minimumFractionDigits: 4 });
 const menu = document.querySelector('.menu-toggle');
 const navigation = document.querySelector('#navigation');
 menu.addEventListener('click', () => {
@@ -19,7 +20,7 @@ async function updateMetrics() {
     if (!response.ok) throw new Error(`Metrics: ${response.status}`);
     const metrics = await response.json();
     if (metrics.metric !== 'heuristic_member_name_match' || !Number.isFinite(metrics.percent)) throw new Error('Unsupported metrics schema');
-    document.querySelector('#overall').replaceChildren(document.createTextNode(formatPercent(metrics.percent)), Object.assign(document.createElement('small'), { textContent: '%' }));
+    document.querySelector('#overall').replaceChildren(document.createTextNode(formatCoveragePercent.format(metrics.percent)), Object.assign(document.createElement('small'), { textContent: '%' }));
     document.querySelector('#overall-count').textContent = `${formatNumber(metrics.matched)} / ${formatNumber(metrics.total)}`;
     document.querySelector('#coverage-ring').style.strokeDashoffset = String(320.442 * (1 - Math.min(100, Math.max(0, metrics.percent)) / 100));
     for (const [key, prefix] of [['math', 'Unity.Mathematics'], ['ecs', 'Unity.Entities']]) {

@@ -1401,6 +1401,7 @@ fn main() -> Result<()> {
                 "buffer_elements": restored.copied_buffer_elements,
                 "prefab_linked_groups": restored.prefab_linked_groups,
                 "admitted_saved_types": restored.admitted_saved_types,
+                "initialized_simulate_rows": restored.initialized_simulate_rows,
                 "skipped_saved_types": restored.skipped_saved_types,
                 "cleared_references": restored.cleared_references,
                 "mega_static_plan": {

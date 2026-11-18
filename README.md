@@ -16,7 +16,7 @@ performance improvement has been demonstrated.
 
 | Metric | Measured | Share / status |
 | --- | --- | --- |
-| Managed API member name matches | 5,118 / 187,377 | **2.7% heuristic coverage** |
+| Managed API member name matches | 5,118 / 187,377 | **2.7314% heuristic coverage** |
 | `Unity.Mathematics` member name matches | 4,850 / 4,961 | **97.8% heuristic coverage** |
 | `Unity.Entities` member name matches | 262 / 8,486 | **3.0% heuristic coverage** |
 | Game-authored member name matches | 6 / 79,642 | **0.0075%**, not gameplay coverage |
@@ -28,7 +28,7 @@ performance improvement has been demonstrated.
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |
 | Original-game scenarios | 0 | Game parity **unmeasured**; 95 distinct native function addresses have replay tests (sqrt stub; steering isolates five ECS accessors); see [oracle evidence](evidence/original_leaf_oracles.md) |
 | Original runtime reference | Dedicated server boots through CrossOver; six autosaves captured | [Measured startup/save evidence](evidence/crossover_runtime.md); no deterministic Rust comparison yet |
-| Saves | Containers, complete headers and all 8 serialization jobs read across two original autosaves; 274,238 and 274,236 entity rows | [Saved entities and component columns](evidence/save_jobs.md); no restored World |
+| Saves | Containers, complete headers and all 8 serialization jobs read across two original autosaves; 274,238 and 274,236 entity rows | Partial ECS restore checks the default-enabled `Unity.Entities.Simulate` bit on every job row in both saves. [Save allocation evidence](evidence/save_bindings.md) |
 | Gameplay, HUD, animation, physics, audio, networking | Not implemented | Not playable |
 | Rust-only timings (Apple M4, release) | Index 4,409 archives 3.3 s; decode 1,183 scenes 1.3 s; offscreen 1280x720 frame median 1.4 ms | Absolute numbers only, **no original-game comparison**; see COMPATIBILITY.md |
 

@@ -19,6 +19,7 @@ const PREFAB_GUID: u64 = 0xb181_3197_8820_0ae1;
 const PREFAB_TAG: u64 = 0x616a_36e3_c0cf_ef8c;
 const LINKED_GROUP: u64 = 0xbea7_9ca4_5e4b_e521;
 const STATIC_INDEX: u64 = 0xdd17_1d94_8ccb_47ea;
+const SIMULATE_HASH: u64 = 0x2d63_24ec_1523_c9e0;
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -52,6 +53,7 @@ pub struct RestoredWorldProjection {
     pub missing_references: MissingReferences,
     pub admitted_saved_types: usize,
     pub skipped_saved_types: usize,
+    pub initialized_simulate_rows: usize,
 }
 
 #[derive(Debug, Default)]
@@ -204,6 +206,30 @@ impl RestoredWorldProjection {
             (PREFAB_TAG, prefab_tag),
             (PREFAB_GUID, prefab_guid),
         ]);
+        // Simulate is carried by the archetype; there is no persistent value column.
+        let mut simulate = None;
+        if let Some((saved, layout)) = snapshot
+            .header()
+            .required_components
+            .iter()
+            .find(|component| component.full_name == "Unity.Entities.Simulate")
+            .zip(layouts.get(SIMULATE_HASH))
+        {
+            ensure!(
+                saved.saved_type_index.is_enableable()
+                    && saved.saved_type_index.is_zero_sized()
+                    && layout.spec.size_in_chunk == 0
+                    && layout.spec.name == saved.full_name,
+                "saved and server layouts disagree for Simulate"
+            );
+            let live_type = register(SIMULATE_HASH)?;
+            ensure!(
+                live_type.is_enableable() && live_type.is_zero_sized(),
+                "invalid live Simulate type"
+            );
+            registered.insert(SIMULATE_HASH, live_type);
+            simulate = Some((saved.saved_type_index, live_type));
+        }
         if let Some((index, translation, rotation)) = placement_types {
             registered.extend([
                 (STATIC_INDEX, index),
@@ -377,10 +403,14 @@ impl RestoredWorldProjection {
             }
         }
         let mut fresh = Vec::with_capacity(snapshot.entity_count());
+        let mut initialized_simulate_rows = 0;
         for (_, job) in snapshot.jobs() {
             for archetype in &job.archetypes {
+                let simulate_type = simulate
+                    .filter(|(saved, _)| archetype.types.contains(saved))
+                    .map(|(_, live)| live);
                 for chunk in &archetype.chunks {
-                    let projected: Vec<_> = chunk
+                    let mut projected: Vec<_> = chunk
                         .columns
                         .iter()
                         .filter_map(|column| {
@@ -390,6 +420,10 @@ impl RestoredWorldProjection {
                                 .map(|layout| layout.0)
                         })
                         .collect();
+                    if let Some(ty) = simulate_type {
+                        projected.push(ty);
+                        initialized_simulate_rows += chunk.entities().len();
+                    }
                     let arch = store.get_or_create_archetype(&types, &projected)?;
                     fresh.extend(store.create_entities(arch, chunk.entities().len())?);
                 }
@@ -605,6 +639,7 @@ impl RestoredWorldProjection {
             missing_references,
             admitted_saved_types,
             skipped_saved_types,
+            initialized_simulate_rows,
         })
     }
 }
