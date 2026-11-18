@@ -16,6 +16,7 @@ pub mod prefab_catalog;
 pub mod restore_world;
 pub mod scene_runtime;
 pub mod settings;
+pub mod static_transforms;
 
 pub use content::{list_archives, ContentEntry, GameContent, TRACKED_CLASSES};
 

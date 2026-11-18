@@ -1318,6 +1318,18 @@ fn main() -> Result<()> {
             let restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
             let mega_statics =
                 rrising_content::persistence::MegaStaticRestorePlan::read(&snapshot)?;
+            let terrain = rrising_content::static_transforms::StaticTransformCatalog::read_server(
+                &opt.data, &layouts,
+            )?;
+            let baked_matches = mega_statics
+                .entries
+                .iter()
+                .filter(|entry| {
+                    terrain
+                        .get(entry.terrain_chunk, entry.transform_index)
+                        .is_some()
+                })
+                .count();
             Some(serde_json::json!({
                 "live_entities": restored.bindings.len() - 1,
                 "prefab_roots": restored.prefabs.len(),
@@ -1333,6 +1345,9 @@ fn main() -> Result<()> {
                     "instances": mega_statics.entries.len(),
                     "vacant_slots": mega_statics.vacant_slots,
                     "prefab_guids": mega_statics.distinct_prefab_guids,
+                    "baked_transform_matches": baked_matches,
+                    "terrain_chunks": terrain.chunk_count(),
+                    "terrain_templates": terrain.template_count(),
                 },
                 "missing_references": {
                     "nonpersistent": restored.missing_references.nonpersistent,
