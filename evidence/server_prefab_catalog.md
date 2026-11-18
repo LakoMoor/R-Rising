@@ -44,10 +44,14 @@ children and for every persistent job row. It restores scalar columns for
 `ProjectM.MapCollision` (157 values in save 4 and 156 in save 5). The
 integration test verifies the liveness of every mapped entity and checks
 rewritten fields in ECS storage, including a buff target and an owner that
-points to a scene prefab. Prefab roles and GUIDs live in the ECS; linked
-groups are represented by the runtime catalog. Other archetype members,
-prefab component bodies, gameplay scheduling, and system and buffer state
-are outside this first projection.
+points to a scene prefab. The same test checks all 1,772 prefab linked groups
+and restores 3,153 saved buffer rows (142 elements) in each autosave, across
+`Unity.Entities.LinkedEntityGroup` and `ProjectM.MegaStaticDestroyedBuffer`.
+Linked handles are rebound; destroyed-static elements match original bytes.
+The store owns overflow separately from chunk bytes, so compaction preserves
+payloads and destruction releases them without using serialized pointers.
+Other archetype members, prefab component bodies, system state and gameplay
+scheduling remain outside the projection.
 
 To run the projection from the native CLI after generating the layout report:
 

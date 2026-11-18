@@ -33,7 +33,7 @@
 //! Archetypes with shared, chunk, managed or cleanup components are refused: they need
 //! `ChunkListMap`, meta-chunk entities, managed deferred commands and the cleanup archetype
 //! (`CreateMetaEntityForChunk`, `DestroyMetaChunkEntity`, `AssertEntityNotProtectedFromDestruction`).
-//! Also absent: buffer heap deallocation, enable-bit hierarchical data on moves, entity names, query
+//! Also absent: enable-bit hierarchical data on moves, entity names, query
 //! registration (`RegisterInQueries`), `EntityPatchInfo` rewriting, `InitializeComponents` defaults
 //! (new component bytes are zeroed). The query matcher is a port-side minimum, see [`EntityQuery`].
 
@@ -135,6 +135,7 @@ pub struct EntityComponentStore {
     free_chunk_slots: Vec<i32>,
     archetypes: Vec<StoredArchetype>,
     by_types: HashMap<Vec<i32>, usize>,
+    external_buffers: HashMap<i32, HashMap<TypeIndex, Vec<u8>>>,
     special: SpecialTypes,
     admit_opaque_special_components: bool,
 }
@@ -166,6 +167,7 @@ impl EntityComponentStore {
             free_chunk_slots: Vec::new(),
             archetypes: Vec::new(),
             by_types: HashMap::new(),
+            external_buffers: HashMap::new(),
             special,
             admit_opaque_special_components: false,
         };
@@ -707,6 +709,7 @@ impl EntityComponentStore {
         // free backwards: head ends as the batch's first entity
         let mut head = self.next_free_entity_index;
         for &idx in batch.iter().rev() {
+            self.external_buffers.remove(&idx);
             let i = idx as usize;
             self.entity_in_chunk[i].chunk = ChunkIndex::NULL;
             self.versions[i] += 1;
@@ -776,6 +779,9 @@ impl EntityComponentStore {
             bytes.len()
         );
         self.chunk_mut(c)?.buffer[off..off + sz].copy_from_slice(bytes);
+        if t.is_buffer() {
+            self.remove_external_buffer(e, t);
+        }
         let li = self.chunk(c).unwrap().list_index as usize;
         let ti = self.archetypes[arch].archetype.index_of_type(t).unwrap();
         let gsv = self.global_system_version;
@@ -783,6 +789,109 @@ impl EntityComponentStore {
             .chunk_data
             .set_change_version(ti, li, gsv)?;
         Ok(())
+    }
+
+    fn remove_external_buffer(&mut self, entity: Entity, ty: TypeIndex) {
+        if let Some(buffers) = self.external_buffers.get_mut(&entity.index) {
+            buffers.remove(&ty);
+            if buffers.is_empty() {
+                self.external_buffers.remove(&entity.index);
+            }
+        }
+    }
+
+    fn buffer_shape(types: &TypeManager, ty: TypeIndex) -> Result<(usize, usize)> {
+        ensure!(
+            ty.is_buffer() && !ty.is_chunk_component(),
+            "expected per-entity buffer type"
+        );
+        let info = types
+            .infos()
+            .get(ty.index() as usize)
+            .ok_or_else(|| anyhow::anyhow!("unknown buffer type"))?;
+        let stride = usize::try_from(info.element_size)?;
+        ensure!(stride > 0, "invalid buffer element size");
+        Ok((stride, usize::try_from(info.buffer_capacity)?))
+    }
+
+    /// Replaces the used buffer elements. Overflow is owned by the store and follows the entity
+    /// across chunk compaction; serialized pointer bits are never used as host pointers.
+    pub fn set_buffer_payload(
+        &mut self,
+        types: &TypeManager,
+        entity: Entity,
+        ty: TypeIndex,
+        payload: &[u8],
+    ) -> Result<()> {
+        let (stride, inline) = Self::buffer_shape(types, ty)?;
+        ensure!(
+            payload.len().is_multiple_of(stride),
+            "partial buffer element"
+        );
+        let length = payload.len() / stride;
+        let capacity = if length <= inline {
+            inline
+        } else {
+            length.max(8)
+        };
+        let (_, _, size, _) = self.locate(entity, ty)?;
+        let header_bytes = crate::buffer::ELEMENT_OFFSET;
+        ensure!(
+            size >= header_bytes + inline * stride,
+            "buffer slot too small"
+        );
+        let mut scratch = [0; 128];
+        let mut large_slot;
+        let slot = if let Some(slot) = scratch.get_mut(..size) {
+            slot
+        } else {
+            large_slot = vec![0; size];
+            &mut large_slot
+        };
+        slot[8..12].copy_from_slice(&i32::try_from(length)?.to_le_bytes());
+        slot[12..16].copy_from_slice(&i32::try_from(capacity)?.to_le_bytes());
+        if length <= inline {
+            slot[header_bytes..header_bytes + payload.len()].copy_from_slice(payload);
+        }
+        self.set_component_bytes(entity, ty, slot)?;
+        if length > inline {
+            self.external_buffers
+                .entry(entity.index)
+                .or_default()
+                .insert(ty, payload.to_vec());
+        }
+        Ok(())
+    }
+
+    pub fn buffer_payload(
+        &self,
+        types: &TypeManager,
+        entity: Entity,
+        ty: TypeIndex,
+    ) -> Result<&[u8]> {
+        let (stride, inline) = Self::buffer_shape(types, ty)?;
+        let slot = self.component_bytes(entity, ty)?;
+        ensure!(
+            slot.len() >= crate::buffer::ELEMENT_OFFSET,
+            "truncated buffer slot"
+        );
+        let length = usize::try_from(i32::from_le_bytes(slot[8..12].try_into()?))?;
+        let capacity = usize::try_from(i32::from_le_bytes(slot[12..16].try_into()?))?;
+        ensure!(length <= capacity, "buffer length exceeds capacity");
+        let used = length
+            .checked_mul(stride)
+            .ok_or_else(|| anyhow::anyhow!("buffer size overflow"))?;
+        if length <= inline {
+            return slot[crate::buffer::ELEMENT_OFFSET..]
+                .get(..used)
+                .ok_or_else(|| anyhow::anyhow!("inline buffer payload outside slot"));
+        }
+        self.external_buffers
+            .get(&entity.index)
+            .and_then(|buffers| buffers.get(&ty))
+            .filter(|payload| payload.len() == used)
+            .map(Vec::as_slice)
+            .ok_or_else(|| anyhow::anyhow!("missing external buffer payload"))
     }
 
     /// Advance `GlobalSystemVersion` (Unity increments it after each system update so later writes

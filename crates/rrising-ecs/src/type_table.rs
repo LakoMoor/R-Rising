@@ -407,12 +407,12 @@ impl TypeSpec {
         }
     }
 
-    /// A `IBufferElementData` of element size `element_size`. Its chunk slot is a `BufferHeader`
-    /// (16 bytes), which is what `SizeInChunk` is for buffers.
+    /// An `IBufferElementData` slot includes its header and reserved inline payload.
     pub fn buffer(name: &str, element_size: i32, buffer_capacity: i32) -> Self {
         Self {
             category: TypeCategory::BufferData,
-            size_in_chunk: crate::buffer::ELEMENT_OFFSET as i32,
+            size_in_chunk: (crate::buffer::ELEMENT_OFFSET as i32)
+                .saturating_add(element_size.saturating_mul(buffer_capacity)),
             element_size,
             buffer_capacity,
             alignment_in_bytes: 16,

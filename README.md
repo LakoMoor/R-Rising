@@ -16,9 +16,9 @@ performance improvement has been demonstrated.
 
 | Metric | Measured | Share / status |
 | --- | --- | --- |
-| Managed API member name matches | 5,116 / 187,377 | **2.7% heuristic coverage** |
+| Managed API member name matches | 5,117 / 187,377 | **2.7% heuristic coverage** |
 | `Unity.Mathematics` member name matches | 4,850 / 4,961 | **97.8% heuristic coverage** |
-| `Unity.Entities` member name matches | 260 / 8,486 | **3.0% heuristic coverage** |
+| `Unity.Entities` member name matches | 261 / 8,486 | **3.0% heuristic coverage** |
 | Game-authored member name matches | 6 / 79,642 | **0.0075%**, not gameplay coverage |
 | Content archives indexed | 4,409 / 4,409 | **100% of this installation** |
 | RuntimeContentCatalog | 1 / 1 | Parsed and used by native startup; 1,904 dependency sets |

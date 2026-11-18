@@ -75,6 +75,11 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
             if number == 4 { 157 } else { 156 }
         );
         assert_eq!(restored.cleared_references, 0);
+        let group = restored
+            .types
+            .type_index_of("Unity.Entities.LinkedEntityGroup")
+            .unwrap();
+        assert_eq!(restored.prefab_linked_groups, 1772);
         for source in snapshot.entities() {
             assert!(restored
                 .store
@@ -84,7 +89,74 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
             for &handle in std::iter::once(&prefab.entity).chain(&prefab.linked_entities) {
                 assert!(restored.store.exists(handle)?);
             }
+            if !prefab.linked_entities.is_empty() {
+                let bytes = restored
+                    .store
+                    .buffer_payload(&restored.types, prefab.entity, group)?;
+                assert_eq!(bytes.len(), 8 * prefab.linked_entities.len());
+                for (raw, expected) in bytes.as_chunks::<8>().0.iter().zip(&prefab.linked_entities)
+                {
+                    assert_eq!(read_handle(raw), *expected);
+                }
+            }
         }
+        let mut rows = 0;
+        let mut elements = 0;
+        for (name, stride) in [
+            ("Unity.Entities.LinkedEntityGroup", 8),
+            ("ProjectM.MegaStaticDestroyedBuffer", 16),
+        ] {
+            let saved_type = snapshot
+                .header()
+                .persistent_component_named(name)
+                .unwrap()
+                .saved_type_index;
+            let live_type = restored.types.type_index_of(name).unwrap();
+            for (_, job) in snapshot.jobs() {
+                for chunk in job
+                    .archetypes
+                    .iter()
+                    .flat_map(|archetype| &archetype.chunks)
+                {
+                    let Some(column) = chunk
+                        .columns
+                        .iter()
+                        .find(|column| column.saved_type_index == saved_type)
+                    else {
+                        continue;
+                    };
+                    for (source, original) in chunk.entities().zip(column.buffers().unwrap()) {
+                        let target = restored.bindings.target(source).unwrap();
+                        let actual =
+                            restored
+                                .store
+                                .buffer_payload(&restored.types, target, live_type)?;
+                        assert_eq!(actual.len(), original.len());
+                        if live_type == group {
+                            for (actual, original) in actual
+                                .as_chunks::<8>()
+                                .0
+                                .iter()
+                                .zip(original.as_chunks::<8>().0)
+                            {
+                                assert_eq!(
+                                    read_handle(actual),
+                                    restored.bindings.target(read_handle(original)).unwrap()
+                                );
+                            }
+                        } else {
+                            assert_eq!(actual, original);
+                        }
+                        rows += 1;
+                        elements += original.len() / stride;
+                    }
+                }
+            }
+        }
+        assert_eq!(restored.copied_buffer_rows, rows);
+        assert_eq!(restored.copied_buffer_elements, elements);
+        assert_eq!((rows, elements), (3153, 142));
+        println!("Autosave {number}: {rows} saved buffer rows, {elements} elements");
         let assert_ref = |name, owner, offset, target| -> Result<()> {
             let component = restored.types.type_index_of(name).unwrap();
             let owner = restored.bindings.target(owner).unwrap();
@@ -112,6 +184,13 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
         }
     }
     Ok(())
+}
+
+fn read_handle(bytes: &[u8; 8]) -> Entity {
+    Entity::new(
+        i32::from_le_bytes(bytes[..4].try_into().unwrap()),
+        i32::from_le_bytes(bytes[4..].try_into().unwrap()),
+    )
 }
 
 #[test]

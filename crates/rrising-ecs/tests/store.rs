@@ -215,3 +215,32 @@ fn order_versions_advance() {
     assert_eq!(s.entity_order_version(), eo + 1);
     assert_eq!(s.component_type_order_version(w.a), before + 2);
 }
+
+#[test]
+fn buffer_ownership_survives_compaction_and_clears_on_reuse() -> anyhow::Result<()> {
+    let mut world = world();
+    let buffer = world.tm.register(TypeSpec::buffer("TestBuffer", 4, 1))?;
+    let mut store = store(&world, 4);
+    let arch = store.get_or_create_archetype(&world.tm, &[buffer])?;
+    let first = store.create_entity(arch)?;
+    let last = store.create_entity(arch)?;
+    store.set_buffer_payload(&world.tm, first, buffer, &[9; 12])?;
+    store.set_buffer_payload(&world.tm, last, buffer, &[6; 16])?;
+    store.destroy_entity(first)?;
+    assert_eq!(store.buffer_payload(&world.tm, last, buffer)?, &[6; 16]);
+    let reused = store.create_entity(arch)?;
+    assert_eq!(reused.index, first.index);
+    assert_ne!(reused.version, first.version);
+    assert!(store.buffer_payload(&world.tm, first, buffer).is_err());
+    assert_eq!(
+        store.buffer_payload(&world.tm, reused, buffer)?,
+        &[] as &[u8]
+    );
+    store.set_buffer_payload(&world.tm, last, buffer, &[7; 4])?;
+    assert_eq!(store.buffer_payload(&world.tm, last, buffer)?, &[7; 4]);
+    assert!(store
+        .set_buffer_payload(&world.tm, last, buffer, &[1; 3])
+        .is_err());
+    assert_eq!(store.buffer_payload(&world.tm, last, buffer)?, &[7; 4]);
+    Ok(())
+}

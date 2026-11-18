@@ -1320,6 +1320,9 @@ fn main() -> Result<()> {
                 "live_entities": restored.bindings.len() - 1,
                 "prefab_roots": restored.prefabs.len(),
                 "scalar_values": restored.copied_scalar_values,
+                "buffer_rows": restored.copied_buffer_rows,
+                "buffer_elements": restored.copied_buffer_elements,
+                "prefab_linked_groups": restored.prefab_linked_groups,
                 "cleared_references": restored.cleared_references,
             }))
         } else {
