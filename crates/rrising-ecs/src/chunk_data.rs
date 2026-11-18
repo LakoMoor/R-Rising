@@ -243,6 +243,28 @@ impl ArchetypeChunkData {
         self.check_chunk(chunk)?;
         Ok(self.enabled[chunk][component])
     }
+
+    pub(crate) fn set_enabled_mask(
+        &mut self,
+        component: usize,
+        chunk: usize,
+        mask: [u64; 2],
+        count: usize,
+    ) -> Result<()> {
+        self.check_type(component)?;
+        self.check_chunk(chunk)?;
+        let enabled = mask
+            .iter()
+            .map(|word| word.count_ones() as usize)
+            .sum::<usize>();
+        ensure!(
+            enabled <= count && count <= 128,
+            "invalid enabled mask count"
+        );
+        self.enabled[chunk][component] = mask;
+        self.disabled[chunk][component] = (count - enabled) as i32;
+        Ok(())
+    }
     /// src: SetEnabledBitsAndHierarchicalData @ 0x911d920 copies complete rows.
     pub fn set_enabled_bits_and_hierarchical_data(
         &mut self,

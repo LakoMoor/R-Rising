@@ -30,7 +30,7 @@ use rrising_ecs::{
 };
 
 use crate::entity_scenes::SceneFile;
-use crate::type_layouts::{TypeLayouts, ENTITY_HASH};
+use crate::type_layouts::{EnabledSceneRows, TypeLayouts, ENTITY_HASH};
 
 /// What the adapter copied or deliberately left out.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -40,6 +40,7 @@ pub struct AdapterStats {
     pub entities: usize,
     /// Component arrays copied as raw bytes (all entities of a chunk counted once).
     pub component_arrays: usize,
+    pub disabled_components: usize,
     /// Shared / chunk-component / zero-sized slots with no per-entity bytes to copy.
     pub skipped_value_less_slots: usize,
     /// References in per-entity components, classified before patching (then patched).
@@ -71,6 +72,7 @@ pub struct AdaptedScene {
     pub input: WorldInput,
     pub type_of_hash: BTreeMap<u64, TypeIndex>,
     pub stats: AdapterStats,
+    disabled_components: Vec<(Entity, TypeIndex)>,
 }
 
 /// Original store initialization at RVA 0x8fa9840 populates these identities;
@@ -167,6 +169,8 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         chunk_ids.push(ids);
     }
     let buffers = scene.buffer_data()?;
+    let enabled = EnabledSceneRows::read(scene, &resolved)?;
+    let mut disabled_components = Vec::new();
 
     let mut chunks = Vec::with_capacity(resolved.chunks.len());
     for (ci, chunk) in resolved.chunks.iter().enumerate() {
@@ -186,6 +190,14 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         let mut components = Vec::new();
         for slot in 1..arch.types.len() {
             let t = arch.types[slot];
+            if t.is_enableable() && !t.is_chunk_component() {
+                let memory_slot = usize::try_from(layout.archetype_to_memory_order[slot])?;
+                for (row, &entity) in ids.iter().enumerate() {
+                    if !enabled.get(ci, row, memory_slot, chunk.header.count)? {
+                        disabled_components.push((entity, archetypes[ai].types[slot - 1]));
+                    }
+                }
+            }
             if t.is_chunk_component() || t.is_shared_component_type() || t.is_zero_sized() {
                 stats.skipped_value_less_slots += 1;
                 continue;
@@ -256,25 +268,30 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
             components,
         });
     }
+    stats.disabled_components = disabled_components.len();
     Ok(AdaptedScene {
         special: special_types(&types, entity),
         types,
         input: WorldInput { archetypes, chunks },
         type_of_hash,
         stats,
+        disabled_components,
     })
 }
 
 /// Convert and build the world for one scene.
 pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<SceneWorld> {
     let a = scene_to_world_input(layouts, scene)?;
-    let world = World::build_with(
+    let mut world = World::build_with(
         a.types,
         a.special,
         i32::try_from(a.stats.entities + 2)?,
         &a.input,
         true,
     )?;
+    for &(entity, ty) in &a.disabled_components {
+        world.store.set_component_enabled(entity, ty, false)?;
+    }
     Ok(SceneWorld {
         world,
         type_of_hash: a.type_of_hash,

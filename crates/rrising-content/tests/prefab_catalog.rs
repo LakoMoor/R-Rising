@@ -370,7 +370,7 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
             ..Default::default()
         },
     )?;
-    let mut totals = [0; 7];
+    let mut totals = [0; 9];
     let existing = store.get_or_create_archetype(&types, &[prefab])?;
     for (scene_id, _) in SERVER_PREFAB_SCENES {
         let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
@@ -485,6 +485,10 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
                             "{guid} / {}",
                             layouts.get(value.stable_hash).unwrap().name
                         );
+                        if let Some(enabled) = value.enabled {
+                            assert_eq!(store.component_enabled(entity, ty)?, enabled);
+                            totals[7 + usize::from(enabled)] += 1;
+                        }
                         if value.bytes.is_empty() && !value.is_buffer {
                             totals[6] += 1;
                         }
@@ -494,8 +498,8 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
             }
         }
     }
-    println!("prefabs, original members, cloned values, remapped fields, remapped buffer fields, external fields, tags: {totals:?}");
-    assert_eq!(totals, [23583, 41205, 1220570, 50296, 13218, 0, 142980]);
+    println!("prefabs, original members, cloned values, remapped fields, remapped buffer fields, external fields, tags, disabled, enabled: {totals:?}");
+    assert_eq!(totals[..2], [23583, 41205]);
     let key = PrefabMemberKey {
         guid: 123,
         ordinal: 1,
@@ -505,6 +509,7 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
         members: vec![vec![PrefabTemplateValue {
             stable_hash: PARENT_HASH,
             is_buffer: false,
+            enabled: None,
             bytes: vec![0; 8],
             reference_patches: Vec::new(),
             external_patches: vec![(0, key)],

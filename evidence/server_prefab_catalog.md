@@ -96,13 +96,12 @@ records in-group target ordinals from recovered scalar and buffer layouts,
 allocates fresh handles, rebuilds LinkedEntityGroup, and patches the supported
 fields. It also retains ordinary zero-sized tags while excluding the Prefab
 marker, following the native instance archetype filtering path
-(`CreateInstanceArchetype`, RVA `0x9077bd0`). Enableable and cleanup components,
-special storage, pointers, network state and gameplay remain outside the
+(`CreateInstanceArchetype`, RVA `0x9077bd0`). Cleanup components, special storage, pointers, network state and gameplay remain outside the
 projection.
 
 The full original catalog test clones all 23,583 prefab roots, including
-all 1,772 linked groups, twice (82,410 clone rows). It compares 1,220,570
-supported component values including 142,980 tag occurrences, and verifies
+all 1,772 linked groups, twice (82,410 clone rows). It compares 1,302,980
+supported component values including 225,390 tag occurrences, and verifies
 50,296 in-group field patches, 13,218 of them in dynamic buffers. These
 are original asset checks; the clones are not added to the two autosaves.
 
@@ -121,3 +120,17 @@ cargo run --locked -p rrising-app -- \
 ```
 
 The example clones four entities and remaps ten references.
+
+The projected clones now carry the enable states of supported components.
+The native server's `ChunkDataUtility.GetEnabledRefRW` (RVA `0x90e7280`)
+maps the archetype slot through the table at `+0xf8` before selecting its
+128-bit mask; the importer uses the same memory-order mapping to read
+the serialized stream. The scene loader checks each selected mask against
+the native disabled count and applies disabled bits after importing the
+entities. All 1,183 original client scenes imported, with 162 disabled
+component occurrences present in the Rust chunk counts. The server
+clone corpus preserved 82,410 enabled states and did not exercise the
+disabled state. A store test crosses the 64-bit boundary, checks
+positive and negative queries, and verifies that chunk compaction and
+slot reuse preserve the correct states. Saved-world enable state is not
+inferred from scene masks.

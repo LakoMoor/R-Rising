@@ -244,3 +244,56 @@ fn buffer_ownership_survives_compaction_and_clears_on_reuse() -> anyhow::Result<
     assert_eq!(store.buffer_payload(&world.tm, last, buffer)?, &[7; 4]);
     Ok(())
 }
+
+#[test]
+fn enabled_rows_filter_queries_and_survive_swap_back_and_slot_reuse() -> anyhow::Result<()> {
+    let mut world = world();
+    let mut spec = TypeSpec::tag("Gate");
+    spec.flags |= TypeIndex::K_ENABLEABLE_MASK;
+    spec.maximum_chunk_capacity = 128;
+    let gate = world.tm.register(spec)?;
+    let mut store = store(&world, 140);
+    let arch = store.get_or_create_archetype(&world.tm, &[gate])?;
+    let entities = store.create_entities(arch, 128)?;
+    let last = entities[127];
+    let first = entities[0];
+    assert!(store.component_enabled(last, gate)?);
+    let chunk = store.entity_in_chunk(last.index).unwrap().chunk;
+    store.increment_global_system_version();
+    store.set_component_enabled(last, gate, false)?;
+    assert_eq!(
+        store.chunk_change_version(chunk, gate)?,
+        store.global_system_version()
+    );
+    let positive = EntityQuery {
+        all: vec![gate],
+        ..Default::default()
+    };
+    let negative = EntityQuery {
+        none: vec![gate],
+        ..Default::default()
+    };
+    assert_eq!(store.query_entities(&positive)?.len(), 127);
+    assert_eq!(store.query_entities(&negative)?, [last]);
+    store.destroy_entity(first)?;
+    assert!(!store.component_enabled(last, gate)?);
+    let next = store.create_entity(arch)?;
+    assert_eq!(next.index, first.index);
+    assert!(store.component_enabled(next, gate)?);
+    assert_eq!(store.query_entities(&negative)?, [last]);
+    let slot = store.archetypes()[arch]
+        .archetype
+        .index_of_type(gate)
+        .unwrap();
+    assert_eq!(
+        store.archetypes()[arch]
+            .chunk_data
+            .get_chunk_disabled_count_for_type(slot, 0)?,
+        1
+    );
+    store.set_component_enabled(last, gate, true)?;
+    assert_eq!(store.query_entities(&positive)?.len(), 128);
+    assert!(store.query_entities(&negative)?.is_empty());
+    assert!(store.set_component_enabled(first, gate, false).is_err());
+    Ok(())
+}

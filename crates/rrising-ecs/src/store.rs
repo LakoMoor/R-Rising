@@ -33,7 +33,7 @@
 //! Archetypes with shared, chunk, managed or cleanup components are refused: they need
 //! `ChunkListMap`, meta-chunk entities, managed deferred commands and the cleanup archetype
 //! (`CreateMetaEntityForChunk`, `DestroyMetaChunkEntity`, `AssertEntityNotProtectedFromDestruction`).
-//! Also absent: enable-bit hierarchical data on moves, entity names, query
+//! Also absent: cross-archetype enable-bit moves, entity names, query
 //! registration (`RegisterInQueries`), `EntityPatchInfo` rewriting, `InitializeComponents` defaults
 //! (new component bytes are zeroed). The query matcher is a port-side minimum, see [`EntityQuery`].
 
@@ -107,7 +107,7 @@ impl EntityQuery {
 
     pub fn matches(&self, archetype: &Archetype) -> bool {
         let has = |t: &TypeIndex| archetype.index_of_type(*t).is_some();
-        if !self.all.iter().all(has) || self.none.iter().any(has) {
+        if !self.all.iter().all(has) || self.none.iter().any(|ty| !ty.is_enableable() && has(ty)) {
             return false;
         }
         let f = archetype.flags();
@@ -119,6 +119,18 @@ impl EntityQuery {
         }
         true
     }
+}
+
+fn mask_range(start: usize, end: usize) -> u128 {
+    (u128::MAX >> (128 - (end - start))) << start
+}
+
+fn unpack_mask(words: [u64; 2]) -> u128 {
+    u128::from(words[0]) | (u128::from(words[1]) << 64)
+}
+
+fn pack_mask(mask: u128) -> [u64; 2] {
+    [mask as u64, (mask >> 64) as u64]
 }
 
 #[derive(Debug)]
@@ -309,6 +321,10 @@ impl EntityComponentStore {
             bail!("archetypes with shared/managed/chunk/cleanup components are not supported yet");
         }
         ensure!(l.chunk_capacity > 0, "archetype has zero chunk capacity");
+        ensure!(
+            archetype.enableable_types_count == 0 || l.chunk_capacity <= 128,
+            "enableable archetype exceeds 128-row mask capacity"
+        );
         let chunk_data = crate::chunk_data::ArchetypeChunkData::new(
             archetype.types_count as usize,
             if special_components {
@@ -631,6 +647,21 @@ impl EntityComponentStore {
             chunk.buffer[o..o + n as usize * sz].fill(0);
         }
         let li = self.chunk_mut(ci)?.list_index as usize;
+        let stored = &mut self.archetypes[arch];
+        for &slot in &stored.archetype.enableable_type_index_in_archetype {
+            let slot = slot as usize;
+            let mask = unpack_mask(
+                stored
+                    .chunk_data
+                    .get_component_enabled_mask_array_for_type_in_chunk(slot, li)?,
+            );
+            stored.chunk_data.set_enabled_mask(
+                slot,
+                li,
+                pack_mask(mask | mask_range(start as usize, (start + n) as usize)),
+                (start + n) as usize,
+            )?;
+        }
         self.archetypes[arch]
             .chunk_data
             .set_all_change_version(li, gsv)?;
@@ -738,6 +769,30 @@ impl EntityComponentStore {
         }
         // Deallocate_49 tail: versions, EntityCount, SetChunkCount
         let li = self.chunk_mut(ci)?.list_index as usize;
+        let stored = &mut self.archetypes[arch];
+        let new_count = (chunk_count - count) as usize;
+        for &slot in &stored.archetype.enableable_type_index_in_archetype {
+            let slot = slot as usize;
+            let mut mask = unpack_mask(
+                stored
+                    .chunk_data
+                    .get_component_enabled_mask_array_for_type_in_chunk(slot, li)?,
+            );
+            if n > 0 {
+                let src = (chunk_count - n) as usize;
+                let dst = start as usize;
+                let moved = (mask & mask_range(src, src + n as usize)) >> src;
+                mask = (mask & !mask_range(dst, dst + n as usize)) | (moved << dst);
+            }
+            mask &= if new_count == 0 {
+                0
+            } else {
+                mask_range(0, new_count)
+            };
+            stored
+                .chunk_data
+                .set_enabled_mask(slot, li, pack_mask(mask), new_count)?;
+        }
         self.bump_order_versions(arch);
         if self.chunk_mut(ci)?.count - count != 0 {
             self.archetypes[arch]
@@ -768,6 +823,43 @@ impl EntityComponentStore {
     pub fn component_bytes(&self, e: Entity, t: TypeIndex) -> Result<&[u8]> {
         let (c, off, sz, _) = self.locate(e, t)?;
         Ok(&self.chunk(c).unwrap().buffer[off..off + sz])
+    }
+
+    pub fn component_enabled(&self, entity: Entity, ty: TypeIndex) -> Result<bool> {
+        ensure!(ty.is_enableable(), "component is not enableable");
+        let (chunk, _, _, _) = self.locate(entity, ty)?;
+        let (arch, slot, _, _) = self.chunk_type_slot(chunk, ty)?;
+        let row = self.entity_in_chunk[entity.index as usize].index_in_chunk;
+        let list_index = self.chunk(chunk).unwrap().list_index as usize;
+        let mask = self.archetypes[arch]
+            .chunk_data
+            .get_component_enabled_mask_array_for_type_in_chunk(slot, list_index)?;
+        Ok(unpack_mask(mask) & (1 << row) != 0)
+    }
+
+    pub fn set_component_enabled(
+        &mut self,
+        entity: Entity,
+        ty: TypeIndex,
+        enabled: bool,
+    ) -> Result<()> {
+        ensure!(ty.is_enableable(), "component is not enableable");
+        let (chunk, _, _, _) = self.locate(entity, ty)?;
+        let (arch, slot, _, _) = self.chunk_type_slot(chunk, ty)?;
+        let row = self.entity_in_chunk[entity.index as usize].index_in_chunk;
+        let chunk = self.chunk(chunk).unwrap();
+        let (list_index, count) = (chunk.list_index as usize, chunk.count as usize);
+        let data = &mut self.archetypes[arch].chunk_data;
+        let mask =
+            unpack_mask(data.get_component_enabled_mask_array_for_type_in_chunk(slot, list_index)?);
+        let bit = 1u128 << row;
+        data.set_enabled_mask(
+            slot,
+            list_index,
+            pack_mask(if enabled { mask | bit } else { mask & !bit }),
+            count,
+        )?;
+        data.set_change_version(slot, list_index, self.global_system_version)
     }
 
     /// Write a component; bumps the chunk change version to the global system version.
@@ -962,7 +1054,8 @@ impl EntityComponentStore {
         self.component_bytes(e, t).map(Some)
     }
 
-    /// Non-empty chunks of every archetype matching the query, in archetype then chunk-list order.
+    /// Structural candidates in archetype then chunk-list order. Individual rows can be filtered
+    /// out by enableable terms; use query_entities for row-level results.
     pub fn query_chunks(&self, q: &EntityQuery) -> Vec<ChunkIndex> {
         let mut out = Vec::new();
         for sa in &self.archetypes {
@@ -997,11 +1090,59 @@ impl EntityComponentStore {
             .collect())
     }
 
+    pub fn query_entity_count(&self, query: &EntityQuery) -> Result<usize> {
+        self.query_chunks(query)
+            .into_iter()
+            .try_fold(0, |count, chunk| {
+                Ok(count
+                    + match self.query_enabled_rows(chunk, query)? {
+                        Some(mask) => mask.count_ones() as usize,
+                        None => self.chunk(chunk).unwrap().count as usize,
+                    })
+            })
+    }
+
+    fn query_enabled_rows(&self, chunk: ChunkIndex, q: &EntityQuery) -> Result<Option<u128>> {
+        let chunk = self.chunk(chunk).unwrap();
+        let stored = &self.archetypes[chunk.archetype_index as usize];
+        if stored.archetype.enableable_types_count == 0 {
+            return Ok(None);
+        }
+        let mut matched = mask_range(0, chunk.count as usize);
+        for (terms, expected) in [(&q.all, true), (&q.none, false)] {
+            for &ty in terms.iter().filter(|ty| ty.is_enableable()) {
+                if let Some(slot) = stored.archetype.index_of_type(ty) {
+                    let mask = unpack_mask(
+                        stored
+                            .chunk_data
+                            .get_component_enabled_mask_array_for_type_in_chunk(
+                                slot,
+                                chunk.list_index as usize,
+                            )?,
+                    );
+                    matched &= if expected { mask } else { !mask };
+                }
+            }
+        }
+        Ok(Some(matched))
+    }
+
     /// Every entity matched by the query.
     pub fn query_entities(&self, q: &EntityQuery) -> Result<Vec<Entity>> {
         let mut out = Vec::new();
         for c in self.query_chunks(q) {
-            out.extend(self.chunk_entities(c)?);
+            let Some(matched) = self.query_enabled_rows(c, q)? else {
+                out.extend(self.chunk_entities(c)?);
+                continue;
+            };
+            if matched != 0 {
+                out.extend(
+                    self.chunk_entities(c)?
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(row, entity)| (matched & (1 << row) != 0).then_some(entity)),
+                );
+            }
         }
         Ok(out)
     }

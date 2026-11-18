@@ -6,8 +6,8 @@ use rrising_ecs::{Entity, EntityComponentStore, TypeCategory, TypeIndex, TypeMan
 use crate::entity_scenes::{SceneBufferData, SceneFile};
 use crate::persistence::PrefabReference;
 use crate::type_layouts::{
-    ResolvedScene, TypeLayouts, ENTITY_HASH, LOCAL_TO_WORLD_HASH, LOCAL_TRANSFORM_HASH,
-    ROTATION_HASH, TRANSLATION_HASH,
+    EnabledSceneRows, ResolvedScene, TypeLayouts, ENTITY_HASH, LOCAL_TO_WORLD_HASH,
+    LOCAL_TRANSFORM_HASH, ROTATION_HASH, TRANSLATION_HASH,
 };
 
 pub const REGISTER_PREFAB_HASH: u64 = 0xa965_c72e_229a_11cf;
@@ -43,6 +43,7 @@ pub struct ScenePrefabCatalog {
 pub struct PrefabTemplateValue {
     pub stable_hash: u64,
     pub is_buffer: bool,
+    pub enabled: Option<bool>,
     pub bytes: Vec<u8>,
     pub reference_patches: Vec<(usize, usize)>,
     pub external_patches: Vec<(usize, PrefabMemberKey)>,
@@ -156,6 +157,9 @@ impl LinkedPrefabTemplate {
                     store.set_buffer_payload(types, entity, *ty, payload)?;
                 } else {
                     store.set_component_bytes(entity, *ty, payload)?;
+                }
+                if let Some(enabled) = value.enabled {
+                    store.set_component_enabled(entity, *ty, enabled)?;
                 }
             }
         }
@@ -375,6 +379,11 @@ impl ScenePrefabCatalog {
             .prefabs
             .retain(|prefab| locations.contains_key(&prefab.entity));
         result.unresolved_rows += missing_roots;
+        let enabled = if linked {
+            Some(EnabledSceneRows::read(scene, &resolved)?)
+        } else {
+            None
+        };
         let mut external = rustc_hash::FxHashMap::default();
         if linked {
             let mut ambiguous = rustc_hash::FxHashSet::default();
@@ -432,6 +441,7 @@ impl ScenePrefabCatalog {
                             (chunk, row),
                             &ordinals,
                             Some(&external),
+                            enabled.as_ref(),
                         )
                     })
                     .collect::<Result<_>>()?;
@@ -450,8 +460,15 @@ impl ScenePrefabCatalog {
                 );
             } else {
                 let ordinals = rustc_hash::FxHashMap::from_iter([(prefab.entity, 0)]);
-                let values =
-                    extract_values(&resolved, &buffers, layouts, (chunk, row), &ordinals, None)?;
+                let values = extract_values(
+                    &resolved,
+                    &buffers,
+                    layouts,
+                    (chunk, row),
+                    &ordinals,
+                    None,
+                    None,
+                )?;
                 ensure!(
                     result
                         .instance_templates
@@ -472,12 +489,13 @@ fn extract_values(
     (chunk, row): (usize, usize),
     ordinals: &rustc_hash::FxHashMap<Entity, usize>,
     external: Option<&rustc_hash::FxHashMap<Entity, PrefabMemberKey>>,
+    enabled: Option<&EnabledSceneRows>,
 ) -> Result<Vec<PrefabTemplateValue>> {
     let arch = resolved.archetypes[resolved.chunks[chunk].header.archetype_index as usize]
         .as_ref()
         .context("unresolved prefab archetype")?;
     let mut template = Vec::new();
-    for (&stable_hash, &ty) in arch.hashes.iter().zip(&arch.types) {
+    for (slot, (&stable_hash, &ty)) in arch.hashes.iter().zip(&arch.types).enumerate() {
         if [
             ENTITY_HASH,
             PREFAB_TAG_HASH,
@@ -507,7 +525,7 @@ fn extract_values(
             || layout.name.starts_with("ProjectM.Network.")
             || ty.is_chunk_component()
             || (ty.is_zero_sized() && external.is_none())
-            || ty.is_enableable()
+            || (ty.is_enableable() && enabled.is_none())
             || ty.is_cleanup_component()
             || !matches!(
                 layout.spec.category,
@@ -517,10 +535,22 @@ fn extract_values(
         {
             continue;
         }
+        let is_enabled = if ty.is_enableable() {
+            let memory_slot = usize::try_from(arch.data.layout.archetype_to_memory_order[slot])?;
+            Some(enabled.context("missing prefab enable data")?.get(
+                chunk,
+                row,
+                memory_slot,
+                resolved.chunks[chunk].header.count,
+            )?)
+        } else {
+            None
+        };
         if ty.is_zero_sized() {
             template.push(PrefabTemplateValue {
                 stable_hash,
                 is_buffer: false,
+                enabled: is_enabled,
                 bytes: Vec::new(),
                 reference_patches: Vec::new(),
                 external_patches: Vec::new(),
@@ -552,6 +582,7 @@ fn extract_values(
         template.push(PrefabTemplateValue {
             stable_hash,
             is_buffer: ty.is_buffer(),
+            enabled: is_enabled,
             bytes: bytes.to_vec(),
             reference_patches: patches.local,
             external_patches: patches.external,

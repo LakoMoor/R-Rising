@@ -16,7 +16,7 @@ use rrising_ecs::{
 };
 use serde_json::Value;
 
-use crate::entity_scenes::{SceneArchetypes, SceneChunk, SceneFile};
+use crate::entity_scenes::{SceneArchetypes, SceneChunk, SceneEnabledBits, SceneFile};
 
 /// Chunk bytes a managed `IComponentData` class occupies per entity (a managed-store index).
 pub const MANAGED_COMPONENT_SLOT_BYTES: i32 = 4;
@@ -477,6 +477,50 @@ pub struct ResolvedScene<'a> {
     pub archetypes: Vec<Option<ResolvedArchetype>>,
     pub chunks: Vec<SceneChunk<'a>>,
     pub summary: LayoutValidation,
+}
+
+pub(crate) struct EnabledSceneRows {
+    data: SceneEnabledBits,
+    starts: Vec<usize>,
+}
+
+impl EnabledSceneRows {
+    pub(crate) fn read(scene: &SceneFile, resolved: &ResolvedScene<'_>) -> Result<Self> {
+        let data = scene.enabled_bits()?;
+        let mut next = Vec::with_capacity(data.chunk_counts.len());
+        let mut offset = 0;
+        for (&chunks, &width) in data.chunk_counts.iter().zip(&data.component_counts) {
+            next.push(offset);
+            offset += chunks * width;
+        }
+        let starts = resolved
+            .chunks
+            .iter()
+            .map(|chunk| {
+                let archetype = usize::try_from(chunk.header.archetype_index)?;
+                let start = next
+                    .get_mut(archetype)
+                    .context("missing scene enable archetype")?;
+                let base = *start;
+                *start += data.component_counts[archetype];
+                Ok(base)
+            })
+            .collect::<Result<_>>()?;
+        Ok(Self { data, starts })
+    }
+
+    pub(crate) fn get(&self, chunk: usize, row: usize, slot: usize, count: i32) -> Result<bool> {
+        let index = self.starts[chunk] + slot;
+        let mask = self
+            .data
+            .masks
+            .get(index)
+            .context("missing scene enable mask")?;
+        let disabled = self.data.hierarchical[index];
+        ensure!(row < 128 && disabled >= 0 && mask.enabled_count() as i32 + disabled == count,
+            "inconsistent scene enable mask: chunk {chunk}, slot {slot}, count {count}, mask {mask:?}, disabled {disabled}");
+        Ok(mask.is_enabled(row as i32))
+    }
 }
 
 fn slice_component<'a>(

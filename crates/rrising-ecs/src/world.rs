@@ -223,14 +223,11 @@ impl World {
         Ok(rep)
     }
 
-    /// Number of entities matched by the query (sum of matching chunk counts).
+    /// Number of matching rows after applying enable masks.
     pub fn query_count(&self, q: &EntityQuery) -> usize {
         self.store
-            .query_chunks(q)
-            .into_iter()
-            .filter_map(|c| self.store.chunk(c))
-            .map(|c| c.count as usize)
-            .sum()
+            .query_entity_count(q)
+            .expect("valid query chunk metadata")
     }
     /// FNV-1a 64 over all per-entity component bytes (archetype order, chunk-list order, type
     /// order inside the archetype), plus entity counts. Independent of change versions. A

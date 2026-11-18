@@ -22,6 +22,7 @@ fn all_scenes_build_worlds_with_every_entity() {
     assert_eq!(paths.len(), 1183);
     let (mut entities, mut live, mut chunks_in, mut chunks_built) = (0usize, 0usize, 0, 0);
     let mut counts = [0usize; 3];
+    let mut disabled = 0;
     let mut build_time = std::time::Duration::ZERO;
     for path in &paths {
         let scene = SceneFile::open(path).expect("scene");
@@ -31,6 +32,20 @@ fn all_scenes_build_worlds_with_every_entity() {
         build_time += t.elapsed();
         entities += sw.stats.entities;
         chunks_in += sw.stats.chunks;
+        disabled += sw.stats.disabled_components;
+        let mut stored_disabled = 0;
+        for archetype in sw.world.store.archetypes() {
+            for &slot in &archetype.archetype.enableable_type_index_in_archetype {
+                for chunk_index in 0..archetype.chunk_data.count() {
+                    stored_disabled += archetype
+                        .chunk_data
+                        .get_chunk_disabled_count_for_type(slot as usize, chunk_index)
+                        .expect("stored disable count")
+                        as usize;
+                }
+            }
+        }
+        assert_eq!(stored_disabled, sw.stats.disabled_components);
         assert_eq!(sw.world.entities.len(), sw.stats.entities);
         for e in &sw.world.entities {
             assert!(sw.world.store.exists(*e).expect("exists"), "{e:?}");
@@ -59,9 +74,10 @@ fn all_scenes_build_worlds_with_every_entity() {
             }
         }
     }
-    println!("world build total {build_time:?}; entities={entities} chunks scene={chunks_in} store={chunks_built} translation/localtransform/localtoworld={counts:?}");
+    println!("world build total {build_time:?}; entities={entities} chunks scene={chunks_in} store={chunks_built} translation/localtransform/localtoworld={counts:?}; disabled={disabled}");
     assert_eq!(entities, 1_385_671);
     assert_eq!(live, 1_385_671);
+    assert_eq!(disabled, 162);
     assert!(counts.iter().any(|&c| c > 0));
 }
 
