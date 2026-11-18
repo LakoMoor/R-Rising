@@ -37,6 +37,7 @@ struct Options {
     import_web: Option<PathBuf>,
     inspect_scene: Option<PathBuf>,
     inspect_save: Option<PathBuf>,
+    clone_prefab: Option<i32>,
     restore_projection: bool,
     scene: Option<PathBuf>,
     type_layouts: Option<PathBuf>,
@@ -67,6 +68,7 @@ fn parse_args() -> Result<Options> {
         import_web: None,
         inspect_scene: None,
         inspect_save: None,
+        clone_prefab: None,
         restore_projection: false,
         scene: None,
         type_layouts: None,
@@ -89,6 +91,9 @@ fn parse_args() -> Result<Options> {
             "--height" => opt.height = take()?.parse().context("--height takes a number")?,
             "--inspect-scene" => opt.inspect_scene = Some(PathBuf::from(take()?)),
             "--inspect-save" => opt.inspect_save = Some(PathBuf::from(take()?)),
+            "--clone-prefab" => {
+                opt.clone_prefab = Some(take()?.parse().context("expected a signed prefab GUID")?)
+            }
             "--restore-projection" => opt.restore_projection = true,
             "--scene" => opt.scene = Some(PathBuf::from(take()?)),
             "--scene-sim" => {
@@ -111,6 +116,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         !opt.restore_projection || (opt.inspect_save.is_some() && opt.type_layouts.is_some()),
         "--restore-projection requires --inspect-save, --type-layouts and server data via --data"
+    );
+    anyhow::ensure!(
+        opt.clone_prefab.is_none() || (opt.inspect_save.is_none() && opt.type_layouts.is_some()),
+        "--clone-prefab requires --type-layouts and server data via --data"
     );
     anyhow::ensure!(
         opt.scene_sim.is_none() || (opt.scene.is_some() && opt.scene_sim != Some(0)),
@@ -1297,6 +1306,48 @@ fn bench(opt: &Options) -> Result<()> {
 fn main() -> Result<()> {
     env_logger::init();
     let opt = parse_args()?;
+    if let Some(guid) = opt.clone_prefab {
+        use rrising_content::{
+            prefab_catalog::ScenePrefabCatalog,
+            type_layouts::{TypeLayouts, ENTITY_HASH},
+        };
+        use rrising_ecs::{EntityComponentStore, SpecialTypes, TypeManager, TypeSpec};
+        let path = opt
+            .type_layouts
+            .as_ref()
+            .context("missing server layout report")?;
+        let layouts = TypeLayouts::from_server_json(&std::fs::read(path)?)?;
+        let entity = layouts.get(ENTITY_HASH).context("missing entity layout")?;
+        anyhow::ensure!(
+            entity.portable_value,
+            "regenerate the extended server layout report"
+        );
+        let template = ScenePrefabCatalog::read_server_linked_prefab(&opt.data, &layouts, guid)?;
+        let mut types = TypeManager::default();
+        types.register(TypeSpec::tag("<reserved null>"))?;
+        let entity_type = types.register(entity.spec.clone())?;
+        let mut store = EntityComponentStore::new(
+            i32::try_from(template.members.len() + 2)?,
+            SpecialTypes::new(entity_type),
+        )?;
+        let handles = template.instantiate(&mut store, &mut types, &layouts)?;
+        let copied_values: usize = template.members.iter().map(Vec::len).sum();
+        let references: usize = template
+            .members
+            .iter()
+            .flatten()
+            .map(|value| value.reference_patches.len())
+            .sum();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "kind": "server-prefab-clone-projection", "prefab_guid": guid,
+                "entities": handles.len(), "copied_values": copied_values,
+                "remapped_references": references,
+            }))?
+        );
+        return Ok(());
+    }
     if let Some(path) = &opt.inspect_save {
         let save = PersistentSave::open(path)?;
         let snapshot = SavedSnapshot::read(&save)?;

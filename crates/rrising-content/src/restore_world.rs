@@ -425,20 +425,8 @@ impl RestoredWorldProjection {
                 )?;
                 if let Some(values) = instance_templates.get(&entry.prefab_guid) {
                     for (ty, value) in values {
-                        let bytes = if value.self_reference_offsets.is_empty() {
-                            value.bytes.as_slice()
-                        } else {
-                            patched.clear();
-                            patched.extend_from_slice(&value.bytes);
-                            for &offset in &value.self_reference_offsets {
-                                patched[offset..offset + 4]
-                                    .copy_from_slice(&instance.index.to_le_bytes());
-                                patched[offset + 4..offset + 8]
-                                    .copy_from_slice(&instance.version.to_le_bytes());
-                                mega_static_template_self_references += 1;
-                            }
-                            &patched
-                        };
+                        let bytes = value.patch(&[instance], &mut patched)?;
+                        mega_static_template_self_references += value.reference_patches.len();
                         if value.is_buffer {
                             store.set_buffer_payload(&types, instance, *ty, bytes)?;
                         } else {

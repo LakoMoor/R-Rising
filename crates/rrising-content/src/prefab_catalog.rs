@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{ensure, Context, Result};
-use rrising_ecs::{Entity, TypeCategory, TypeIndex};
+use rrising_ecs::{Entity, EntityComponentStore, TypeCategory, TypeIndex, TypeManager};
 
-use crate::entity_scenes::SceneFile;
+use crate::entity_scenes::{SceneBufferData, SceneFile};
 use crate::persistence::PrefabReference;
 use crate::type_layouts::{
-    TypeLayouts, ENTITY_HASH, LOCAL_TO_WORLD_HASH, LOCAL_TRANSFORM_HASH, ROTATION_HASH,
-    TRANSLATION_HASH,
+    ResolvedScene, TypeLayouts, ENTITY_HASH, LOCAL_TO_WORLD_HASH, LOCAL_TRANSFORM_HASH,
+    ROTATION_HASH, TRANSLATION_HASH,
 };
 
 pub const REGISTER_PREFAB_HASH: u64 = 0xa965_c72e_229a_11cf;
@@ -35,6 +35,7 @@ pub struct ScenePrefabCatalog {
     /// Candidate root rows whose component layout could not be reconstructed.
     pub unresolved_rows: usize,
     pub instance_templates: BTreeMap<i32, Vec<PrefabTemplateValue>>,
+    pub linked_templates: BTreeMap<i32, LinkedPrefabTemplate>,
 }
 
 #[derive(Debug)]
@@ -42,10 +43,134 @@ pub struct PrefabTemplateValue {
     pub stable_hash: u64,
     pub is_buffer: bool,
     pub bytes: Vec<u8>,
-    pub self_reference_offsets: Vec<usize>,
+    pub reference_patches: Vec<(usize, usize)>,
+}
+
+#[derive(Debug)]
+pub struct LinkedPrefabTemplate {
+    pub members: Vec<Vec<PrefabTemplateValue>>,
+    pub has_group: bool,
+}
+
+impl LinkedPrefabTemplate {
+    /// Clones the admitted values into fresh ECS rows and points group-local references
+    /// at the corresponding fresh row. The returned handles follow LinkedEntityGroup order.
+    pub fn instantiate(
+        &self,
+        store: &mut EntityComponentStore,
+        types: &mut TypeManager,
+        layouts: &TypeLayouts,
+    ) -> Result<Vec<Entity>> {
+        ensure!(!self.members.is_empty(), "prefab template has no root");
+        let mut registry = rustc_hash::FxHashMap::default();
+        for info in types.infos() {
+            registry.insert(info.stable_type_hash, info.type_index);
+        }
+        let mut register = |hash| -> Result<TypeIndex> {
+            match registry.entry(hash) {
+                std::collections::hash_map::Entry::Occupied(entry) => Ok(*entry.get()),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let layout = layouts.get(hash).context("missing linked prefab layout")?;
+                    Ok(*entry.insert(types.register(layout.spec.clone())?))
+                }
+            }
+        };
+        let group = self
+            .has_group
+            .then(|| register(LINKED_ENTITY_GROUP_HASH))
+            .transpose()?;
+        let typed: Vec<Vec<TypeIndex>> = self
+            .members
+            .iter()
+            .map(|values| {
+                values
+                    .iter()
+                    .map(|value| register(value.stable_hash))
+                    .collect::<Result<_>>()
+            })
+            .collect::<Result<_>>()?;
+        let mut instances = Vec::with_capacity(typed.len());
+        for (ordinal, member_types) in typed.iter().enumerate() {
+            let mut set = member_types.clone();
+            if ordinal == 0 {
+                set.extend(group);
+            }
+            let arch = store.get_or_create_archetype(types, &set)?;
+            instances.push(store.create_entity(arch)?);
+        }
+        let mut scratch = Vec::new();
+        for ((values, typed), &entity) in self.members.iter().zip(&typed).zip(&instances) {
+            for (value, &ty) in values.iter().zip(typed) {
+                let payload = value.patch(&instances, &mut scratch)?;
+                if value.is_buffer {
+                    store.set_buffer_payload(types, entity, ty, payload)?;
+                } else {
+                    store.set_component_bytes(entity, ty, payload)?;
+                }
+            }
+        }
+        if let Some(group) = group {
+            let packed: Vec<u8> = instances
+                .iter()
+                .flat_map(|entity| {
+                    entity
+                        .index
+                        .to_le_bytes()
+                        .into_iter()
+                        .chain(entity.version.to_le_bytes())
+                })
+                .collect();
+            store.set_buffer_payload(types, instances[0], group, &packed)?;
+        }
+        Ok(instances)
+    }
+}
+
+impl PrefabTemplateValue {
+    pub(crate) fn patch<'a>(
+        &'a self,
+        instances: &[Entity],
+        scratch: &'a mut Vec<u8>,
+    ) -> Result<&'a [u8]> {
+        if self.reference_patches.is_empty() {
+            return Ok(&self.bytes);
+        }
+        scratch.clear();
+        scratch.extend_from_slice(&self.bytes);
+        for &(offset, ordinal) in &self.reference_patches {
+            let entity = instances
+                .get(ordinal)
+                .context("invalid prefab reference ordinal")?;
+            let target = scratch
+                .get_mut(offset..offset + 8)
+                .context("invalid prefab reference offset")?;
+            target[..4].copy_from_slice(&entity.index.to_le_bytes());
+            target[4..].copy_from_slice(&entity.version.to_le_bytes());
+        }
+        Ok(scratch)
+    }
 }
 
 impl ScenePrefabCatalog {
+    pub fn read_server_linked_prefab(
+        data_dir: &std::path::Path,
+        layouts: &TypeLayouts,
+        guid: i32,
+    ) -> Result<LinkedPrefabTemplate> {
+        let directory = data_dir.join("StreamingAssets/EntityScenes");
+        let requested = BTreeSet::from([guid]);
+        let mut template = None;
+        for (scene_id, _) in SERVER_PREFAB_SCENES {
+            let scene = SceneFile::open(&directory.join(format!("{scene_id}.0.entities")))?;
+            let mut catalog = Self::read_linked_templates(&scene, layouts, &requested)?;
+            if let Some(found) = catalog.linked_templates.remove(&guid) {
+                ensure!(template.is_none(), "duplicate server prefab GUID {guid}");
+                template = Some(found);
+            }
+        }
+        template.with_context(|| format!("unknown server prefab GUID {guid}"))
+    }
+
     pub fn read_server_game_data(
         data_dir: &std::path::Path,
         layouts: &TypeLayouts,
@@ -64,7 +189,7 @@ impl ScenePrefabCatalog {
             .iter()
             .map(|(scene_id, expected)| {
                 let scene = SceneFile::open(&directory.join(format!("{scene_id}.0.entities")))?;
-                let catalog = Self::read_with_templates(&scene, layouts, requested)
+                let catalog = Self::read_with_templates(&scene, layouts, requested, false)
                     .with_context(|| format!("reading {scene_id} prefab registrations"))?;
                 ensure!(
                     catalog.unresolved_rows == 0 && catalog.prefabs.len() == *expected,
@@ -77,13 +202,23 @@ impl ScenePrefabCatalog {
 
     /// Extracts scene-local handles. Different scenes must be remapped before joining catalogs.
     pub fn read(scene: &SceneFile, layouts: &TypeLayouts) -> Result<Self> {
-        Self::read_with_templates(scene, layouts, &BTreeSet::new())
+        Self::read_with_templates(scene, layouts, &BTreeSet::new(), false)
+    }
+
+    /// Reads cloneable values of selected roots and all of their linked members.
+    pub fn read_linked_templates(
+        scene: &SceneFile,
+        layouts: &TypeLayouts,
+        requested: &BTreeSet<i32>,
+    ) -> Result<Self> {
+        Self::read_with_templates(scene, layouts, requested, true)
     }
 
     fn read_with_templates(
         scene: &SceneFile,
         layouts: &TypeLayouts,
         requested: &BTreeSet<i32>,
+        linked: bool,
     ) -> Result<Self> {
         let resolved = layouts.resolve_scene(scene)?;
         let buffers = scene.buffer_data()?;
@@ -140,9 +275,9 @@ impl ScenePrefabCatalog {
                 missing_roots += 1;
                 continue;
             };
-            let linked =
+            let linked_bytes =
                 resolved.buffer_payload(&buffers, chunk, row, LINKED_ENTITY_GROUP_HASH, 8)?;
-            prefab.linked_entities = linked
+            prefab.linked_entities = linked_bytes
                 .unwrap_or_default()
                 .as_chunks::<8>()
                 .0
@@ -166,82 +301,55 @@ impl ScenePrefabCatalog {
             if !requested.contains(&prefab.prefab_guid) {
                 continue;
             }
-            let arch = resolved.archetypes[resolved.chunks[chunk].header.archetype_index as usize]
-                .as_ref()
-                .context("unresolved prefab archetype")?;
-            let mut template = Vec::new();
-            for (&stable_hash, &ty) in arch.hashes.iter().zip(&arch.types) {
-                if [
-                    ENTITY_HASH,
-                    PREFAB_GUID_HASH,
-                    STATIC_INDEX_HASH,
-                    TRANSLATION_HASH,
-                    ROTATION_HASH,
-                    LOCAL_TO_WORLD_HASH,
-                    LOCAL_TRANSFORM_HASH,
-                    LINKED_ENTITY_GROUP_HASH,
-                    REGISTER_PREFAB_HASH,
-                    REGISTER_PREFAB_EVENT_HASH,
-                    REGISTER_COLLECTION_HASH,
-                ]
-                .contains(&stable_hash)
-                {
-                    continue;
-                }
-                let layout = layouts
-                    .get(stable_hash)
-                    .context("missing prefab component layout")?;
-                if !layout.portable_value
-                    || layout.name.starts_with("ProjectM.Network.")
-                    || ty.is_chunk_component()
-                    || ty.is_zero_sized()
-                    || ty.is_enableable()
-                    || ty.is_cleanup_component()
-                    || !matches!(
-                        layout.spec.category,
-                        TypeCategory::ComponentData | TypeCategory::BufferData
-                    )
-                    || ty.value as u32 & (TypeIndex::K_MANAGED_MASK | TypeIndex::K_CLEANUP_MASK)
-                        != 0
-                {
-                    continue;
-                }
-                let bytes = if ty.is_buffer() {
-                    resolved.buffer_payload(
-                        &buffers,
-                        chunk,
-                        row,
-                        stable_hash,
-                        usize::try_from(layout.spec.element_size)?,
-                    )?
+            if linked {
+                let members = if prefab.linked_entities.is_empty() {
+                    std::slice::from_ref(&prefab.entity)
                 } else {
-                    resolved.component_bytes(chunk, row, stable_hash)?
-                }
-                .context("selected prefab component bytes missing")?;
-                let stride = usize::try_from(if ty.is_buffer() {
-                    layout.spec.element_size
-                } else {
-                    layout.spec.size_in_chunk
-                })?;
-                let Some(self_reference_offsets) =
-                    root_reference_offsets(bytes, stride, &layout.entity_offsets, prefab.entity)?
-                else {
-                    continue;
+                    &prefab.linked_entities
                 };
-                template.push(PrefabTemplateValue {
-                    stable_hash,
-                    is_buffer: ty.is_buffer(),
-                    bytes: bytes.to_vec(),
-                    self_reference_offsets,
-                });
+                let ordinals: rustc_hash::FxHashMap<_, _> = members
+                    .iter()
+                    .enumerate()
+                    .map(|(ordinal, &entity)| (entity, ordinal))
+                    .collect();
+                ensure!(
+                    ordinals.len() == members.len(),
+                    "duplicate linked prefab member"
+                );
+                let values = members
+                    .iter()
+                    .map(|entity| {
+                        let &(chunk, row) = locations
+                            .get(entity)
+                            .context("missing linked prefab member")?;
+                        extract_values(&resolved, &buffers, layouts, chunk, row, &ordinals, true)
+                    })
+                    .collect::<Result<_>>()?;
+                ensure!(
+                    result
+                        .linked_templates
+                        .insert(
+                            prefab.prefab_guid,
+                            LinkedPrefabTemplate {
+                                members: values,
+                                has_group: !prefab.linked_entities.is_empty(),
+                            }
+                        )
+                        .is_none(),
+                    "duplicate linked prefab template"
+                );
+            } else {
+                let ordinals = rustc_hash::FxHashMap::from_iter([(prefab.entity, 0)]);
+                let values =
+                    extract_values(&resolved, &buffers, layouts, chunk, row, &ordinals, false)?;
+                ensure!(
+                    result
+                        .instance_templates
+                        .insert(prefab.prefab_guid, values)
+                        .is_none(),
+                    "duplicate prefab template GUID"
+                );
             }
-            ensure!(
-                result
-                    .instance_templates
-                    .insert(prefab.prefab_guid, template)
-                    .is_none(),
-                "duplicate prefab template GUID"
-            );
         }
         result
             .prefabs
@@ -249,6 +357,90 @@ impl ScenePrefabCatalog {
         result.unresolved_rows += missing_roots;
         Ok(result)
     }
+}
+
+fn extract_values(
+    resolved: &ResolvedScene<'_>,
+    buffers: &SceneBufferData<'_>,
+    layouts: &TypeLayouts,
+    chunk: usize,
+    row: usize,
+    ordinals: &rustc_hash::FxHashMap<Entity, usize>,
+    linked: bool,
+) -> Result<Vec<PrefabTemplateValue>> {
+    let arch = resolved.archetypes[resolved.chunks[chunk].header.archetype_index as usize]
+        .as_ref()
+        .context("unresolved prefab archetype")?;
+    let mut template = Vec::new();
+    for (&stable_hash, &ty) in arch.hashes.iter().zip(&arch.types) {
+        if [
+            ENTITY_HASH,
+            LINKED_ENTITY_GROUP_HASH,
+            REGISTER_PREFAB_HASH,
+            REGISTER_PREFAB_EVENT_HASH,
+            REGISTER_COLLECTION_HASH,
+        ]
+        .contains(&stable_hash)
+            || (!linked
+                && [
+                    PREFAB_GUID_HASH,
+                    STATIC_INDEX_HASH,
+                    TRANSLATION_HASH,
+                    ROTATION_HASH,
+                    LOCAL_TO_WORLD_HASH,
+                    LOCAL_TRANSFORM_HASH,
+                ]
+                .contains(&stable_hash))
+        {
+            continue;
+        }
+        let layout = layouts
+            .get(stable_hash)
+            .context("missing prefab component layout")?;
+        if !layout.portable_value
+            || layout.name.starts_with("ProjectM.Network.")
+            || ty.is_chunk_component()
+            || ty.is_zero_sized()
+            || ty.is_enableable()
+            || ty.is_cleanup_component()
+            || !matches!(
+                layout.spec.category,
+                TypeCategory::ComponentData | TypeCategory::BufferData
+            )
+            || ty.value as u32 & (TypeIndex::K_MANAGED_MASK | TypeIndex::K_CLEANUP_MASK) != 0
+        {
+            continue;
+        }
+        let bytes = if ty.is_buffer() {
+            resolved.buffer_payload(
+                buffers,
+                chunk,
+                row,
+                stable_hash,
+                usize::try_from(layout.spec.element_size)?,
+            )?
+        } else {
+            resolved.component_bytes(chunk, row, stable_hash)?
+        }
+        .context("selected prefab component bytes missing")?;
+        let stride = usize::try_from(if ty.is_buffer() {
+            layout.spec.element_size
+        } else {
+            layout.spec.size_in_chunk
+        })?;
+        let Some(reference_patches) =
+            group_reference_offsets(bytes, stride, &layout.entity_offsets, ordinals)?
+        else {
+            continue;
+        };
+        template.push(PrefabTemplateValue {
+            stable_hash,
+            is_buffer: ty.is_buffer(),
+            bytes: bytes.to_vec(),
+            reference_patches,
+        });
+    }
+    Ok(template)
 }
 
 fn read_entity(bytes: &[u8]) -> Result<Entity> {
@@ -259,12 +451,12 @@ fn read_entity(bytes: &[u8]) -> Result<Entity> {
     ))
 }
 
-fn root_reference_offsets(
+fn group_reference_offsets(
     bytes: &[u8],
     stride: usize,
     offsets: &[i32],
-    root: Entity,
-) -> Result<Option<Vec<usize>>> {
+    ordinals: &rustc_hash::FxHashMap<Entity, usize>,
+) -> Result<Option<Vec<(usize, usize)>>> {
     ensure!(
         stride > 0 && bytes.len().is_multiple_of(stride),
         "invalid prefab component stride"
@@ -281,10 +473,10 @@ fn root_reference_offsets(
             if source == Entity::NULL {
                 continue;
             }
-            if source != root {
+            let Some(&ordinal) = ordinals.get(&source) else {
                 return Ok(None);
-            }
-            patches.push(index * stride + offset);
+            };
+            patches.push((index * stride + offset, ordinal));
         }
     }
     Ok(Some(patches))
@@ -297,16 +489,17 @@ mod tests {
     #[test]
     fn prefab_root_reference_patch_plan_checks_all_buffer_elements_and_versions() -> Result<()> {
         let root = Entity::new(114, 2);
+        let ordinals = rustc_hash::FxHashMap::from_iter([(root, 0)]);
         let mut buffer = [0; 24];
         buffer[16..20].copy_from_slice(&root.index.to_le_bytes());
         buffer[20..24].copy_from_slice(&root.version.to_le_bytes());
         assert_eq!(
-            root_reference_offsets(&buffer, 12, &[4], root)?,
-            Some(vec![16])
+            group_reference_offsets(&buffer, 12, &[4], &ordinals)?,
+            Some(vec![(16, 0)])
         );
         buffer[20..24].copy_from_slice(&1i32.to_le_bytes());
-        assert_eq!(root_reference_offsets(&buffer, 12, &[4], root)?, None);
-        assert!(root_reference_offsets(&buffer, 12, &[5], root).is_err());
+        assert_eq!(group_reference_offsets(&buffer, 12, &[4], &ordinals)?, None);
+        assert!(group_reference_offsets(&buffer, 12, &[5], &ordinals).is_err());
         Ok(())
     }
 }

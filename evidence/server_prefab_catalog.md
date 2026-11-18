@@ -88,3 +88,30 @@ including scene entities beyond this prefab projection, remains unverified.
 
 The [MegaStatic reference audit](save_mega_statics.md) traces the unresolved
 references and derives prefab and placement keys for the missing instances.
+
+An independent prefab clone projection now exercises the registered groups
+that the captured MegaStatic instances do not use. The pinned native
+`InstantiateEntitiesGroup` (RVA `0x907bc10`) allocates clone rows and
+uses `PatchEntitiesForPrefab` (`0x91901d0`) to rewrite references.
+The Rust path records in-group target ordinals from recovered scalar and
+buffer layouts. It allocates fresh handles before copying values, rebuilds
+the root's LinkedEntityGroup, and rewrites each supported field using the
+handles of that clone. Null references remain null. Values whose references
+leave the group are omitted until external entity mapping is available.
+Tags, special storage, pointers, network state, and runtime gameplay
+remain outside this projection.
+
+Tests clone all 1,772 original linked groups twice (38,788 live rows).
+They compare 293,848 supported values and 39,500 remapped fields, including
+9,790 fields inside dynamic buffers. This is a test against original scene
+data, not a native execution replay. It does not insert any of those groups
+into the restored autosaves.
+
+```sh
+cargo run --locked -p rrising-app -- \
+  --data /path/to/VRisingServer_Data --type-layouts /tmp/rrising-server-layouts.json \
+  --clone-prefab -609878016
+```
+
+The example checks a four-member group and reports 69 copied values and
+10 remapped references.

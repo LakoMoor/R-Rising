@@ -336,3 +336,110 @@ fn server_scene_layouts_fit_every_serialized_chunk() -> Result<()> {
     assert_eq!(counts, [372, 10464, 14128, 512967]);
     Ok(())
 }
+
+#[test]
+#[ignore = "requires the original server scenes and extended server layout report"]
+fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Result<()> {
+    use rrising_content::{prefab_catalog::LINKED_ENTITY_GROUP_HASH, type_layouts::ENTITY_HASH};
+    use rrising_ecs::{EntityComponentStore, SpecialTypes, TypeManager, TypeSpec};
+
+    let data = local_path("VRISING_SERVER_DATA")?.join("StreamingAssets/EntityScenes");
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    assert!(
+        layouts.get(ENTITY_HASH).unwrap().portable_value,
+        "regenerate the extended server layout report"
+    );
+    let mut types = TypeManager::default();
+    types.register(TypeSpec::tag("<reserved null>"))?;
+    let entity = types.register(layouts.get(ENTITY_HASH).unwrap().spec.clone())?;
+    let prefab = types.register(layouts.get(0x616a_36e3_c0cf_ef8c).unwrap().spec.clone())?;
+    let linked = types.register(layouts.get(LINKED_ENTITY_GROUP_HASH).unwrap().spec.clone())?;
+    let mut store = EntityComponentStore::new(
+        50000,
+        SpecialTypes {
+            entity_type: entity,
+            prefab,
+            ..Default::default()
+        },
+    )?;
+    let mut totals = [0; 5];
+    for (scene_id, _) in SERVER_PREFAB_SCENES {
+        let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
+        let topology = ScenePrefabCatalog::read(&scene, &layouts)?;
+        let selected = topology
+            .prefabs
+            .iter()
+            .filter(|prefab| prefab.linked_entities.len() > 1)
+            .map(|prefab| prefab.prefab_guid)
+            .collect();
+        let source = ScenePrefabCatalog::read_linked_templates(&scene, &layouts, &selected)?;
+        assert_eq!(source.linked_templates.len(), selected.len());
+        for (guid, template) in &source.linked_templates {
+            totals[0] += 1;
+            totals[1] += template.members.len();
+            let original = topology
+                .prefabs
+                .iter()
+                .find(|entry| entry.prefab_guid == *guid)
+                .unwrap();
+            assert_eq!(template.members.len(), original.linked_entities.len());
+            let first = template.instantiate(&mut store, &mut types, &layouts)?;
+            let second = template.instantiate(&mut store, &mut types, &layouts)?;
+            let distinct: std::collections::HashSet<_> = first.iter().chain(&second).collect();
+            assert_eq!(distinct.len(), first.len() + second.len());
+            for group in [first, second] {
+                let list = store.buffer_payload(&types, group[0], linked)?;
+                assert!(list
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(read_handle)
+                    .eq(group.iter().copied()));
+                for (values, &entity) in template.members.iter().zip(&group) {
+                    assert!(store.exists(entity)?);
+                    assert!(store.component_bytes(entity, prefab).is_err());
+                    for value in values {
+                        let ty = types
+                            .infos()
+                            .iter()
+                            .find(|info| info.stable_type_hash == value.stable_hash)
+                            .unwrap()
+                            .type_index;
+                        let got = if value.is_buffer {
+                            store.buffer_payload(&types, entity, ty)?
+                        } else {
+                            store.component_bytes(entity, ty)?
+                        };
+                        let mut expected = value.bytes.clone();
+                        for &(offset, target) in &value.reference_patches {
+                            assert_eq!(
+                                read_handle(expected[offset..offset + 8].try_into()?),
+                                original.linked_entities[target]
+                            );
+                            expected[offset..offset + 4]
+                                .copy_from_slice(&group[target].index.to_le_bytes());
+                            expected[offset + 4..offset + 8]
+                                .copy_from_slice(&group[target].version.to_le_bytes());
+                            totals[3] += 1;
+                            if value.is_buffer {
+                                totals[4] += 1;
+                            }
+                        }
+                        assert_eq!(
+                            got,
+                            expected,
+                            "{guid} / {}",
+                            layouts.get(value.stable_hash).unwrap().name
+                        );
+                        totals[2] += 1;
+                    }
+                }
+            }
+        }
+    }
+    println!("groups, original members, cloned values, remapped fields, remapped buffer fields: {totals:?}");
+    assert_eq!(totals, [1772, 19394, 293848, 39500, 9790]);
+    Ok(())
+}
