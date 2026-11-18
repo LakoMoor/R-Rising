@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     persistence::{MegaStaticRestorePlan, PrefabReference, SavedEntityBindings, SavedSnapshot},
-    prefab_catalog::ScenePrefabCatalog,
+    prefab_catalog::{LinkedPrefabTemplate, ScenePrefabCatalog},
     static_transforms::StaticTransformCatalog,
     type_layouts::{TypeLayouts, ENTITY_HASH, ROTATION_HASH, TRANSLATION_HASH},
 };
@@ -65,6 +65,22 @@ pub struct MissingReferences {
 }
 
 impl RestoredWorldProjection {
+    /// Clones supported components, preserving references to the registered live prefab members.
+    pub fn instantiate_prefab(
+        &mut self,
+        template: &LinkedPrefabTemplate,
+        layouts: &TypeLayouts,
+    ) -> Result<Vec<Entity>> {
+        let by_guid: BTreeMap<_, _> = self
+            .prefabs
+            .iter()
+            .map(|prefab| (prefab.prefab_guid, prefab))
+            .collect();
+        template.instantiate_with_external(&mut self.store, &mut self.types, layouts, |key| {
+            key.resolve(by_guid.get(&key.guid)?)
+        })
+    }
+
     /// Allocates real ECS handles for the prefab topology and every saved job row,
     /// then restores the validated scalar and buffer subset.
     pub fn build(

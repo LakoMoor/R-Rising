@@ -89,23 +89,30 @@ including scene entities beyond this prefab projection, remains unverified.
 The [MegaStatic reference audit](save_mega_statics.md) traces the unresolved
 references and derives prefab and placement keys for the missing instances.
 
-An independent prefab clone projection now exercises the registered groups
-that the captured MegaStatic instances do not use. The pinned native
-`InstantiateEntitiesGroup` (RVA `0x907bc10`) allocates clone rows and
-uses `PatchEntitiesForPrefab` (`0x91901d0`) to rewrite references.
-The Rust path records in-group target ordinals from recovered scalar and
-buffer layouts. It allocates fresh handles before copying values, rebuilds
-the root's LinkedEntityGroup, and rewrites each supported field using the
-handles of that clone. Null references remain null. Values whose references
-leave the group are omitted until external entity mapping is available.
-Tags, special storage, pointers, network state, and runtime gameplay
-remain outside this projection.
+The prefab clone projection follows the native group path:
+`InstantiateEntitiesGroup` (RVA `0x907bc10`) allocates clone rows and uses
+`PatchEntitiesForPrefab` (`0x91901d0`) to rewrite references. The Rust path
+records in-group target ordinals from recovered scalar and buffer layouts,
+allocates fresh handles, rebuilds LinkedEntityGroup, and patches the supported
+fields. It also retains ordinary zero-sized tags while excluding the Prefab
+marker, following the native instance archetype filtering path
+(`CreateInstanceArchetype`, RVA `0x9077bd0`). Enableable and cleanup components,
+special storage, pointers, network state and gameplay remain outside the
+projection.
 
-Tests clone all 1,772 original linked groups twice (38,788 live rows).
-They compare 293,848 supported values and 39,500 remapped fields, including
-9,790 fields inside dynamic buffers. This is a test against original scene
-data, not a native execution replay. It does not insert any of those groups
-into the restored autosaves.
+The full original catalog test clones all 23,583 prefab roots, including
+all 1,772 linked groups, twice (82,410 clone rows). It compares 1,220,570
+supported component values including 142,980 tag occurrences, and verifies
+50,296 in-group field patches, 13,218 of them in dynamic buffers. These
+are original asset checks; the clones are not added to the two autosaves.
+
+A cross-group reference can be represented as the GUID and linked-member
+ordinal of another unambiguous scene prefab. The restored ECS can resolve
+it to the already allocated member. Missing targets omit the whole component;
+stale supplied handles are rejected. The scanned supported values produced no
+such cross-group fields, so the resolver is exercised by a separate synthetic
+case, not claimed as observed native behavior. Unsupported external references
+remain outside the clone projection.
 
 ```sh
 cargo run --locked -p rrising-app -- \
@@ -113,5 +120,4 @@ cargo run --locked -p rrising-app -- \
   --clone-prefab -609878016
 ```
 
-The example checks a four-member group and reports 69 copied values and
-10 remapped references.
+The example clones four entities and remaps ten references.

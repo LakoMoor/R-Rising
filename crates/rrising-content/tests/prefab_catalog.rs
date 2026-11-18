@@ -340,7 +340,13 @@ fn server_scene_layouts_fit_every_serialized_chunk() -> Result<()> {
 #[test]
 #[ignore = "requires the original server scenes and extended server layout report"]
 fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Result<()> {
-    use rrising_content::{prefab_catalog::LINKED_ENTITY_GROUP_HASH, type_layouts::ENTITY_HASH};
+    use rrising_content::{
+        prefab_catalog::{
+            LinkedPrefabTemplate, PrefabMemberKey, PrefabTemplateValue, LINKED_ENTITY_GROUP_HASH,
+        },
+        type_layouts::ENTITY_HASH,
+        world_adapter::PARENT_HASH,
+    };
     use rrising_ecs::{EntityComponentStore, SpecialTypes, TypeManager, TypeSpec};
 
     let data = local_path("VRISING_SERVER_DATA")?.join("StreamingAssets/EntityScenes");
@@ -364,18 +370,36 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
             ..Default::default()
         },
     )?;
-    let mut totals = [0; 5];
+    let mut totals = [0; 7];
+    let existing = store.get_or_create_archetype(&types, &[prefab])?;
     for (scene_id, _) in SERVER_PREFAB_SCENES {
         let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
         let topology = ScenePrefabCatalog::read(&scene, &layouts)?;
         let selected = topology
             .prefabs
             .iter()
-            .filter(|prefab| prefab.linked_entities.len() > 1)
             .map(|prefab| prefab.prefab_guid)
             .collect();
         let source = ScenePrefabCatalog::read_linked_templates(&scene, &layouts, &selected)?;
         assert_eq!(source.linked_templates.len(), selected.len());
+        let sources_by_guid: BTreeMap<_, _> = topology
+            .prefabs
+            .iter()
+            .map(|prefab| (prefab.prefab_guid, prefab))
+            .collect();
+        let mut external = std::collections::HashMap::new();
+        for template in source.linked_templates.values() {
+            for &(_, key) in template
+                .members
+                .iter()
+                .flatten()
+                .flat_map(|value| &value.external_patches)
+            {
+                if let std::collections::hash_map::Entry::Vacant(entry) = external.entry(key) {
+                    entry.insert(store.create_entity(existing)?);
+                }
+            }
+        }
         for (guid, template) in &source.linked_templates {
             totals[0] += 1;
             totals[1] += template.members.len();
@@ -384,19 +408,32 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
                 .iter()
                 .find(|entry| entry.prefab_guid == *guid)
                 .unwrap();
-            assert_eq!(template.members.len(), original.linked_entities.len());
-            let first = template.instantiate(&mut store, &mut types, &layouts)?;
-            let second = template.instantiate(&mut store, &mut types, &layouts)?;
+            let original_members = if original.linked_entities.is_empty() {
+                std::slice::from_ref(&original.entity)
+            } else {
+                &original.linked_entities
+            };
+            assert_eq!(template.members.len(), original_members.len());
+            let first =
+                template.instantiate_with_external(&mut store, &mut types, &layouts, |key| {
+                    external.get(&key).copied()
+                })?;
+            let second =
+                template.instantiate_with_external(&mut store, &mut types, &layouts, |key| {
+                    external.get(&key).copied()
+                })?;
             let distinct: std::collections::HashSet<_> = first.iter().chain(&second).collect();
             assert_eq!(distinct.len(), first.len() + second.len());
             for group in [first, second] {
-                let list = store.buffer_payload(&types, group[0], linked)?;
-                assert!(list
-                    .as_chunks::<8>()
-                    .0
-                    .iter()
-                    .map(read_handle)
-                    .eq(group.iter().copied()));
+                if template.has_group {
+                    let list = store.buffer_payload(&types, group[0], linked)?;
+                    assert!(list
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
+                        .map(read_handle)
+                        .eq(group.iter().copied()));
+                }
                 for (values, &entity) in template.members.iter().zip(&group) {
                     assert!(store.exists(entity)?);
                     assert!(store.component_bytes(entity, prefab).is_err());
@@ -416,7 +453,7 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
                         for &(offset, target) in &value.reference_patches {
                             assert_eq!(
                                 read_handle(expected[offset..offset + 8].try_into()?),
-                                original.linked_entities[target]
+                                original_members[target]
                             );
                             expected[offset..offset + 4]
                                 .copy_from_slice(&group[target].index.to_le_bytes());
@@ -427,19 +464,68 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
                                 totals[4] += 1;
                             }
                         }
+                        for &(offset, key) in &value.external_patches {
+                            let target = external[&key];
+                            assert_eq!(
+                                read_handle(expected[offset..offset + 8].try_into()?),
+                                key.resolve(sources_by_guid[&key.guid]).unwrap()
+                            );
+                            assert_ne!(key.guid, *guid);
+                            assert!(!group.contains(&target));
+                            assert!(store.exists(target)?);
+                            expected[offset..offset + 4]
+                                .copy_from_slice(&target.index.to_le_bytes());
+                            expected[offset + 4..offset + 8]
+                                .copy_from_slice(&target.version.to_le_bytes());
+                            totals[5] += 1;
+                        }
                         assert_eq!(
                             got,
                             expected,
                             "{guid} / {}",
                             layouts.get(value.stable_hash).unwrap().name
                         );
+                        if value.bytes.is_empty() && !value.is_buffer {
+                            totals[6] += 1;
+                        }
                         totals[2] += 1;
                     }
                 }
             }
         }
     }
-    println!("groups, original members, cloned values, remapped fields, remapped buffer fields: {totals:?}");
-    assert_eq!(totals, [1772, 19394, 293848, 39500, 9790]);
+    println!("prefabs, original members, cloned values, remapped fields, remapped buffer fields, external fields, tags: {totals:?}");
+    assert_eq!(totals, [23583, 41205, 1220570, 50296, 13218, 0, 142980]);
+    let key = PrefabMemberKey {
+        guid: 123,
+        ordinal: 1,
+    };
+    let target = store.create_entity(existing)?;
+    let template = LinkedPrefabTemplate {
+        members: vec![vec![PrefabTemplateValue {
+            stable_hash: PARENT_HASH,
+            is_buffer: false,
+            bytes: vec![0; 8],
+            reference_patches: Vec::new(),
+            external_patches: vec![(0, key)],
+        }]],
+        has_group: false,
+    };
+    let resolved =
+        template.instantiate_with_external(&mut store, &mut types, &layouts, |found| {
+            assert_eq!(found, key);
+            Some(target)
+        })?;
+    let parent = types.type_index_of("Unity.Transforms.Parent").unwrap();
+    assert_eq!(
+        read_handle(store.component_bytes(resolved[0], parent)?.try_into()?),
+        target
+    );
+    let unresolved = template.instantiate(&mut store, &mut types, &layouts)?;
+    assert!(store.component_bytes(unresolved[0], parent).is_err());
+    store.destroy_entity(target)?;
+    assert!(template
+        .instantiate_with_external(&mut store, &mut types, &layouts, |_| Some(target))
+        .is_err());
     Ok(())
 }
