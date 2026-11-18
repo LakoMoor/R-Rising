@@ -9,14 +9,16 @@ use rrising_ecs::{
 use rustc_hash::FxHashMap;
 
 use crate::{
-    persistence::{PrefabReference, SavedEntityBindings, SavedSnapshot},
+    persistence::{MegaStaticRestorePlan, PrefabReference, SavedEntityBindings, SavedSnapshot},
     prefab_catalog::ScenePrefabCatalog,
-    type_layouts::{TypeLayouts, ENTITY_HASH},
+    static_transforms::StaticTransformCatalog,
+    type_layouts::{TypeLayouts, ENTITY_HASH, ROTATION_HASH, TRANSLATION_HASH},
 };
 
 const PREFAB_GUID: u64 = 0xb181_3197_8820_0ae1;
 const PREFAB_TAG: u64 = 0x616a_36e3_c0cf_ef8c;
 const LINKED_GROUP: u64 = 0xbea7_9ca4_5e4b_e521;
+const STATIC_INDEX: u64 = 0xdd17_1d94_8ccb_47ea;
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -42,6 +44,7 @@ pub struct RestoredWorldProjection {
     pub copied_buffer_rows: usize,
     pub copied_buffer_elements: usize,
     pub prefab_linked_groups: usize,
+    pub placed_mega_statics: usize,
     pub cleared_references: usize,
     pub missing_references: MissingReferences,
     pub admitted_saved_types: usize,
@@ -66,6 +69,26 @@ impl RestoredWorldProjection {
         layouts: &TypeLayouts,
         catalogs: &[ScenePrefabCatalog],
     ) -> Result<Self> {
+        Self::build_inner(snapshot, layouts, catalogs, None)
+    }
+
+    /// Includes MegaStatic identity and world transform in the projection before remapping saved references.
+    pub fn build_with_terrain(
+        snapshot: &SavedSnapshot<'_>,
+        layouts: &TypeLayouts,
+        catalogs: &[ScenePrefabCatalog],
+        plan: &MegaStaticRestorePlan,
+        terrain: &StaticTransformCatalog,
+    ) -> Result<Self> {
+        Self::build_inner(snapshot, layouts, catalogs, Some((plan, terrain)))
+    }
+
+    fn build_inner(
+        snapshot: &SavedSnapshot<'_>,
+        layouts: &TypeLayouts,
+        catalogs: &[ScenePrefabCatalog],
+        placement: Option<(&MegaStaticRestorePlan, &StaticTransformCatalog)>,
+    ) -> Result<Self> {
         let mut types = TypeManager::default();
         types.register(TypeSpec::tag("<reserved null>"))?;
         let mut register = |hash| -> Result<TypeIndex> {
@@ -80,6 +103,15 @@ impl RestoredWorldProjection {
         let entity_type = register(ENTITY_HASH)?;
         let prefab_tag = register(PREFAB_TAG)?;
         let prefab_guid = register(PREFAB_GUID)?;
+        let placement_types = if placement.is_some() {
+            Some((
+                register(STATIC_INDEX)?,
+                register(TRANSLATION_HASH)?,
+                register(ROTATION_HASH)?,
+            ))
+        } else {
+            None
+        };
         let mut scalars = FxHashMap::default();
         for (name, hash, stride, offsets) in SCALARS {
             let component = snapshot
@@ -153,6 +185,13 @@ impl RestoredWorldProjection {
             (PREFAB_TAG, prefab_tag),
             (PREFAB_GUID, prefab_guid),
         ]);
+        if let Some((index, translation, rotation)) = placement_types {
+            registered.extend([
+                (STATIC_INDEX, index),
+                (TRANSLATION_HASH, translation),
+                (ROTATION_HASH, rotation),
+            ]);
+        }
         for component in &snapshot.header().persistent_components {
             let saved_type = component.saved_type_index;
             let hash = component.stable_type_hash;
@@ -303,12 +342,50 @@ impl RestoredWorldProjection {
                 }
             }
         }
-        let bindings = snapshot.bind_entities(fresh, &prefabs)?;
+        let mut bindings = snapshot.bind_entities(fresh, &prefabs)?;
         ensure!(
             bindings.issues().is_empty(),
             "incomplete prefab/job bindings: {:?}",
             bindings.issues().first()
         );
+        let mut placed_mega_statics = 0;
+        if let (Some((plan, terrain)), Some((index, translation, rotation))) =
+            (placement, placement_types)
+        {
+            let arch = store
+                .get_or_create_archetype(&types, &[index, prefab_guid, translation, rotation])?;
+            let instances = store.create_entities(arch, plan.entries.len())?;
+            for (entry, instance) in plan.entries.iter().zip(instances) {
+                ensure!(
+                    bindings.target(entry.saved_prefab_root).is_some()
+                        && bindings.target(entry.saved_manager).is_some(),
+                    "unbound MegaStatic prefab or manager"
+                );
+                let transform = terrain
+                    .placed(entry.terrain_chunk, entry.transform_index)
+                    .context("missing baked transform for MegaStatic instance")?;
+                let packed_index =
+                    u32::from(entry.terrain_chunk) | (u32::from(entry.transform_index) << 16);
+                store.set_component_bytes(instance, index, &packed_index.to_le_bytes())?;
+                store.set_component_bytes(
+                    instance,
+                    prefab_guid,
+                    &entry.prefab_guid.to_le_bytes(),
+                )?;
+                store.set_component_bytes(
+                    instance,
+                    translation,
+                    transform.position.map(f32::to_le_bytes).as_flattened(),
+                )?;
+                store.set_component_bytes(
+                    instance,
+                    rotation,
+                    transform.rotation.map(f32::to_le_bytes).as_flattened(),
+                )?;
+                bindings.bind_recreated(entry.saved_instance, instance)?;
+                placed_mega_statics += 1;
+            }
+        }
         let mut copied_scalar_values = 0;
         let mut copied_buffer_rows = 0;
         let mut copied_buffer_elements = 0;
@@ -441,6 +518,7 @@ impl RestoredWorldProjection {
             copied_buffer_rows,
             copied_buffer_elements,
             prefab_linked_groups,
+            placed_mega_statics,
             cleared_references,
             missing_references,
             admitted_saved_types,

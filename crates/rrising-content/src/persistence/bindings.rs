@@ -53,6 +53,15 @@ impl SavedEntityBindings {
         &self.issues
     }
 
+    pub(crate) fn bind_recreated(&mut self, saved: Entity, current: Entity) -> Result<()> {
+        ensure!(
+            self.target(saved).is_none() && self.source(current).is_none(),
+            "duplicate recreated entity binding"
+        );
+        self.bind(saved, current);
+        Ok(())
+    }
+
     /// Patches Entity fields in scalar rows or buffer elements using validated server offsets.
     /// Returns the number of handles absent from the binding table and cleared by the loader.
     pub fn patch_references(

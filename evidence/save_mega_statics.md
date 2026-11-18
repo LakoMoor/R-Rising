@@ -31,8 +31,8 @@ with the wrap used by the native job. All occupied keys are unique. In both file
 resolve to known prefab GUIDs (1,182 distinct); 3,101 managers carry the
 buffer, with 4,216 vacant slots. Tests cross-check the active-child set
 and verify that the manager and prefab targets already exist in the
-projected ECS. The projection still clears missing references until the
-instances can be recreated and bound before patching.
+projected ECS. The projection without terrain still clears those references; the native CLI
+now enables the terrain stage described below.
 
 The baked transform lookup is now implemented. In the pinned server,
 `StaticTransformIndexLookup.TryFindTransform` at RVA `0x7888d90` uses
@@ -53,5 +53,20 @@ stored elements. Reuse of scene buffers lets the same data resolve all
 235,589 occupied placement keys in each save. Their terrain rotations
 are 0° for 143,043 entries, 90° for 23,792, 180° for 22,124 and 270°
 for 46,630. The native CLI reports these matches under `mega_static_plan`.
-Positions and quaternions are still section-local. World placement and
-instantiation are separate and have not been verified.
+The raw catalog returns section-local coordinates. The terrain projection
+applies translation by `(160 × x − 3200, 0, 160 × z − 3200)` and the
+terrain yaw about the section center `(80, 0, 80)`. Pinned native anchors
+are `TerrainChunk.GetWorldTransformMatrix` RVAs `0x78b9080` and
+`0x78b9140`; the buffer job `OffsetStaticNetworkedLookupJob.Execute`
+(`0x7afe0e0`) left-multiplies the baked rigid transform at `0x7afe417`
+and extracts rotation at `0x7afe459`. The Rust implementation follows
+that order. Tests independently check the four quarter-turn position
+formulas and quaternion equivalence to a yaw composed with the baked
+rotation; native float-bit replay has not been performed.
+
+The terrain stage places all 235,589 instances in Rust ECS with prefab
+GUID, static index, translation and rotation. It adds their saved handles
+before patching components, resolving 471,178 additional occurrences in
+each save. Only the 12 stale occurrences still clear. Tests read back all
+instance components and the referencing manager buffers. This stage does
+not copy full prefab archetypes or execute their behaviors.

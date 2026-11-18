@@ -1315,11 +1315,17 @@ fn main() -> Result<()> {
                 .context("missing server layout report")?;
             let layouts = TypeLayouts::from_server_json(&std::fs::read(path)?)?;
             let catalogs = ScenePrefabCatalog::read_server_game_data(&opt.data, &layouts)?;
-            let restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
             let mega_statics =
                 rrising_content::persistence::MegaStaticRestorePlan::read(&snapshot)?;
             let terrain = rrising_content::static_transforms::StaticTransformCatalog::read_server(
                 &opt.data, &layouts,
+            )?;
+            let restored = RestoredWorldProjection::build_with_terrain(
+                &snapshot,
+                &layouts,
+                &catalogs,
+                &mega_statics,
+                &terrain,
             )?;
             let baked_matches = mega_statics
                 .entries
@@ -1343,6 +1349,7 @@ fn main() -> Result<()> {
                 "mega_static_plan": {
                     "managers": mega_statics.manager_rows,
                     "instances": mega_statics.entries.len(),
+                    "placed_instances": restored.placed_mega_statics,
                     "vacant_slots": mega_statics.vacant_slots,
                     "prefab_guids": mega_statics.distinct_prefab_guids,
                     "baked_transform_matches": baked_matches,

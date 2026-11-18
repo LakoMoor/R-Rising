@@ -11,6 +11,7 @@ anyhow.workspace = true
 flate2.workspace = true
 indexmap.workspace = true
 rrising-ecs.workspace = true
+rrising-math.workspace = true
 log.workspace = true
 rustc-hash.workspace = true
 serde_json.workspace = true
