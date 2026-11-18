@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use anyhow::{ensure, Context, Result};
 use rrising_content::{
     entity_scenes::SceneFile,
-    persistence::{PersistentSave, SavedSnapshot},
+    persistence::{MegaStaticRestorePlan, PersistentSave, SavedSnapshot},
     prefab_catalog::{ScenePrefabCatalog, SERVER_PREFAB_SCENES},
     restore_world::RestoredWorldProjection,
     type_layouts::TypeLayouts,
@@ -90,6 +90,74 @@ fn registrations_recover_every_saved_prefab_from_runtime_selected_scenes() -> Re
                 if number == 4 { 794036 } else { 793963 }
             );
             assert_eq!(restored.cleared_references, 471190);
+            let missing = &restored.missing_references;
+            assert_eq!(missing.nonpersistent, 471178);
+            assert_eq!(missing.stale_version, 12);
+            assert_eq!(missing.distinct_handles, 235595);
+            assert_eq!((missing.unlisted, missing.outside_world_table), (0, 0));
+            assert_eq!(
+                missing.by_component["ProjectM.MegaStaticInstanceBuffer"],
+                235589
+            );
+            assert_eq!(
+                missing.by_component["ProjectM.SpawnChainData+ActiveChildElement"],
+                235595
+            );
+            assert_eq!(
+                missing.by_component["ProjectM.SpawnChainData+QueuedTransitionRequests"],
+                6
+            );
+            let plan = MegaStaticRestorePlan::read(&snapshot)?;
+            assert_eq!(
+                (
+                    plan.manager_rows,
+                    plan.entries.len(),
+                    plan.vacant_slots,
+                    plan.distinct_prefab_guids
+                ),
+                (3101, 235589, 4216, 1182)
+            );
+            let mut instances = rustc_hash::FxHashSet::default();
+            let mut placement_keys = rustc_hash::FxHashSet::default();
+            for entry in &plan.entries {
+                assert!(instances.insert(entry.saved_instance));
+                assert!(placement_keys.insert((entry.terrain_chunk, entry.transform_index)));
+                assert!(restored.bindings.target(entry.saved_instance).is_none());
+                for source in [entry.saved_manager, entry.saved_prefab_root] {
+                    assert!(restored
+                        .store
+                        .exists(restored.bindings.target(source).unwrap())?);
+                }
+            }
+            let active_child = snapshot
+                .header()
+                .persistent_component_named("ProjectM.SpawnChainData+ActiveChildElement")
+                .unwrap()
+                .saved_type_index;
+            for (_, job) in snapshot.jobs() {
+                for chunk in job
+                    .archetypes
+                    .iter()
+                    .flat_map(|archetype| &archetype.chunks)
+                {
+                    let Some(column) = chunk
+                        .columns
+                        .iter()
+                        .find(|column| column.saved_type_index == active_child)
+                    else {
+                        continue;
+                    };
+                    for row in 0..chunk.entities().len() {
+                        let bytes = column.scalar(row).unwrap();
+                        let instance = read_handle(bytes[4..12].try_into().unwrap());
+                        instances.remove(&instance);
+                    }
+                }
+            }
+            assert!(
+                instances.is_empty(),
+                "each planned instance must appear as an active spawn-chain child"
+            );
             for (name, owner) in [
                 ("Unity.Transforms.Translation", Entity::new(40534, 2)),
                 ("ProjectM.Velocity", Entity::new(2167, 1)),

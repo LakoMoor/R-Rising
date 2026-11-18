@@ -1,6 +1,6 @@
 //! First live ECS projection of original server scenes and save rows.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{ensure, Context, Result};
 use rrising_ecs::{
@@ -43,8 +43,19 @@ pub struct RestoredWorldProjection {
     pub copied_buffer_elements: usize,
     pub prefab_linked_groups: usize,
     pub cleared_references: usize,
+    pub missing_references: MissingReferences,
     pub admitted_saved_types: usize,
     pub skipped_saved_types: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct MissingReferences {
+    pub nonpersistent: usize,
+    pub stale_version: usize,
+    pub outside_world_table: usize,
+    pub unlisted: usize,
+    pub distinct_handles: usize,
+    pub by_component: BTreeMap<String, usize>,
 }
 
 impl RestoredWorldProjection {
@@ -302,10 +313,43 @@ impl RestoredWorldProjection {
         let mut copied_buffer_rows = 0;
         let mut copied_buffer_elements = 0;
         let mut cleared_references = 0;
+        let mut missing_references = MissingReferences::default();
+        let mut missed_handles = rustc_hash::FxHashSet::default();
+        let world = snapshot.world_data();
+        let mut nonpersistent = vec![false; world.entity_capacity()];
+        if let Some(archetypes) = &world.nonpersistent_archetypes {
+            for index in archetypes
+                .iter()
+                .flat_map(|archetype| &archetype.chunks)
+                .flat_map(|chunk| chunk.entity_indices())
+            {
+                nonpersistent[index] = true;
+            }
+        }
+        let mut missed_totals = FxHashMap::default();
         for (_, job) in snapshot.jobs() {
             for archetype in &job.archetypes {
                 for chunk in &archetype.chunks {
                     for column in &chunk.columns {
+                        let mut column_misses = 0;
+                        let mut record_miss = |source: Entity| {
+                            column_misses += 1;
+                            missed_handles.insert(source);
+                            let Ok(index) = usize::try_from(source.index) else {
+                                missing_references.outside_world_table += 1;
+                                return;
+                            };
+                            match world.entity_version(index) {
+                                None => missing_references.outside_world_table += 1,
+                                Some(version) if version != source.version => {
+                                    missing_references.stale_version += 1
+                                }
+                                Some(_) if nonpersistent[index] => {
+                                    missing_references.nonpersistent += 1
+                                }
+                                Some(_) => missing_references.unlisted += 1,
+                            }
+                        };
                         if let Some((live_type, stride, offsets)) =
                             buffers.get(&column.saved_type_index)
                         {
@@ -318,8 +362,12 @@ impl RestoredWorldProjection {
                                 } else {
                                     data.clear();
                                     data.extend_from_slice(payload);
-                                    cleared_references +=
-                                        bindings.patch_references(&mut data, *stride, offsets)?;
+                                    bindings.patch_references_with(
+                                        &mut data,
+                                        *stride,
+                                        offsets,
+                                        &mut record_miss,
+                                    )?;
                                     &data
                                 };
                                 store.set_buffer_payload(
@@ -330,6 +378,10 @@ impl RestoredWorldProjection {
                                 )?;
                                 copied_buffer_rows += 1;
                                 copied_buffer_elements += payload.len() / *stride;
+                            }
+                            if column_misses > 0 {
+                                *missed_totals.entry(*live_type).or_insert(0) += column_misses;
+                                cleared_references += column_misses;
                             }
                             continue;
                         }
@@ -345,8 +397,12 @@ impl RestoredWorldProjection {
                                 payload
                             } else {
                                 data.copy_from_slice(payload);
-                                cleared_references +=
-                                    bindings.patch_references(&mut data, *stride, offsets)?;
+                                bindings.patch_references_with(
+                                    &mut data,
+                                    *stride,
+                                    offsets,
+                                    &mut record_miss,
+                                )?;
                                 &data
                             };
                             store.set_component_bytes(
@@ -356,9 +412,21 @@ impl RestoredWorldProjection {
                             )?;
                             copied_scalar_values += 1;
                         }
+                        if column_misses > 0 {
+                            *missed_totals.entry(*live_type).or_insert(0) += column_misses;
+                            cleared_references += column_misses;
+                        }
                     }
                 }
             }
+        }
+        missing_references.distinct_handles = missed_handles.len();
+        for (ty, count) in missed_totals {
+            let name = &types
+                .type_info(ty)
+                .context("missing reference component layout")?
+                .name;
+            missing_references.by_component.insert(name.clone(), count);
         }
         ensure!(
             bindings.target(Entity::NULL) == Some(Entity::NULL),
@@ -374,6 +442,7 @@ impl RestoredWorldProjection {
             copied_buffer_elements,
             prefab_linked_groups,
             cleared_references,
+            missing_references,
             admitted_saved_types,
             skipped_saved_types,
         })

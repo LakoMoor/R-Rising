@@ -85,3 +85,6 @@ reference occurrences unresolved in each save. They are cleared by the
 inspected loader rule for a missing binding; whether the original would have
 additional bindings has not been established. A full boot and restore,
 including scene entities beyond this prefab projection, remains unverified.
+
+The [MegaStatic reference audit](save_mega_statics.md) traces the unresolved
+references and derives prefab and placement keys for the missing instances.

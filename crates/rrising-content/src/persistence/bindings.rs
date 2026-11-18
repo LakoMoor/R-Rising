@@ -61,6 +61,18 @@ impl SavedEntityBindings {
         stride: usize,
         offsets: &[usize],
     ) -> Result<usize> {
+        let mut missing = 0;
+        self.patch_references_with(bytes, stride, offsets, |_| missing += 1)?;
+        Ok(missing)
+    }
+
+    pub(crate) fn patch_references_with(
+        &self,
+        bytes: &mut [u8],
+        stride: usize,
+        offsets: &[usize],
+        mut missed: impl FnMut(Entity),
+    ) -> Result<()> {
         ensure!(
             stride != 0 && bytes.len().is_multiple_of(stride),
             "invalid entity patch stride"
@@ -73,7 +85,6 @@ impl SavedEntityBindings {
             );
             previous_end = offset + 8;
         }
-        let mut missing = 0;
         for element in bytes.chunks_exact_mut(stride) {
             for &offset in offsets {
                 let field = &mut element[offset..offset + 8];
@@ -82,14 +93,14 @@ impl SavedEntityBindings {
                     i32::from_le_bytes(field[4..].try_into()?),
                 );
                 let current = self.target(saved).unwrap_or_else(|| {
-                    missing += 1;
+                    missed(saved);
                     Entity::NULL
                 });
                 field[..4].copy_from_slice(&current.index.to_le_bytes());
                 field[4..].copy_from_slice(&current.version.to_le_bytes());
             }
         }
-        Ok(missing)
+        Ok(())
     }
 
     fn bind(&mut self, saved: Entity, current: Entity) {

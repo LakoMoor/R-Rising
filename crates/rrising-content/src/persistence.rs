@@ -19,6 +19,7 @@ use flate2::bufread::GzDecoder;
 mod bindings;
 mod header;
 mod job;
+mod mega_static;
 mod snapshot;
 mod systems;
 mod world;
@@ -30,6 +31,7 @@ pub use job::{
     SavedArchetype, SavedChunk, SavedColumn, SerializationJob, SerializationJobRegistry,
     SerializationJobStats,
 };
+pub use mega_static::{MegaStaticRestoreEntry, MegaStaticRestorePlan};
 pub use snapshot::{SavedEntityLocation, SavedEntityView, SavedSnapshot};
 pub use systems::{SavedSystemRecord, SavedSystems};
 pub use world::{SavedWorldArchetype, SavedWorldChunk, SavedWorldData, SavedWorldDataStats};

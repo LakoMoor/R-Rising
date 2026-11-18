@@ -1316,6 +1316,8 @@ fn main() -> Result<()> {
             let layouts = TypeLayouts::from_server_json(&std::fs::read(path)?)?;
             let catalogs = ScenePrefabCatalog::read_server_game_data(&opt.data, &layouts)?;
             let restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
+            let mega_statics =
+                rrising_content::persistence::MegaStaticRestorePlan::read(&snapshot)?;
             Some(serde_json::json!({
                 "live_entities": restored.bindings.len() - 1,
                 "prefab_roots": restored.prefabs.len(),
@@ -1326,6 +1328,20 @@ fn main() -> Result<()> {
                 "admitted_saved_types": restored.admitted_saved_types,
                 "skipped_saved_types": restored.skipped_saved_types,
                 "cleared_references": restored.cleared_references,
+                "mega_static_plan": {
+                    "managers": mega_statics.manager_rows,
+                    "instances": mega_statics.entries.len(),
+                    "vacant_slots": mega_statics.vacant_slots,
+                    "prefab_guids": mega_statics.distinct_prefab_guids,
+                },
+                "missing_references": {
+                    "nonpersistent": restored.missing_references.nonpersistent,
+                    "stale_version": restored.missing_references.stale_version,
+                    "outside_world_table": restored.missing_references.outside_world_table,
+                    "unlisted": restored.missing_references.unlisted,
+                    "distinct_handles": restored.missing_references.distinct_handles,
+                    "by_component": restored.missing_references.by_component,
+                },
             }))
         } else {
             None
