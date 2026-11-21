@@ -1078,6 +1078,23 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
             .unwrap();
         assert_eq!((actual.hash, &actual.data), (expected.hash, &expected.data));
     }
+    let previous_bindings = restored.prefab_blob_bindings.clone();
+    let mut mismatched = ScenePrefabCatalog::read_saved_root_blobs(
+        &local_path("VRISING_SERVER_DATA")?,
+        &layouts,
+        &snapshot,
+    )?;
+    let key = previous_bindings.values().next().copied().unwrap();
+    mismatched
+        .values
+        .get_mut(&(key.0, key.1))
+        .unwrap()
+        .push(None);
+    assert!(restored
+        .bind_prefab_root_blobs(&snapshot, mismatched)
+        .is_err());
+    assert_eq!(restored.prefab_blob_bindings, previous_bindings);
+    assert!(restored.prefab_root_blobs.is_some());
     let mut recovered_fields = BTreeMap::<u64, usize>::new();
     for (&(guid, hash), values) in &captured.values {
         let count = requested[&guid][&hash];
