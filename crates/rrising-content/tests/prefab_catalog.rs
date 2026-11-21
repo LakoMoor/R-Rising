@@ -710,3 +710,25 @@ fn supplemental_server_time_matches_saved_rows() -> Result<()> {
     assert!(checked > 0);
     Ok(())
 }
+
+#[test]
+#[ignore = "requires the original server prefab scenes"]
+fn server_prefab_scene_blob_offsets_resolve() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?.join("StreamingAssets/EntityScenes");
+    let mut total = 0;
+    let mut payload_bytes = 0;
+    for (scene_id, _) in SERVER_PREFAB_SCENES {
+        let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
+        let blobs = scene.blob_assets()?;
+        for blob in &blobs.blobs {
+            let offset = i32::try_from(blob.offset)?;
+            let found = blobs.find_by_offset(offset).context("blob offset lookup")?;
+            assert_eq!((found.hash, found.data), (blob.hash, blob.data));
+            total += 1;
+            payload_bytes += blob.data.len();
+        }
+    }
+    println!("server prefab scene blobs={total} payload bytes={payload_bytes}");
+    assert!(total > 0);
+    Ok(())
+}
