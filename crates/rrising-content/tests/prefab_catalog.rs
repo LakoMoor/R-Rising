@@ -755,6 +755,9 @@ fn saved_blob_sources_match_scene_prefab_components() -> Result<()> {
             .or_insert_with(Vec::new)
             .push(blob);
     }
+    let mut blob_identities = HashMap::new();
+    let mut conflicts = 0;
+    let mut null_mismatches = 0;
     let mut found = 0;
     let mut nonnull = 0;
     let mut missing = 0;
@@ -833,6 +836,20 @@ fn saved_blob_sources_match_scene_prefab_components() -> Result<()> {
                     };
                     let offset = i32::from_le_bytes(value.try_into()?);
                     if offset == -1 || blobs.find_by_offset(offset).is_some() {
+                        if let Some(blob) = blobs.find_by_offset(offset) {
+                            if record.saved_blob_asset_address == 0 {
+                                null_mismatches += 1;
+                            } else {
+                                let identity = (blob.hash, blob.data.to_vec());
+                                if let Some(previous) = blob_identities
+                                    .insert(record.saved_blob_asset_address, identity.clone())
+                                {
+                                    conflicts += usize::from(previous != identity);
+                                }
+                            }
+                        } else if record.saved_blob_asset_address != 0 {
+                            null_mismatches += 1;
+                        }
                         found += 1;
                         nonnull += usize::from(offset != -1);
                     } else {
@@ -853,7 +870,15 @@ fn saved_blob_sources_match_scene_prefab_components() -> Result<()> {
         "source fields resolved={found} nonnull={nonnull} missing={missing} unbound={}",
         sources.values().map(Vec::len).sum::<usize>()
     );
+    println!(
+        "distinct addresses={} conflicts={conflicts} null_mismatches={null_mismatches}",
+        blob_identities.len()
+    );
     assert_eq!((found, nonnull, missing), (4932, 2930, 1));
+    assert_eq!(
+        (blob_identities.len(), conflicts, null_mismatches),
+        (1954, 0, 0)
+    );
     assert!(sources.is_empty());
     Ok(())
 }
