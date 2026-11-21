@@ -1068,10 +1068,15 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
     restored.bind_prefab_root_blobs(&snapshot, automatic)?;
     assert_eq!(restored.prefab_blob_bindings.len(), 1468);
     let owned = restored.prefab_root_blobs.as_ref().unwrap();
-    for (&(entity, hash, _), &(guid, source_hash, index)) in &restored.prefab_blob_bindings {
+    for (&(entity, hash, element), &(guid, source_hash, index)) in &restored.prefab_blob_bindings {
         assert!(restored.store.exists(entity)?);
         assert_eq!(hash, source_hash);
-        assert!(owned.values[&(guid, hash)][index].is_some());
+        let expected = owned.values[&(guid, hash)][index].as_ref().unwrap();
+        let actual = restored
+            .prefab_blob(entity, hash, element)?
+            .flatten()
+            .unwrap();
+        assert_eq!((actual.hash, &actual.data), (expected.hash, &expected.data));
     }
     let mut recovered_fields = BTreeMap::<u64, usize>::new();
     for (&(guid, hash), values) in &captured.values {

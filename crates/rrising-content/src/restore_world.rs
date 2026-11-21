@@ -10,7 +10,9 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     persistence::{MegaStaticRestorePlan, PrefabReference, SavedEntityBindings, SavedSnapshot},
-    prefab_catalog::{LinkedPrefabTemplate, PrefabRootBlobs, ScenePrefabCatalog},
+    prefab_catalog::{
+        LinkedPrefabTemplate, PrefabBlobPayload, PrefabRootBlobs, ScenePrefabCatalog,
+    },
     static_transforms::StaticTransformCatalog,
     type_layouts::{TypeLayouts, ENTITY_HASH, ROTATION_HASH, TRANSLATION_HASH},
 };
@@ -75,6 +77,35 @@ pub struct MissingReferences {
 }
 
 impl RestoredWorldProjection {
+    /// Returns a prefab blob binding, including an explicit null source value.
+    pub fn prefab_blob(
+        &self,
+        entity: Entity,
+        component_hash: u64,
+        element: usize,
+    ) -> Result<Option<Option<&PrefabBlobPayload>>> {
+        ensure!(self.store.exists(entity)?, "entity does not exist");
+        let Some(&(guid, hash, index)) =
+            self.prefab_blob_bindings
+                .get(&(entity, component_hash, element))
+        else {
+            return Ok(None);
+        };
+        let values = self
+            .prefab_root_blobs
+            .as_ref()
+            .context("missing owned prefab blob storage")?
+            .values
+            .get(&(guid, hash))
+            .context("missing bound prefab blob component")?;
+        Ok(Some(
+            values
+                .get(index)
+                .context("missing bound prefab blob element")?
+                .as_ref(),
+        ))
+    }
+
     /// Associates saved component elements with the owned blob values of their source prefab.
     pub fn bind_prefab_root_blobs(
         &mut self,
