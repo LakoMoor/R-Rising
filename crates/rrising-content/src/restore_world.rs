@@ -167,8 +167,8 @@ impl RestoredWorldProjection {
                                 None => 1,
                             };
                             ensure!(
-                                values.len() >= count,
-                                "prefab has fewer blob fields than saved buffer"
+                                values.len() == count,
+                                "prefab and saved component have different blob element counts"
                             );
                             for element in 0..count {
                                 ensure!(
