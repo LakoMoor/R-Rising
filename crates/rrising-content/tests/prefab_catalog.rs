@@ -963,10 +963,13 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         "RRISING_SERVER_LAYOUT_REPORT",
     )?)?)?;
     let mut scene_matches = BTreeMap::<u64, usize>::new();
+    let mut scene_blob_counts = BTreeMap::<u64, (usize, usize, usize)>::new();
     for (scene_id, _) in SERVER_PREFAB_SCENES {
         let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
         let catalog = ScenePrefabCatalog::read(&scene, &layouts)?;
         let resolved = layouts.resolve_scene(&scene)?;
+        let buffers = scene.buffer_data()?;
+        let blobs = scene.blob_assets()?;
         let mut locations = BTreeMap::new();
         for (chunk_index, chunk) in resolved.chunks.iter().enumerate() {
             for row in 0..usize::try_from(chunk.header.count)? {
@@ -987,7 +990,7 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         }
         for prefab in catalog.prefabs {
             if let Some(types) = requested.get(&prefab.prefab_guid) {
-                let &(ci, _row) = locations
+                let &(ci, row) = locations
                     .get(&(prefab.entity.index, prefab.entity.version))
                     .context("prefab root")?;
                 let arch = resolved.archetypes[resolved.chunks[ci].header.archetype_index as usize]
@@ -996,12 +999,45 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
                 for (&hash, &count) in types {
                     if arch.hashes.contains(&hash) {
                         *scene_matches.entry(hash).or_default() += count;
+                        let layout = layouts.get(hash).context("blob component layout")?;
+                        let stride = usize::try_from(
+                            if layout.spec.category == rrising_ecs::TypeCategory::BufferData {
+                                layout.spec.element_size
+                            } else {
+                                layout.spec.size_in_chunk
+                            },
+                        )?;
+                        let bytes =
+                            if layout.spec.category == rrising_ecs::TypeCategory::BufferData {
+                                resolved.buffer_payload(&buffers, ci, row, hash, stride)?
+                            } else {
+                                resolved.component_bytes(ci, row, hash)?
+                            }
+                            .context("scene component bytes")?;
+                        let offsets = layout.blob_offsets.as_ref().context("blob offsets")?;
+                        for element in bytes.chunks_exact(stride) {
+                            for &offset in offsets {
+                                let start = usize::try_from(offset)?;
+                                let raw = i32::from_le_bytes(element[start..start + 4].try_into()?);
+                                let entry = scene_blob_counts.entry(hash).or_default();
+                                if raw == -1 {
+                                    entry.0 += count;
+                                } else if blobs.find_by_offset(raw).is_some() {
+                                    entry.1 += count;
+                                } else {
+                                    entry.2 += count;
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    println!("scene root component matches: {scene_matches:?}");
+    println!("scene root component matches: {scene_matches:?}, blob fields null/resolved/missing: {scene_blob_counts:?}");
+    assert_eq!(scene_blob_counts[&0x9534_7421_34ef_4051], (0, 1466, 0));
+    assert_eq!(scene_blob_counts[&0x9f76_a48d_02bc_e2bb], (0, 1, 0));
+    assert_eq!(scene_blob_counts[&0xa413_a8bb_b072_50bc], (0, 1, 0));
     assert_eq!(scene_matches[&0x9534_7421_34ef_4051], 1432);
     assert_eq!(scene_matches[&0x9f76_a48d_02bc_e2bb], 1);
     assert_eq!(scene_matches[&0xa413_a8bb_b072_50bc], 1);
