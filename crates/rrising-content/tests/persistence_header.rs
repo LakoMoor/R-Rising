@@ -284,3 +284,43 @@ fn original_blob_metadata_references_saved_prefab_members() {
     );
     assert_eq!(matched, header.blobs.len());
 }
+
+#[test]
+#[ignore = "requires an original save and generated server layout report"]
+fn recovered_blob_offsets_match_saved_prefab_metadata() {
+    use std::collections::BTreeMap;
+    let path = std::env::var_os("RRISING_SAVE_FILE").expect("set RRISING_SAVE_FILE");
+    let report =
+        std::env::var_os("RRISING_SERVER_LAYOUT_REPORT").expect("set RRISING_SERVER_LAYOUT_REPORT");
+    let save = PersistentSave::open(std::path::Path::new(&path)).expect("open save");
+    let header = save.header().expect("read header");
+    let report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(report).unwrap()).unwrap();
+    let mut offsets = BTreeMap::new();
+    for row in report["matches"].as_array().unwrap() {
+        if let Some(values) = row["ecs"]["blob_offsets"].as_array() {
+            let hash = u64::from_str_radix(row["stable_hash"].as_str().unwrap(), 16).unwrap();
+            offsets.insert(
+                hash,
+                values
+                    .iter()
+                    .map(|value| value.as_i64().unwrap())
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
+    let mut checked = 0;
+    for blob in &header.blobs {
+        if let Some(values) = offsets.get(&blob.component_stable_type_hash) {
+            assert!(
+                values.contains(&i64::from(blob.blob_field_offset)),
+                "hash {:016x}, offset {}",
+                blob.component_stable_type_hash,
+                blob.blob_field_offset
+            );
+            checked += 1;
+        }
+    }
+    println!("checked {checked} blob offsets");
+    assert!(checked > 0);
+}

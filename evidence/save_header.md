@@ -53,6 +53,16 @@ UTF-8 bytes. It appears like an LE u16 in normal files because seven padding bit
 are zero. Rust masks those padding bits, as does the native bit-reader. Synthetic
 tests use nonzero padding and a multibyte UTF-8 name to guard this distinction.
 
+## Blob field offsets
+
+The server layout probe derives offsets of directly declared or nested
+`BlobAssetReference<T>` fields from native field layouts. For the independently
+captured 2026-11-21 autosave, all 4,933 blob metadata records match a recovered
+field offset for their component stable hash. Generic fields whose nested
+layout has not been recovered are excluded from this offset report. The
+comparison checks field locations, while blob identity and payload remapping
+remain to be implemented.
+
 ## Independent confirmation of movement layouts
 
 All 1,542 saved persistent component indices join the required-name table exactly.

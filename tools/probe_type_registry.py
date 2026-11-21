@@ -303,6 +303,27 @@ class Probe:
                     raise Unsupported('generic field contains Entity offsets that are not recovered')
         return offsets
 
+    def blob_offsets(self, i, base=0):
+        """Find BlobAssetReference fields whose offsets are known from native layouts."""
+        row = self.type_rows[i]
+        if not row['bitfield'] & 1 or row['namespace'] == 'System' and row['name'] in PRIMITIVES.values():
+            return []
+        offsets = []
+        for field in self.layout(i)['fields']:
+            if field['static']:
+                continue
+            offset = base + field['value_offset']
+            descriptor = self.native(field['native_type_index'])
+            if descriptor[0] == 21:
+                expression = self.identities.expr(descriptor)
+                if expression[0] == 'type' and self.full_name(expression[1]) == 'Unity.Entities.BlobAssetReference`1':
+                    offsets.append(offset)
+                else:
+                    raise Unsupported('nested generic blob offsets not recovered')
+            elif field['typedef_index'] is not None:
+                offsets.extend(self.blob_offsets(field['typedef_index'], offset))
+        return offsets
+
     @functools.lru_cache(None)
     def portable_value(self, expression):
         """Exclude process-local addresses, object references and unknown fields."""
@@ -650,6 +671,10 @@ def main():
                      for row in identity_matches.values() if int(row['stable_hash'], 16) not in known]
     identity_only.sort(key=lambda row: row['name'])
     for row in matched:
+        try:
+            row['ecs']['blob_offsets'] = probe.blob_offsets(row['metadata_type_index'])
+        except (Unsupported, RecursionError, struct.error):
+            pass
         if row['ecs']['managed']:
             row['ecs']['portable_value'] = False
             continue
