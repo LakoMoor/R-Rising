@@ -592,7 +592,7 @@ def main():
     metadata = data/'il2cpp_data/Metadata/global-metadata.dat'
     probe = Probe(binary, metadata)
     observed, files = scene_hashes(data/'StreamingAssets/EntityScenes')
-    matched, server_tags, unsupported = [], [], 0
+    matched, server_tags, server_values, unsupported = [], [], [], 0
     # Constructed-generic field signatures (native kind 0x15) and explicit layouts
     # are hashed by the generic identity probe; it reproduces the same algorithm.
     from probe_generic_identities import Identities
@@ -613,12 +613,16 @@ def main():
         try:
             stable = identities.stable_hash(identities.expr(probe.native(row['byval'])))
             if stable not in observed:
-                if args.server and 'Unity.Entities.IComponentData' in probe.interface_names(row['index']):
+                if args.server and set(probe.interface_names(row['index'])) & {'Unity.Entities.IComponentData', 'Unity.Entities.IBufferElementData'}:
                     ecs = probe.ecs_layout(row['index'], stable)
                     if ecs['category'] == 'component' and ecs['zero_sized'] and not ecs['managed'] and not ecs['cleanup']:
                         ecs['portable_value'] = True
                         server_tags.append(dict(name=probe.full_name(row['index']), stable_hash=f'{stable:016x}',
                                                 metadata_type_index=row['index'], **probe.layout(row['index']), ecs=ecs))
+                    elif ecs['category'] in ('component', 'buffer') and not ecs['managed'] and not ecs['cleanup'] and not ecs['enableable'] and probe.portable_value(identities.expr(probe.native(row['byval']))):
+                        ecs['portable_value'] = True
+                        server_values.append(dict(name=probe.full_name(row['index']), stable_hash=f'{stable:016x}',
+                                                  metadata_type_index=row['index'], **probe.layout(row['index']), ecs=ecs))
                 continue
             matched.append(dict(name=probe.full_name(row['index']), stable_hash=f'{stable:016x}',
                                 metadata_type_index=row['index'], **probe.layout(row['index']), ecs=probe.ecs_layout(row['index'],stable)))
@@ -674,6 +678,7 @@ def main():
                   matches=sorted(matched,key=lambda item:item['name']))
     if args.server:
         result['server_tags'] = sorted(server_tags, key=lambda item: item['name'])
+        result['server_values'] = sorted(server_values, key=lambda item: item['name'])
     if args.check and args.server:
         if result['binary_sha256'] != '41ba4eb27c53dd9dc1a3d3337a2c8550b8386421361792ee6ac159ef00ff0ac7' or result['metadata_sha256'] != '80ec821655b86d5a891c0268e3b10891de810535a099cbed8a45bfc647141bb5':
             raise ValueError('pinned server build identity changed')
@@ -726,7 +731,7 @@ def main():
         print('Pinned-build checks passed: '+str(EXPECTED_MATCHES)+' unique storage-shape matches plus '+str(result['identity_only_count'])+' identity-only (all 1772 scene hashes have a shape); Entity/transform anchors; zero-size tag; Boolean layout distinction.')
     if args.output:
         args.output.write_text(json.dumps(result,indent=2)+'\n')
-    print(json.dumps({k:v for k,v in result.items() if k not in ('matches', 'server_tags')},indent=2))
+    print(json.dumps({k:v for k,v in result.items() if k not in ('matches', 'server_tags', 'server_values')},indent=2))
     for item in result['matches']:
         if item['name'] in ['Unity.Transforms.Translation','Unity.Transforms.Rotation','Unity.Transforms.LocalToWorld','Unity.Transforms.LocalTransform','Unity.Entities.Entity']:
             print(json.dumps(item,indent=2))

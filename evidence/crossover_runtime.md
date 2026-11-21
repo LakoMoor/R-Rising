@@ -67,6 +67,11 @@ server layout report. The projection allocated 552,220 live entities, including
 274,802 saved job rows and 236,213 placed MegaStatic instances. It restored
 260 component-column types and 49 tag types, with 18 column types and six tag
 types skipped. It copied 1,830,217 scalar values and 277,113 buffer rows.
+A regenerated report also includes 1,381 portable server value-type layouts
+that do not occur in the scene hash set. Their metadata-derived identities are
+matched to the saved stable hashes and their stride and flags checked by the
+loader. With this report the same capture admits 271 column types and skips
+seven. This is a storage-level check, not an original-system replay.
 Twelve stale-version references were cleared. This capture was generated
 independently from the previous two saves and is not a gameplay comparison.
 

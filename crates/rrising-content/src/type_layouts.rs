@@ -110,14 +110,23 @@ impl TypeLayouts {
             Some(tags) if server => tags.as_array().context("invalid server tags")?.as_slice(),
             _ => &[],
         };
+        let server_values = match report.get("server_values") {
+            Some(values) if server => values
+                .as_array()
+                .context("invalid server values")?
+                .as_slice(),
+            _ => &[],
+        };
         ensure!(
-            rows.len() + server_tags.len() < rrising_ecs::K_MAX_TYPE_COUNT - 1,
+            rows.len() + server_tags.len() + server_values.len()
+                < rrising_ecs::K_MAX_TYPE_COUNT - 1,
             "too many recovered types"
         );
         for (row, supplemental_tag) in rows
             .iter()
             .map(|row| (row, false))
             .chain(server_tags.iter().map(|row| (row, true)))
+            .chain(server_values.iter().map(|row| (row, false)))
         {
             let name = string(row, "name")?;
             let stable_hash = hex(row, "stable_hash")?;
