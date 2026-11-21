@@ -821,3 +821,103 @@ impl ScenePrefabCatalog {
         })
     }
 }
+
+/// Blob payloads referenced by selected components on registered prefab roots.
+/// Entries follow the source buffer element order. A scalar has one entry.
+#[derive(Debug)]
+pub struct PrefabBlobPayload {
+    pub hash: u64,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Default)]
+pub struct PrefabRootBlobs {
+    pub values: BTreeMap<(i32, u64), Vec<Option<PrefabBlobPayload>>>,
+}
+
+impl ScenePrefabCatalog {
+    pub fn read_server_root_blobs(
+        data_dir: &std::path::Path,
+        layouts: &TypeLayouts,
+        requested: &BTreeMap<i32, BTreeSet<u64>>,
+    ) -> Result<PrefabRootBlobs> {
+        let directory = data_dir.join("StreamingAssets/EntityScenes");
+        let mut result = PrefabRootBlobs::default();
+        for (scene_id, _) in SERVER_PREFAB_SCENES {
+            let scene = SceneFile::open(&directory.join(format!("{scene_id}.0.entities")))?;
+            let catalog = Self::read(&scene, layouts)?;
+            let resolved = layouts.resolve_scene(&scene)?;
+            let buffers = scene.buffer_data()?;
+            let blobs = scene.blob_assets()?;
+            let mut locations = rustc_hash::FxHashMap::default();
+            for (chunk_index, chunk) in resolved.chunks.iter().enumerate() {
+                for row in 0..usize::try_from(chunk.header.count)? {
+                    if let Some(bytes) = resolved.component_bytes(chunk_index, row, ENTITY_HASH)? {
+                        ensure!(
+                            locations
+                                .insert(read_entity(bytes)?, (chunk_index, row))
+                                .is_none(),
+                            "duplicate scene entity"
+                        );
+                    }
+                }
+            }
+            for prefab in &catalog.prefabs {
+                let Some(types) = requested.get(&prefab.prefab_guid) else {
+                    continue;
+                };
+                let &(chunk, row) = locations
+                    .get(&prefab.entity)
+                    .context("missing prefab root")?;
+                for &hash in types {
+                    let layout = layouts.get(hash).context("missing prefab blob layout")?;
+                    let offsets = layout
+                        .blob_offsets
+                        .as_ref()
+                        .context("missing prefab blob offsets")?;
+                    ensure!(offsets.len() == 1, "expected one prefab blob field");
+                    let stride =
+                        usize::try_from(if layout.spec.category == TypeCategory::BufferData {
+                            layout.spec.element_size
+                        } else {
+                            layout.spec.size_in_chunk
+                        })?;
+                    ensure!(stride > 0, "invalid prefab blob stride");
+                    let bytes = if layout.spec.category == TypeCategory::BufferData {
+                        resolved.buffer_payload(&buffers, chunk, row, hash, stride)?
+                    } else {
+                        resolved.component_bytes(chunk, row, hash)?
+                    };
+                    let Some(bytes) = bytes else { continue };
+                    ensure!(bytes.len() % stride == 0, "misaligned prefab blob values");
+                    let offset = usize::try_from(offsets[0])?;
+                    let mut values = Vec::new();
+                    for element in bytes.chunks_exact(stride) {
+                        let field = element
+                            .get(offset..offset.checked_add(4).context("blob field overflow")?)
+                            .context("missing blob field")?;
+                        let source = i32::from_le_bytes(field.try_into()?);
+                        if source == -1 {
+                            values.push(None);
+                        } else {
+                            let blob =
+                                blobs.find_by_offset(source).context("missing scene blob")?;
+                            values.push(Some(PrefabBlobPayload {
+                                hash: blob.hash,
+                                data: blob.data.to_vec(),
+                            }));
+                        }
+                    }
+                    ensure!(
+                        result
+                            .values
+                            .insert((prefab.prefab_guid, hash), values)
+                            .is_none(),
+                        "duplicate prefab blob source"
+                    );
+                }
+            }
+        }
+        Ok(result)
+    }
+}

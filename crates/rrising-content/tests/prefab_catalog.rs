@@ -1034,6 +1034,24 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
             }
         }
     }
+    let requested_types = requested
+        .iter()
+        .map(|(&guid, hashes)| (guid, hashes.keys().copied().collect()))
+        .collect();
+    let captured = ScenePrefabCatalog::read_server_root_blobs(
+        &local_path("VRISING_SERVER_DATA")?,
+        &layouts,
+        &requested_types,
+    )?;
+    let mut recovered_fields = BTreeMap::<u64, usize>::new();
+    for (&(guid, hash), values) in &captured.values {
+        let count = requested[&guid][&hash];
+        assert!(values.iter().all(Option::is_some));
+        *recovered_fields.entry(hash).or_default() += values.len() * count;
+    }
+    assert_eq!(recovered_fields[&0x9534_7421_34ef_4051], 1466);
+    assert_eq!(recovered_fields[&0x9f76_a48d_02bc_e2bb], 1);
+    assert_eq!(recovered_fields[&0xa413_a8bb_b072_50bc], 1);
     println!("scene root component matches: {scene_matches:?}, blob fields null/resolved/missing: {scene_blob_counts:?}");
     assert_eq!(scene_blob_counts[&0x9534_7421_34ef_4051], (0, 1466, 0));
     assert_eq!(scene_blob_counts[&0x9f76_a48d_02bc_e2bb], (0, 1, 0));
