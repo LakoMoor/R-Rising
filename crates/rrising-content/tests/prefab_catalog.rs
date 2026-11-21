@@ -1043,6 +1043,25 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         &layouts,
         &requested_types,
     )?;
+    let automatic = ScenePrefabCatalog::read_saved_root_blobs(
+        &local_path("VRISING_SERVER_DATA")?,
+        &layouts,
+        &snapshot,
+    )?;
+    assert_eq!(automatic.values.len(), captured.values.len());
+    for (key, expected) in &captured.values {
+        let actual = automatic
+            .values
+            .get(key)
+            .context("missing automatically selected prefab blob")?;
+        assert_eq!(actual.len(), expected.len());
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert_eq!(
+                actual.as_ref().map(|value| (value.hash, &value.data)),
+                expected.as_ref().map(|value| (value.hash, &value.data))
+            );
+        }
+    }
     let mut recovered_fields = BTreeMap::<u64, usize>::new();
     for (&(guid, hash), values) in &captured.values {
         let count = requested[&guid][&hash];

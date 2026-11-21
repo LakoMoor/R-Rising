@@ -836,6 +836,61 @@ pub struct PrefabRootBlobs {
 }
 
 impl ScenePrefabCatalog {
+    /// Finds original prefab blob sources for saved components whose fields are copied from prefabs.
+    pub fn read_saved_root_blobs(
+        data_dir: &std::path::Path,
+        layouts: &TypeLayouts,
+        snapshot: &crate::persistence::SavedSnapshot<'_>,
+    ) -> Result<PrefabRootBlobs> {
+        const COPIED_BLOB_TYPES: [u64; 3] = [
+            0x9534_7421_34ef_4051,
+            0x9f76_a48d_02bc_e2bb,
+            0xa413_a8bb_b072_50bc,
+        ];
+        let guid_type = snapshot
+            .header()
+            .persistent_components
+            .iter()
+            .find(|component| component.stable_type_hash == PREFAB_GUID_HASH)
+            .context("missing saved prefab GUID type")?;
+        ensure!(
+            guid_type.component_size == 4 && !guid_type.saved_type_index.is_buffer(),
+            "invalid saved prefab GUID layout"
+        );
+        let mut requested: BTreeMap<i32, BTreeSet<u64>> = BTreeMap::new();
+        for (_, job) in snapshot.jobs() {
+            for archetype in &job.archetypes {
+                for chunk in &archetype.chunks {
+                    let wanted: Vec<_> = chunk
+                        .columns
+                        .iter()
+                        .filter(|column| COPIED_BLOB_TYPES.contains(&column.stable_type_hash))
+                        .map(|column| column.stable_type_hash)
+                        .collect();
+                    if wanted.is_empty() {
+                        continue;
+                    }
+                    let guids = chunk
+                        .columns
+                        .iter()
+                        .find(|column| column.saved_type_index == guid_type.saved_type_index)
+                        .context("blob component rows lack saved prefab GUID")?;
+                    for row in 0..chunk.entities().len() {
+                        let bytes = guids
+                            .scalar(row)
+                            .context("missing saved prefab GUID value")?;
+                        let guid = i32::from_le_bytes(bytes.try_into()?);
+                        requested
+                            .entry(guid)
+                            .or_default()
+                            .extend(wanted.iter().copied());
+                    }
+                }
+            }
+        }
+        Self::read_server_root_blobs(data_dir, layouts, &requested)
+    }
+
     pub fn read_server_root_blobs(
         data_dir: &std::path::Path,
         layouts: &TypeLayouts,

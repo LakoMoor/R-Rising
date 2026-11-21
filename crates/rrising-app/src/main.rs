@@ -1376,6 +1376,23 @@ fn main() -> Result<()> {
                 ScenePrefabCatalog::read_server_game_data_for(&opt.data, &layouts, &requested)?;
             let saved_blobs =
                 ScenePrefabCatalog::read_saved_prefab_blobs(&opt.data, &layouts, header)?;
+            let root_blobs = if [
+                0x9534_7421_34ef_4051,
+                0x9f76_a48d_02bc_e2bb,
+                0xa413_a8bb_b072_50bc,
+            ]
+            .iter()
+            .all(|&hash| {
+                layouts
+                    .get(hash)
+                    .is_some_and(|layout| layout.blob_offsets.is_some())
+            }) {
+                Some(ScenePrefabCatalog::read_saved_root_blobs(
+                    &opt.data, &layouts, &snapshot,
+                )?)
+            } else {
+                None
+            };
             let terrain = rrising_content::static_transforms::StaticTransformCatalog::read_server(
                 &opt.data, &layouts,
             )?;
@@ -1407,6 +1424,7 @@ fn main() -> Result<()> {
                     "conflicts": saved_blobs.conflicts,
                     "null_mismatches": saved_blobs.null_mismatches,
                 },
+                "prefab_root_blob_components": root_blobs.as_ref().map(|blobs| blobs.values.len()),
                 "scalar_values": restored.copied_scalar_values,
                 "buffer_rows": restored.copied_buffer_rows,
                 "buffer_elements": restored.copied_buffer_elements,
