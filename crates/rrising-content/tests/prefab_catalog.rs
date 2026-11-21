@@ -795,6 +795,10 @@ fn saved_blob_sources_match_scene_prefab_components() -> Result<()> {
                 let &(ci, row) = locations.get(&current).context("missing prefab member")?;
                 for record in records {
                     let Some(layout) = layouts.get(record.component_stable_type_hash) else {
+                        println!(
+                            "missing layout {} hash {:016x}",
+                            prefab.prefab_guid, record.component_stable_type_hash
+                        );
                         missing += 1;
                         continue;
                     };
@@ -821,6 +825,9 @@ fn saved_blob_sources_match_scene_prefab_components() -> Result<()> {
                             .ok()
                             .and_then(|offset| bytes.get(offset..offset + 4))
                     }) else {
+                        assert_eq!(prefab.prefab_guid, 2088872209);
+                        assert_eq!(layout.name, "ProjectM.DestroyAfterDuration");
+                        assert_eq!((record.element_index, record.blob_field_offset), (0, 16));
                         missing += 1;
                         continue;
                     };
@@ -829,6 +836,13 @@ fn saved_blob_sources_match_scene_prefab_components() -> Result<()> {
                         found += 1;
                         nonnull += usize::from(offset != -1);
                     } else {
+                        println!(
+                            "unresolved offset {offset} prefab {} hash {:016x} element {} field {}",
+                            prefab.prefab_guid,
+                            record.component_stable_type_hash,
+                            record.element_index,
+                            record.blob_field_offset
+                        );
                         missing += 1;
                     }
                 }
