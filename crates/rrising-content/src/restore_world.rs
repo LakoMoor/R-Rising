@@ -143,6 +143,8 @@ impl RestoredWorldProjection {
                         .iter()
                         .find(|column| column.saved_type_index == guid_type)
                         .context("missing prefab GUID column")?;
+                    let mut buffer_rows: Vec<_> =
+                        selected.iter().map(|column| column.buffers()).collect();
                     for (row, source) in chunk.entities().enumerate() {
                         let guid = i32::from_le_bytes(
                             guids
@@ -154,14 +156,14 @@ impl RestoredWorldProjection {
                             .bindings
                             .target(source)
                             .context("missing restored entity")?;
-                        for column in &selected {
+                        for (column, rows) in selected.iter().zip(&mut buffer_rows) {
                             let values = blobs
                                 .values
                                 .get(&(guid, column.stable_type_hash))
                                 .context("missing prefab blob source")?;
-                            let count = match column.buffers() {
-                                Some(mut rows) => {
-                                    rows.nth(row).context("missing buffer row")?.len()
+                            let count = match rows {
+                                Some(rows) => {
+                                    rows.next().context("missing buffer row")?.len()
                                         / column.element_size()
                                 }
                                 None => 1,
