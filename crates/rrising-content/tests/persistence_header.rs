@@ -250,3 +250,37 @@ fn original_save_headers_match_every_field_and_runtime_registry() {
         println!("{}: entire {}-byte header canonical roundtrip matches original, all {} component indices join, six movement layouts confirmed", name, raw.len(), header.persistent_components.len());
     }
 }
+
+#[test]
+#[ignore = "requires a captured original server save"]
+fn original_blob_metadata_references_saved_prefab_members() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let path = std::env::var_os("RRISING_SAVE_FILE").expect("set RRISING_SAVE_FILE");
+    let save = PersistentSave::open(std::path::Path::new(&path)).expect("open save");
+    let header = save.header().expect("read header");
+    let prefabs: BTreeSet<_> = header
+        .prefabs
+        .iter()
+        .flat_map(|prefab| {
+            std::iter::once(prefab.entity).chain(prefab.linked_entities.iter().copied())
+        })
+        .map(|entity| (entity.index, entity.version))
+        .collect();
+    let mut types = BTreeMap::new();
+    let mut matched = 0;
+    for blob in &header.blobs {
+        if prefabs.contains(&(blob.entity.index, blob.entity.version)) {
+            matched += 1;
+        }
+        *types
+            .entry(blob.component_stable_type_hash)
+            .or_insert(0usize) += 1;
+    }
+    println!(
+        "blob records={} prefab records={} types={}",
+        header.blobs.len(),
+        matched,
+        types.len()
+    );
+    assert_eq!(matched, header.blobs.len());
+}
