@@ -907,6 +907,12 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         .iter()
         .map(|blob| (blob.entity, blob.component_stable_type_hash))
         .collect();
+    let groups: BTreeMap<_, _> = header
+        .prefabs
+        .iter()
+        .map(|prefab| (prefab.prefab_guid, &prefab.linked_entities))
+        .collect();
+    let mut group_counts = BTreeMap::new();
     let mut counts = BTreeMap::new();
     for (_, job) in snapshot.jobs() {
         for archetype in &job.archetypes {
@@ -931,6 +937,12 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
                             counts.1 += 1;
                             let value = i32::from_le_bytes(value.try_into()?);
                             counts.2 += usize::from(known.contains(&value));
+                            let present = groups.get(&value).is_some_and(|members| {
+                                members.iter().any(|member| {
+                                    blob_fields.contains(&(*member, column.stable_type_hash))
+                                })
+                            });
+                            *group_counts.entry(name).or_insert(0usize) += usize::from(present);
                             counts.3 += usize::from(roots.get(&value).is_some_and(|root| {
                                 blob_fields.contains(&(*root, column.stable_type_hash))
                             }));
@@ -940,9 +952,10 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
             }
         }
     }
-    println!("blob components: {counts:?}");
+    println!("blob components: {counts:?}; linked group matches: {group_counts:?}");
     assert_eq!(counts["BloodConsumeSource"], (1, 1, 1, 0));
     assert_eq!(counts["IdleInteractionPointBuffer"], (1432, 1432, 1432, 0));
     assert_eq!(counts["IdleInteractor"], (1, 1, 1, 0));
+    assert!(group_counts.values().all(|&count| count == 0));
     Ok(())
 }
