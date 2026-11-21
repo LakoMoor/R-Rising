@@ -762,3 +762,62 @@ fn saved_blob_sources_match_scene_prefab_components() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires original server scenes, layout report and captured save"]
+fn saved_blob_column_references_match_prefab_payloads() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let blobs = ScenePrefabCatalog::read_saved_prefab_blobs(&data, &layouts, snapshot.header())?;
+    let mut nulls = 0usize;
+    let mut mapped = 0usize;
+    let mut missing = 0usize;
+    let mut types = BTreeMap::new();
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                for column in &chunk.columns {
+                    let Some(offsets) = layouts
+                        .get(column.stable_type_hash)
+                        .and_then(|layout| layout.blob_offsets.as_ref())
+                    else {
+                        continue;
+                    };
+                    if offsets.is_empty() {
+                        continue;
+                    }
+                    let rows: Vec<_> = match column.buffers() {
+                        Some(rows) => rows.collect(),
+                        None => (0..chunk.entities().len())
+                            .map(|row| column.scalar(row).unwrap())
+                            .collect(),
+                    };
+                    for bytes in rows {
+                        for element in bytes.chunks_exact(column.element_size()) {
+                            for &offset in offsets {
+                                let offset = usize::try_from(offset)?;
+                                let identifier =
+                                    u64::from_le_bytes(element[offset..offset + 8].try_into()?);
+                                if identifier == 0 {
+                                    nulls += 1;
+                                } else if blobs.payloads.contains_key(&identifier) {
+                                    mapped += 1;
+                                } else {
+                                    missing += 1;
+                                    *types.entry(column.stable_type_hash).or_insert(0usize) += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!("blob values null={nulls} mapped={mapped} missing={missing} missing_types={types:?}");
+    assert_eq!((nulls, mapped, missing), (501, 0, 1468));
+    Ok(())
+}

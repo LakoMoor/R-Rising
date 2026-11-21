@@ -63,6 +63,17 @@ layout has not been recovered are excluded from this offset report. The
 comparison checks field locations, while blob identity and payload remapping
 remain to be implemented.
 
+## Saved component blob values
+
+In the independent 2026-11-21 `AutoSave_2` capture, the recovered blob field
+offsets identify 1,969 values in saved job columns. Of these, 501 are null and
+1,468 are nonzero. None of the nonzero values matches an address recovered
+from saved prefab metadata and current prefab scenes. The values span three
+component types, with 1,466 in `ProjectM.IdleInteractionPointBuffer`. This
+observation rules out completing the mapping for this capture using only the
+current prefab-address lookup. The original handling of these fields and the
+additional blob sources need further investigation.
+
 ## Independent confirmation of movement layouts
 
 All 1,542 saved persistent component indices join the required-name table exactly.
