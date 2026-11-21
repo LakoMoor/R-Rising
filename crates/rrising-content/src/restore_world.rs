@@ -21,6 +21,7 @@ const LINKED_GROUP: u64 = 0xbea7_9ca4_5e4b_e521;
 const STATIC_INDEX: u64 = 0xdd17_1d94_8ccb_47ea;
 const SIMULATE: &str = "Unity.Entities.Simulate";
 const DISABLED: &str = "Unity.Entities.Disabled";
+const INVENTORY_INSTANCE: u64 = 0x7c02_5a52_ca56_3f02;
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -309,7 +310,14 @@ impl RestoredWorldProjection {
             } else {
                 layout.spec.size_in_chunk
             };
-            if !layout.portable_value
+            // StartItems is marked SetToDefault by the original persistence loader.
+            let inventory_instance = hash == INVENTORY_INSTANCE
+                && layout.name == "ProjectM.InventoryInstanceElement"
+                && buffer
+                && stride == 48
+                && layout.entity_offsets == [16]
+                && layout.blob_offsets.as_deref() == Some(&[40]);
+            if (!layout.portable_value && !inventory_instance)
                 || stride <= 0
                 || stride != component.component_size
                 || buffer != saved_type.is_buffer()
@@ -627,11 +635,18 @@ impl RestoredWorldProjection {
                                 column.buffers().context("expected saved buffer rows")?;
                             let mut data = Vec::new();
                             for (source, payload) in chunk.entities().zip(payloads) {
-                                let payload = if offsets.is_empty() {
+                                let payload = if offsets.is_empty()
+                                    && column.stable_type_hash != INVENTORY_INSTANCE
+                                {
                                     payload
                                 } else {
                                     data.clear();
                                     data.extend_from_slice(payload);
+                                    if column.stable_type_hash == INVENTORY_INSTANCE {
+                                        for element in data.chunks_exact_mut(*stride) {
+                                            element[40..48].fill(0);
+                                        }
+                                    }
                                     bindings.patch_references_with(
                                         &mut data,
                                         *stride,

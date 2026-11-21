@@ -821,3 +821,61 @@ fn saved_blob_column_references_match_prefab_payloads() -> Result<()> {
     assert_eq!((nulls, mapped, missing), (501, 0, 1468));
     Ok(())
 }
+
+#[test]
+#[ignore = "requires original server scenes, layout report and captured save"]
+fn inventory_buffer_restores_values_with_defaulted_blob() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let catalogs = ScenePrefabCatalog::read_server_game_data(&data, &layouts)?;
+    let restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
+    let saved = snapshot
+        .header()
+        .persistent_component_named("ProjectM.InventoryInstanceElement")
+        .context("saved inventory type")?;
+    let live = restored
+        .types
+        .type_index_of("ProjectM.InventoryInstanceElement")
+        .context("live inventory type")?;
+    let mut rows = 0;
+    let mut elements = 0;
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                for column in chunk
+                    .columns
+                    .iter()
+                    .filter(|column| column.saved_type_index == saved.saved_type_index)
+                {
+                    for (source, original) in chunk
+                        .entities()
+                        .zip(column.buffers().context("inventory buffer")?)
+                    {
+                        let target = restored.bindings.target(source).context("entity binding")?;
+                        let actual =
+                            restored
+                                .store
+                                .buffer_payload(&restored.types, target, live)?;
+                        let mut expected = original.to_vec();
+                        for element in expected.as_chunks_mut::<48>().0 {
+                            element[40..48].fill(0);
+                        }
+                        restored
+                            .bindings
+                            .patch_references(&mut expected, 48, &[16])?;
+                        assert_eq!(actual, expected);
+                        rows += 1;
+                        elements += original.len() / 48;
+                    }
+                }
+            }
+        }
+    }
+    println!("verified inventory rows={rows} elements={elements}");
+    assert!(rows > 0 && elements > 0);
+    Ok(())
+}

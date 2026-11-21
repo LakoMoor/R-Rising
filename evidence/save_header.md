@@ -74,6 +74,17 @@ observation rules out completing the mapping for this capture using only the
 current prefab-address lookup. The original handling of these fields and the
 additional blob sources need further investigation.
 
+## Inventory buffer default field
+
+The pinned server metadata marks `InventoryInstanceElement.StartItems` at
+byte offset 40 as `ExcludeField(SetToDefault)`. Its loader's
+`HandleExcludedField` at RVA `0x7f15760` selects the zero-fill path for option
+2. The Rust projection admits this 48-byte buffer after checking its stable
+hash, entity offset and blob offset. It defaults the eight-byte blob field and
+remaps the entity at offset 16. On both new original autosaves, an integration
+test checks 496 buffer rows and 248 elements against the saved data after those
+transformations. Original full-system replay remains outstanding.
+
 ## Independent confirmation of movement layouts
 
 All 1,542 saved persistent component indices join the required-name table exactly.
