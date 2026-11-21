@@ -1062,6 +1062,17 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
             );
         }
     }
+    let catalogs =
+        ScenePrefabCatalog::read_server_game_data(&local_path("VRISING_SERVER_DATA")?, &layouts)?;
+    let mut restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
+    restored.bind_prefab_root_blobs(&snapshot, automatic)?;
+    assert_eq!(restored.prefab_blob_bindings.len(), 1468);
+    let owned = restored.prefab_root_blobs.as_ref().unwrap();
+    for (&(entity, hash, _), &(guid, source_hash, index)) in &restored.prefab_blob_bindings {
+        assert!(restored.store.exists(entity)?);
+        assert_eq!(hash, source_hash);
+        assert!(owned.values[&(guid, hash)][index].is_some());
+    }
     let mut recovered_fields = BTreeMap::<u64, usize>::new();
     for (&(guid, hash), values) in &captured.values {
         let count = requested[&guid][&hash];

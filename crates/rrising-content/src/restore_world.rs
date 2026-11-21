@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     persistence::{MegaStaticRestorePlan, PrefabReference, SavedEntityBindings, SavedSnapshot},
-    prefab_catalog::{LinkedPrefabTemplate, ScenePrefabCatalog},
+    prefab_catalog::{LinkedPrefabTemplate, PrefabRootBlobs, ScenePrefabCatalog},
     static_transforms::StaticTransformCatalog,
     type_layouts::{TypeLayouts, ENTITY_HASH, ROTATION_HASH, TRANSLATION_HASH},
 };
@@ -60,6 +60,8 @@ pub struct RestoredWorldProjection {
     pub skipped_saved_tag_types: usize,
     pub initialized_simulate_rows: usize,
     pub restored_disabled_rows: usize,
+    pub prefab_root_blobs: Option<PrefabRootBlobs>,
+    pub prefab_blob_bindings: FxHashMap<(Entity, u64, usize), (i32, u64, usize)>,
 }
 
 #[derive(Debug, Default)]
@@ -73,6 +75,90 @@ pub struct MissingReferences {
 }
 
 impl RestoredWorldProjection {
+    /// Associates saved component elements with the owned blob values of their source prefab.
+    pub fn bind_prefab_root_blobs(
+        &mut self,
+        snapshot: &SavedSnapshot<'_>,
+        blobs: PrefabRootBlobs,
+    ) -> Result<()> {
+        let guid_type = snapshot
+            .header()
+            .persistent_components
+            .iter()
+            .find(|component| component.stable_type_hash == PREFAB_GUID)
+            .context("missing saved prefab GUID type")?
+            .saved_type_index;
+        let mut bindings = FxHashMap::default();
+        for (_, job) in snapshot.jobs() {
+            for archetype in &job.archetypes {
+                for chunk in &archetype.chunks {
+                    let selected: Vec<_> = chunk
+                        .columns
+                        .iter()
+                        .filter(|column| {
+                            matches!(
+                                column.stable_type_hash,
+                                0x9534_7421_34ef_4051
+                                    | 0x9f76_a48d_02bc_e2bb
+                                    | 0xa413_a8bb_b072_50bc
+                            )
+                        })
+                        .collect();
+                    if selected.is_empty() {
+                        continue;
+                    }
+                    let guids = chunk
+                        .columns
+                        .iter()
+                        .find(|column| column.saved_type_index == guid_type)
+                        .context("missing prefab GUID column")?;
+                    for (row, source) in chunk.entities().enumerate() {
+                        let guid = i32::from_le_bytes(
+                            guids
+                                .scalar(row)
+                                .context("missing prefab GUID")?
+                                .try_into()?,
+                        );
+                        let target = self
+                            .bindings
+                            .target(source)
+                            .context("missing restored entity")?;
+                        for column in &selected {
+                            let values = blobs
+                                .values
+                                .get(&(guid, column.stable_type_hash))
+                                .context("missing prefab blob source")?;
+                            let count = match column.buffers() {
+                                Some(mut rows) => {
+                                    rows.nth(row).context("missing buffer row")?.len()
+                                        / column.element_size()
+                                }
+                                None => 1,
+                            };
+                            ensure!(
+                                values.len() >= count,
+                                "prefab has fewer blob fields than saved buffer"
+                            );
+                            for element in 0..count {
+                                ensure!(
+                                    bindings
+                                        .insert(
+                                            (target, column.stable_type_hash, element),
+                                            (guid, column.stable_type_hash, element)
+                                        )
+                                        .is_none(),
+                                    "duplicate prefab blob binding"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.prefab_root_blobs = Some(blobs);
+        self.prefab_blob_bindings = bindings;
+        Ok(())
+    }
     /// Clones supported components, preserving references to the registered live prefab members.
     pub fn instantiate_prefab(
         &mut self,
@@ -739,6 +825,8 @@ impl RestoredWorldProjection {
             skipped_saved_tag_types: observed_tags.len() - tags.len(),
             initialized_simulate_rows,
             restored_disabled_rows,
+            prefab_root_blobs: None,
+            prefab_blob_bindings: FxHashMap::default(),
         })
     }
 }
