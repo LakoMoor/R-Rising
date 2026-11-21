@@ -748,6 +748,14 @@ impl ScenePrefabCatalog {
                             missing += 1;
                             continue;
                         };
+                        if layout
+                            .blob_offsets
+                            .as_ref()
+                            .is_some_and(|offsets| !offsets.contains(&record.blob_field_offset))
+                        {
+                            missing += 1;
+                            continue;
+                        }
                         let bytes = if layout.spec.category == TypeCategory::BufferData {
                             resolved
                                 .buffer_payload(

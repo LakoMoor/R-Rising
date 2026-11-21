@@ -32,6 +32,8 @@ pub struct RecoveredType {
     pub name: String,
     pub spec: TypeSpec,
     pub entity_offsets: Vec<i32>,
+    /// Known blob-reference field offsets, or None when the probe could not recover them.
+    pub blob_offsets: Option<Vec<i32>>,
     pub portable_value: bool,
 }
 
@@ -268,6 +270,33 @@ impl TypeLayouts {
                 .get("portable_value")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            let blob_offsets = ecs
+                .get("blob_offsets")
+                .map(|value| -> Result<Vec<i32>> {
+                    let mut offsets = value
+                        .as_array()
+                        .context("invalid blob offsets")?
+                        .iter()
+                        .map(|offset| {
+                            i32::try_from(offset.as_i64().context("invalid blob offset")?)
+                                .context("blob offset overflow")
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let stride = if category == TypeCategory::BufferData {
+                        element_size
+                    } else {
+                        size
+                    };
+                    offsets.sort_unstable();
+                    ensure!(
+                        offsets.iter().all(|&offset| offset >= 0
+                            && offset.checked_add(8).is_some_and(|end| end <= stride))
+                            && offsets.windows(2).all(|pair| pair[0] + 8 <= pair[1]),
+                        "invalid blob offsets for {name}"
+                    );
+                    Ok(offsets)
+                })
+                .transpose()?;
             ensure!(
                 by_hash
                     .insert(
@@ -277,6 +306,7 @@ impl TypeLayouts {
                             name: name.to_owned(),
                             spec,
                             entity_offsets,
+                            blob_offsets,
                             portable_value,
                         }
                     )
