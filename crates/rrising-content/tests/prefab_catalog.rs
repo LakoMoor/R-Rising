@@ -881,7 +881,7 @@ fn inventory_buffer_restores_values_with_defaulted_blob() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires an original save"]
+#[ignore = "requires original server scenes, layout report and an original save"]
 fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
     use std::collections::BTreeSet;
     let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
@@ -913,6 +913,7 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         .map(|prefab| (prefab.prefab_guid, &prefab.linked_entities))
         .collect();
     let mut group_counts = BTreeMap::new();
+    let mut requested = BTreeMap::<i32, BTreeMap<u64, usize>>::new();
     let mut counts = BTreeMap::new();
     for (_, job) in snapshot.jobs() {
         for archetype in &job.archetypes {
@@ -937,6 +938,11 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
                             counts.1 += 1;
                             let value = i32::from_le_bytes(value.try_into()?);
                             counts.2 += usize::from(known.contains(&value));
+                            *requested
+                                .entry(value)
+                                .or_default()
+                                .entry(column.stable_type_hash)
+                                .or_default() += 1;
                             let present = groups.get(&value).is_some_and(|members| {
                                 members.iter().any(|member| {
                                     blob_fields.contains(&(*member, column.stable_type_hash))
@@ -952,6 +958,53 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
             }
         }
     }
+    let data = local_path("VRISING_SERVER_DATA")?.join("StreamingAssets/EntityScenes");
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let mut scene_matches = BTreeMap::<u64, usize>::new();
+    for (scene_id, _) in SERVER_PREFAB_SCENES {
+        let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
+        let catalog = ScenePrefabCatalog::read(&scene, &layouts)?;
+        let resolved = layouts.resolve_scene(&scene)?;
+        let mut locations = BTreeMap::new();
+        for (chunk_index, chunk) in resolved.chunks.iter().enumerate() {
+            for row in 0..usize::try_from(chunk.header.count)? {
+                if let Some(bytes) = resolved.component_bytes(
+                    chunk_index,
+                    row,
+                    rrising_content::type_layouts::ENTITY_HASH,
+                )? {
+                    locations.insert(
+                        (
+                            i32::from_le_bytes(bytes[..4].try_into()?),
+                            i32::from_le_bytes(bytes[4..8].try_into()?),
+                        ),
+                        (chunk_index, row),
+                    );
+                }
+            }
+        }
+        for prefab in catalog.prefabs {
+            if let Some(types) = requested.get(&prefab.prefab_guid) {
+                let &(ci, _row) = locations
+                    .get(&(prefab.entity.index, prefab.entity.version))
+                    .context("prefab root")?;
+                let arch = resolved.archetypes[resolved.chunks[ci].header.archetype_index as usize]
+                    .as_ref()
+                    .context("prefab archetype")?;
+                for (&hash, &count) in types {
+                    if arch.hashes.contains(&hash) {
+                        *scene_matches.entry(hash).or_default() += count;
+                    }
+                }
+            }
+        }
+    }
+    println!("scene root component matches: {scene_matches:?}");
+    assert_eq!(scene_matches[&0x9534_7421_34ef_4051], 1432);
+    assert_eq!(scene_matches[&0x9f76_a48d_02bc_e2bb], 1);
+    assert_eq!(scene_matches[&0xa413_a8bb_b072_50bc], 1);
     println!("blob components: {counts:?}; linked group matches: {group_counts:?}");
     assert_eq!(counts["BloodConsumeSource"], (1, 1, 1, 0));
     assert_eq!(counts["IdleInteractionPointBuffer"], (1432, 1432, 1432, 0));
