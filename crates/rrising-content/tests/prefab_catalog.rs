@@ -652,3 +652,61 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
         .is_err());
     Ok(())
 }
+
+#[test]
+#[ignore = "requires a captured original save and server layout report"]
+fn supplemental_server_time_matches_saved_rows() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?.join("StreamingAssets/EntityScenes");
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let mut catalogs = Vec::new();
+    for (scene_id, _) in SERVER_PREFAB_SCENES {
+        let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
+        catalogs.push(ScenePrefabCatalog::read(&scene, &layouts)?);
+    }
+    let restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
+    let saved = snapshot
+        .header()
+        .persistent_component_named("ProjectM.ServerTime")
+        .context("saved ServerTime metadata")?;
+    let layout = layouts
+        .get(saved.stable_type_hash)
+        .context("ServerTime layout")?;
+    ensure!(
+        layout.entity_offsets.is_empty(),
+        "ServerTime contains entity references"
+    );
+    let live = restored
+        .types
+        .type_index_of("ProjectM.ServerTime")
+        .context("restored ServerTime")?;
+    let mut checked = 0;
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                for column in chunk
+                    .columns
+                    .iter()
+                    .filter(|column| column.saved_type_index == saved.saved_type_index)
+                {
+                    for (index, entity) in chunk.entities().enumerate() {
+                        let target = restored
+                            .bindings
+                            .target(entity)
+                            .context("saved entity binding")?;
+                        assert_eq!(
+                            restored.store.component_bytes(target, live)?,
+                            column.scalar(index).context("ServerTime scalar")?
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 0);
+    Ok(())
+}
