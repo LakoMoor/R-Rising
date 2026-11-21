@@ -879,3 +879,70 @@ fn inventory_buffer_restores_values_with_defaulted_blob() -> Result<()> {
     assert!(rows > 0 && elements > 0);
     Ok(())
 }
+
+#[test]
+#[ignore = "requires an original save"]
+fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
+    use std::collections::BTreeSet;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let header = snapshot.header();
+    let guid = header
+        .persistent_components
+        .iter()
+        .find(|component| component.stable_type_hash == 0xb181_3197_8820_0ae1)
+        .context("saved PrefabGUID")?;
+    let known: BTreeSet<_> = header
+        .prefabs
+        .iter()
+        .map(|prefab| prefab.prefab_guid)
+        .collect();
+    let roots: BTreeMap<_, _> = header
+        .prefabs
+        .iter()
+        .map(|prefab| (prefab.prefab_guid, prefab.entity))
+        .collect();
+    let blob_fields: BTreeSet<_> = header
+        .blobs
+        .iter()
+        .map(|blob| (blob.entity, blob.component_stable_type_hash))
+        .collect();
+    let mut counts = BTreeMap::new();
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                let guid_column = chunk
+                    .columns
+                    .iter()
+                    .find(|column| column.saved_type_index == guid.saved_type_index);
+                for column in &chunk.columns {
+                    let name = match column.stable_type_hash {
+                        0x9534_7421_34ef_4051 => "IdleInteractionPointBuffer",
+                        0x9f76_a48d_02bc_e2bb => "BloodConsumeSource",
+                        0xa413_a8bb_b072_50bc => "IdleInteractor",
+                        _ => continue,
+                    };
+                    let counts = counts
+                        .entry(name)
+                        .or_insert((0usize, 0usize, 0usize, 0usize));
+                    for row in 0..chunk.entities().len() {
+                        counts.0 += 1;
+                        if let Some(value) = guid_column.and_then(|column| column.scalar(row)) {
+                            counts.1 += 1;
+                            let value = i32::from_le_bytes(value.try_into()?);
+                            counts.2 += usize::from(known.contains(&value));
+                            counts.3 += usize::from(roots.get(&value).is_some_and(|root| {
+                                blob_fields.contains(&(*root, column.stable_type_hash))
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!("blob components: {counts:?}");
+    assert_eq!(counts["BloodConsumeSource"], (1, 1, 1, 0));
+    assert_eq!(counts["IdleInteractionPointBuffer"], (1432, 1432, 1432, 0));
+    assert_eq!(counts["IdleInteractor"], (1, 1, 1, 0));
+    Ok(())
+}
