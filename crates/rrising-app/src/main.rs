@@ -1406,6 +1406,7 @@ fn main() -> Result<()> {
                 "initialized_simulate_rows": restored.initialized_simulate_rows,
                 "restored_disabled_rows": restored.restored_disabled_rows,
                 "skipped_saved_types": restored.skipped_saved_types,
+                "skipped_saved_components": restored.skipped_saved_components,
                 "cleared_references": restored.cleared_references,
                 "mega_static_plan": {
                     "managers": mega_statics.manager_rows,

@@ -54,6 +54,7 @@ pub struct RestoredWorldProjection {
     pub missing_references: MissingReferences,
     pub admitted_saved_types: usize,
     pub skipped_saved_types: usize,
+    pub skipped_saved_components: BTreeMap<String, String>,
     pub admitted_saved_tag_types: usize,
     pub skipped_saved_tag_types: usize,
     pub initialized_simulate_rows: usize,
@@ -344,6 +345,38 @@ impl RestoredWorldProjection {
             .filter(|ty| scalars.contains_key(ty) || buffers.contains_key(ty))
             .count();
         let skipped_saved_types = observed.len() - admitted_saved_types;
+        let mut skipped_saved_components = BTreeMap::new();
+        for saved_type in observed
+            .iter()
+            .filter(|ty| !scalars.contains_key(ty) && !buffers.contains_key(ty))
+        {
+            let component = snapshot
+                .header()
+                .persistent_components
+                .iter()
+                .find(|component| component.saved_type_index == *saved_type)
+                .context("missing skipped saved component metadata")?;
+            let name = snapshot
+                .header()
+                .required_components
+                .iter()
+                .find(|required| required.saved_type_index == *saved_type)
+                .context("missing skipped saved component name")?;
+            let reason = if blob_types.contains(&component.stable_type_hash) {
+                "blob references require remapping"
+            } else if layouts.get(component.stable_type_hash).is_none() {
+                "server layout unavailable"
+            } else {
+                "layout or component flags not supported"
+            };
+            ensure!(
+                skipped_saved_components
+                    .insert(name.full_name.clone(), reason.to_owned())
+                    .is_none(),
+                "duplicate skipped saved component name {}",
+                name.full_name
+            );
+        }
         let mut instance_templates = FxHashMap::default();
         if placement.is_some() {
             for catalog in catalogs {
@@ -686,6 +719,7 @@ impl RestoredWorldProjection {
             missing_references,
             admitted_saved_types,
             skipped_saved_types,
+            skipped_saved_components,
             admitted_saved_tag_types: tags.len(),
             skipped_saved_tag_types: observed_tags.len() - tags.len(),
             initialized_simulate_rows,
