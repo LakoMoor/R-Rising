@@ -6,6 +6,19 @@ This adds archetype, chunk, entity and component data to the previously decoded
 [container](save_container.md) and [header](save_header.md). It does not apply
 those values to a running World.
 
+## Cpp2IL metadata cross-check
+
+Cpp2IL `2022.1.0-pre-release.21` identifies metadata version 31.1 on the
+pinned server. Its automatic search found the code registration at
+`0x18a291870` but did not find metadata registration. The independently
+recovered registration at `0x18cc02e60` allows initialization and maps
+227,563 method definitions. The original release disables interactive
+address entry in its CLI. A local build with that existing option enabled
+was used to provide the address. Its `diffable-cs` output contains empty
+method bodies, so it supports identity and signature lookup only. Native
+instructions and actual save bytes remain the behavioral evidence. The
+output stays local.
+
 ## Format evidence
 
 The target is the dedicated server in [reference.server.lock.json](../reference.server.lock.json),
