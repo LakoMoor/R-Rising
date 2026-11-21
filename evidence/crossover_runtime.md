@@ -58,6 +58,18 @@ could not classify Wine helper processes during cleanup. That provider limitatio
 is not reported as a clean runtime capture. The reproducible launcher and its own
 private-prefix cleanup were used for the server observation above.
 
+## Independent capture, 2026-11-21
+
+A fresh isolated CrossOver profile reached world startup after 52.325 seconds
+and produced three autosaves during the 90-second observation. The retained
+`AutoSave_2` was parsed and projected by the Rust CLI using a freshly generated
+server layout report. The projection allocated 552,220 live entities, including
+274,802 saved job rows and 236,213 placed MegaStatic instances. It restored
+260 component-column types and 49 tag types, with 18 column types and six tag
+types skipped. It copied 1,830,217 scalar values and 277,113 buffer rows.
+Twelve stale-version references were cleared. This capture was generated
+independently from the previous two saves and is not a gameplay comparison.
+
 ## Next comparison boundary
 
 The [outer save container is now readable in Rust](save_container.md); both
