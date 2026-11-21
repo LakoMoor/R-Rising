@@ -1374,6 +1374,8 @@ fn main() -> Result<()> {
                 .collect();
             let catalogs =
                 ScenePrefabCatalog::read_server_game_data_for(&opt.data, &layouts, &requested)?;
+            let saved_blobs =
+                ScenePrefabCatalog::read_saved_prefab_blobs(&opt.data, &layouts, header)?;
             let terrain = rrising_content::static_transforms::StaticTransformCatalog::read_server(
                 &opt.data, &layouts,
             )?;
@@ -1396,6 +1398,15 @@ fn main() -> Result<()> {
             Some(serde_json::json!({
                 "live_entities": restored.bindings.len() - 1,
                 "prefab_roots": restored.prefabs.len(),
+                "prefab_blob_sources": {
+                    "matched_fields": saved_blobs.matched_fields,
+                    "nonnull_fields": saved_blobs.nonnull_fields,
+                    "missing_fields": saved_blobs.missing_fields,
+                    "unbound_fields": saved_blobs.unbound_fields,
+                    "payloads": saved_blobs.payloads.len(),
+                    "conflicts": saved_blobs.conflicts,
+                    "null_mismatches": saved_blobs.null_mismatches,
+                },
                 "scalar_values": restored.copied_scalar_values,
                 "buffer_rows": restored.copied_buffer_rows,
                 "buffer_elements": restored.copied_buffer_elements,

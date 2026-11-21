@@ -668,3 +668,148 @@ mod tests {
         Ok(())
     }
 }
+
+/// Blob payloads recovered from matching saved prefab members and current server scenes.
+/// Saved addresses are identifiers and are never dereferenced.
+#[derive(Debug, Default)]
+pub struct SavedPrefabBlobs {
+    pub payloads: std::collections::HashMap<u64, (u64, Vec<u8>)>,
+    pub matched_fields: usize,
+    pub nonnull_fields: usize,
+    pub missing_fields: usize,
+    pub unbound_fields: usize,
+    pub conflicts: usize,
+    pub null_mismatches: usize,
+}
+
+impl ScenePrefabCatalog {
+    pub fn read_saved_prefab_blobs(
+        data_dir: &std::path::Path,
+        layouts: &TypeLayouts,
+        header: &crate::persistence::PersistenceHeader,
+    ) -> Result<SavedPrefabBlobs> {
+        use std::collections::HashMap;
+        let data = data_dir.join("StreamingAssets/EntityScenes");
+        let saved: HashMap<_, _> = header
+            .prefabs
+            .iter()
+            .map(|prefab| (prefab.prefab_guid, prefab))
+            .collect();
+        let mut sources = HashMap::new();
+        for blob in &header.blobs {
+            sources
+                .entry(blob.entity)
+                .or_insert_with(Vec::new)
+                .push(blob);
+        }
+        let mut blob_identities = HashMap::new();
+        let mut conflicts = 0;
+        let mut null_mismatches = 0;
+        let mut found = 0;
+        let mut nonnull = 0;
+        let mut missing = 0;
+        for (scene_id, _) in SERVER_PREFAB_SCENES {
+            let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
+            let catalog = ScenePrefabCatalog::read(&scene, layouts)?;
+            let resolved = layouts.resolve_scene(&scene)?;
+            let buffers = scene.buffer_data()?;
+            let blobs = scene.blob_assets()?;
+            let mut locations = HashMap::new();
+            for (ci, chunk) in resolved.chunks.iter().enumerate() {
+                for row in 0..usize::try_from(chunk.header.count)? {
+                    if let Some(bytes) = resolved.component_bytes(ci, row, ENTITY_HASH)? {
+                        let entity = Entity::new(
+                            i32::from_le_bytes(bytes[..4].try_into()?),
+                            i32::from_le_bytes(bytes[4..8].try_into()?),
+                        );
+                        locations.insert(entity, (ci, row));
+                    }
+                }
+            }
+            for prefab in &catalog.prefabs {
+                let Some(old) = saved.get(&prefab.prefab_guid) else {
+                    continue;
+                };
+                let linked = old.linked_entities.len() == prefab.linked_entities.len();
+                let members = std::iter::once((old.entity, prefab.entity)).chain(
+                    old.linked_entities
+                        .iter()
+                        .copied()
+                        .zip(prefab.linked_entities.iter().copied())
+                        .filter(|_| linked),
+                );
+                for (source, current) in members {
+                    let Some(records) = sources.remove(&source) else {
+                        continue;
+                    };
+                    let &(ci, row) = locations.get(&current).context("missing prefab member")?;
+                    for record in records {
+                        let Some(layout) = layouts.get(record.component_stable_type_hash) else {
+                            missing += 1;
+                            continue;
+                        };
+                        let bytes = if layout.spec.category == TypeCategory::BufferData {
+                            resolved
+                                .buffer_payload(
+                                    &buffers,
+                                    ci,
+                                    row,
+                                    record.component_stable_type_hash,
+                                    usize::try_from(layout.spec.element_size)?,
+                                )?
+                                .and_then(|payload| {
+                                    let start = usize::try_from(record.element_index)
+                                        .ok()?
+                                        .checked_mul(layout.spec.element_size as usize)?;
+                                    let end =
+                                        start.checked_add(layout.spec.element_size as usize)?;
+                                    payload.get(start..end)
+                                })
+                        } else {
+                            resolved.component_bytes(ci, row, record.component_stable_type_hash)?
+                        };
+                        let Some(value) = bytes.and_then(|bytes| {
+                            usize::try_from(record.blob_field_offset)
+                                .ok()
+                                .and_then(|offset| bytes.get(offset..offset.checked_add(4)?))
+                        }) else {
+                            missing += 1;
+                            continue;
+                        };
+                        let offset = i32::from_le_bytes(value.try_into()?);
+                        if offset == -1 || blobs.find_by_offset(offset).is_some() {
+                            if let Some(blob) = blobs.find_by_offset(offset) {
+                                if record.saved_blob_asset_address == 0 {
+                                    null_mismatches += 1;
+                                } else {
+                                    let identity = (blob.hash, blob.data.to_vec());
+                                    if let Some(previous) = blob_identities
+                                        .insert(record.saved_blob_asset_address, identity.clone())
+                                    {
+                                        conflicts += usize::from(previous != identity);
+                                    }
+                                }
+                            } else if record.saved_blob_asset_address != 0 {
+                                null_mismatches += 1;
+                            }
+                            found += 1;
+                            nonnull += usize::from(offset != -1);
+                        } else {
+                            missing += 1;
+                        }
+                    }
+                }
+            }
+        }
+        ensure!(conflicts == 0 && null_mismatches == 0, "conflicting saved prefab blob mappings: {conflicts} conflicts, {null_mismatches} null mismatches");
+        Ok(SavedPrefabBlobs {
+            payloads: blob_identities,
+            matched_fields: found,
+            nonnull_fields: nonnull,
+            missing_fields: missing,
+            unbound_fields: sources.values().map(Vec::len).sum(),
+            conflicts,
+            null_mismatches,
+        })
+    }
+}
