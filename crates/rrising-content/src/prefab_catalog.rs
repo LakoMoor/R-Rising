@@ -646,6 +646,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn prefab_blob_payload_preserves_aligned_header_and_bytes() -> Result<()> {
+        let source: Vec<_> = (0..37).collect();
+        let blob = PrefabBlobPayload::new(0x1234, &source)?;
+        let address = blob.payload_address();
+        assert_eq!(address % 16, 0);
+        assert_eq!(
+            u64::from_le_bytes(blob.storage[0].0[..8].try_into()?),
+            address
+        );
+        assert_eq!(i32::from_le_bytes(blob.storage[0].0[8..12].try_into()?), 37);
+        assert_eq!(u32::from_le_bytes(blob.storage[0].0[12..].try_into()?), 1);
+        assert_eq!(
+            u64::from_le_bytes(blob.storage[1].0[..8].try_into()?),
+            0x1234
+        );
+        let stored: Vec<_> = blob.storage[2..].iter().flat_map(|block| block.0).collect();
+        assert_eq!(&stored[..source.len()], source);
+        assert!(stored[source.len()..].iter().all(|&byte| byte == 0));
+        let moved = Box::new(blob);
+        assert_eq!(moved.payload_address(), address);
+        Ok(())
+    }
+
+    #[test]
     fn prefab_root_reference_patch_plan_checks_all_buffer_elements_and_versions() -> Result<()> {
         let root = Entity::new(114, 2);
         let ordinals = rustc_hash::FxHashMap::from_iter([(root, 0)]);
@@ -828,6 +852,39 @@ impl ScenePrefabCatalog {
 pub struct PrefabBlobPayload {
     pub hash: u64,
     pub data: Vec<u8>,
+    storage: Box<[BlobBlock]>,
+}
+
+#[derive(Clone, Debug)]
+#[repr(align(16))]
+struct BlobBlock([u8; 16]);
+
+impl PrefabBlobPayload {
+    fn new(hash: u64, data: &[u8]) -> Result<Self> {
+        let length = i32::try_from(data.len()).context("blob payload is too large")?;
+        let blocks = data.len().checked_add(15).context("blob length overflow")? / 16;
+        let mut storage =
+            vec![BlobBlock([0; 16]); blocks.checked_add(2).context("blob allocation overflow")?]
+                .into_boxed_slice();
+        for (block, bytes) in storage[2..].iter_mut().zip(data.chunks(16)) {
+            block.0[..bytes.len()].copy_from_slice(bytes);
+        }
+        let address = storage[2..].as_ptr() as usize as u64;
+        storage[0].0[..8].copy_from_slice(&address.to_le_bytes());
+        storage[0].0[8..12].copy_from_slice(&length.to_le_bytes());
+        storage[0].0[12..16].copy_from_slice(&1u32.to_le_bytes());
+        storage[1].0[..8].copy_from_slice(&hash.to_le_bytes());
+        Ok(Self {
+            hash,
+            data: data.to_vec(),
+            storage,
+        })
+    }
+
+    /// Address of the aligned blob payload, valid while this value is alive.
+    pub fn payload_address(&self) -> u64 {
+        self.storage[2..].as_ptr() as usize as u64
+    }
 }
 
 #[derive(Debug, Default)]
@@ -957,10 +1014,7 @@ impl ScenePrefabCatalog {
                         } else {
                             let blob =
                                 blobs.find_by_offset(source).context("missing scene blob")?;
-                            values.push(Some(PrefabBlobPayload {
-                                hash: blob.hash,
-                                data: blob.data.to_vec(),
-                            }));
+                            values.push(Some(PrefabBlobPayload::new(blob.hash, blob.data)?));
                         }
                     }
                     ensure!(
