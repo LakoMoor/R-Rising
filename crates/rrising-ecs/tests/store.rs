@@ -336,3 +336,40 @@ fn opaque_shared_archetypes_keep_default_shared_indices_per_chunk() {
         }
     }
 }
+
+#[test]
+fn shared_indices_select_separate_chunks_and_default_group() {
+    let mut w = world();
+    let shared = w.tm.register(TypeSpec::shared("Shared", 4, 4)).unwrap();
+    let mut store = store(&w, 2);
+    store.set_admit_opaque_special_components(true);
+    let archetype = store
+        .get_or_create_archetype(&w.tm, &[w.a, shared])
+        .unwrap();
+    let first = store
+        .create_entities_with_shared(archetype, 1, &[7])
+        .unwrap()[0];
+    let other = store
+        .create_entities_with_shared(archetype, 1, &[8])
+        .unwrap()[0];
+    let same = store
+        .create_entities_with_shared(archetype, 1, &[7])
+        .unwrap()[0];
+    let default = store.create_entities(archetype, 1).unwrap()[0];
+    let chunk = |entity: Entity| store.entity_in_chunk(entity.index).unwrap().chunk;
+    assert_eq!(chunk(first), chunk(same));
+    assert_ne!(chunk(first), chunk(other));
+    assert_ne!(chunk(first), chunk(default));
+    assert_ne!(chunk(other), chunk(default));
+    let data = &store.archetypes()[archetype].chunk_data;
+    for (entity, expected) in [(first, 7), (other, 8), (default, 0)] {
+        let list = store.chunk(chunk(entity)).unwrap().list_index as usize;
+        assert_eq!(data.get_shared_component_value(0, list).unwrap(), expected);
+    }
+    assert!(store
+        .create_entities_with_shared(archetype, 1, &[])
+        .is_err());
+    assert!(store
+        .create_entities_with_shared(archetype, 1, &[-1])
+        .is_err());
+}

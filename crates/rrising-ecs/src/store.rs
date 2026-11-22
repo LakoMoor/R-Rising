@@ -39,7 +39,7 @@
 
 use std::collections::HashMap;
 
-use anyhow::{bail, ensure, Result};
+use anyhow::{bail, ensure, Context, Result};
 
 use crate::archetype::{create_archetype_data, Archetype, ArchetypeFlags, SpecialTypes};
 use crate::chunk::{Chunk, ChunkIndex};
@@ -366,7 +366,7 @@ impl EntityComponentStore {
     }
 
     /// `AllocateChunk` @ 0x8fb... (`_110`) + `AddEmptyChunk_57` + `AddToChunkList_28`.
-    fn add_empty_chunk(&mut self, arch: usize) -> Result<ChunkIndex> {
+    fn add_empty_chunk(&mut self, arch: usize, shared_values: &[i32]) -> Result<ChunkIndex> {
         self.next_chunk_sequence_number += 1; // AddEmptyChunk_57 bumps +0x188 itself
         let seq = self.next_chunk_sequence_number;
         let chunk = Chunk::new(arch as i32, seq);
@@ -392,8 +392,7 @@ impl EntityComponentStore {
             };
             sa.chunk_data.grow(new_cap)?;
         }
-        let default_shared_values = vec![0; sa.chunk_data.shared_component_count()];
-        let pos = sa.chunk_data.add(ci, 0, &default_shared_values, gsv)?;
+        let pos = sa.chunk_data.add(ci, 0, shared_values, gsv)?;
         // zero the enabled masks and disabled counts for the re-used metadata row
         let n = sa.chunk_data.component_count();
         sa.chunk_data
@@ -438,11 +437,27 @@ impl EntityComponentStore {
     }
 
     /// `GetChunkWithEmptySlots` @ 0x8fb9d80 (non-shared): first listed chunk, else a new one.
-    fn get_chunk_with_empty_slots(&mut self, arch: usize) -> Result<ChunkIndex> {
-        if let Some(&c) = self.archetypes[arch].chunks_with_empty_slots.first() {
-            return Ok(ChunkIndex::new(c));
+    fn get_chunk_with_empty_slots(
+        &mut self,
+        arch: usize,
+        shared_values: &[i32],
+    ) -> Result<ChunkIndex> {
+        for &slot in &self.archetypes[arch].chunks_with_empty_slots {
+            let chunk = ChunkIndex::new(slot);
+            let list_index = self
+                .chunk(chunk)
+                .context("missing chunk with free space")?
+                .list_index as usize;
+            let data = &self.archetypes[arch].chunk_data;
+            let mut matches = true;
+            for (component, &value) in shared_values.iter().enumerate() {
+                matches &= data.get_shared_component_value(component, list_index)? == value;
+            }
+            if matches {
+                return Ok(chunk);
+            }
         }
-        self.add_empty_chunk(arch)
+        self.add_empty_chunk(arch, shared_values)
     }
 
     /// `ChunkDataUtility.SetChunkCount` @ 0x902bc70 (meta-chunk handling omitted).
@@ -503,7 +518,23 @@ impl EntityComponentStore {
     /// `CreateEntities` @ 0x8fbb... (`_201`): fill chunks with empty slots until `count` entities
     /// exist. Returns the new handles in creation order.
     pub fn create_entities(&mut self, arch: usize, count: usize) -> Result<Vec<Entity>> {
-        self.create_entities_inner(arch, count, None)
+        let shared_count = self
+            .archetypes
+            .get(arch)
+            .context("unknown archetype")?
+            .chunk_data
+            .shared_component_count();
+        self.create_entities_inner(arch, count, None, &vec![0; shared_count])
+    }
+
+    /// Creates entities grouped into chunks by their shared component indices.
+    pub fn create_entities_with_shared(
+        &mut self,
+        arch: usize,
+        count: usize,
+        shared_values: &[i32],
+    ) -> Result<Vec<Entity>> {
+        self.create_entities_inner(arch, count, None, shared_values)
     }
 
     fn create_entities_inner(
@@ -511,12 +542,21 @@ impl EntityComponentStore {
         arch: usize,
         count: usize,
         ids: Option<&[Entity]>,
+        shared_values: &[i32],
     ) -> Result<Vec<Entity>> {
         ensure!(arch < self.archetypes.len(), "unknown archetype {arch}");
+        ensure!(
+            shared_values.len() == self.archetypes[arch].chunk_data.shared_component_count(),
+            "shared component count mismatch"
+        );
+        ensure!(
+            shared_values.iter().all(|&value| value >= 0),
+            "negative shared component index"
+        );
         let mut out = Vec::with_capacity(count);
         let mut remaining = count;
         while remaining > 0 {
-            let ci = self.get_chunk_with_empty_slots(arch)?;
+            let ci = self.get_chunk_with_empty_slots(arch, shared_values)?;
             let cap = self.archetypes[arch].archetype.chunk_capacity();
             let free = cap - self.chunk_mut(ci)?.count;
             let n = remaining.min(free as usize);
@@ -578,7 +618,8 @@ impl EntityComponentStore {
                 .is_null(),
             "last entity slot is live"
         );
-        self.create_entities_inner(arch, ids.len(), Some(ids))?;
+        let shared_count = self.archetypes[arch].chunk_data.shared_component_count();
+        self.create_entities_inner(arch, ids.len(), Some(ids), &vec![0; shared_count])?;
         // rebuild the free list over all free slots, ascending, last slot terminating with -1
         let free: Vec<i32> = (0..self.capacity)
             .filter(|&i| self.entity_in_chunk[i as usize].chunk.is_null())
