@@ -753,3 +753,10 @@ references exist. This recovers `ApplyBuffOnGameplayEvent` field offset 56 and t
 `NewBlobAssetDatabaseRecord<T>` layouts at offset 16. All 1,772 scene type reports now include
 blob-offset results; their identities and shapes are offline-derived and are not a runtime TypeInfo
 oracle. All-scene scalar and buffer load tests pass with the resulting report.
+
+After scene blob relocation, the diagnostic world fingerprint normalizes registered blob addresses
+to scene-local offsets and includes used dynamic-buffer contents, including externally owned
+buffers. The all-scene transform scenario again matches across independent Rust world builds: 372
+scenes contain LocalToWorld, while 811 have none. This is a port-side determinism check, not an
+original-runtime behavioral oracle; 809 of 112,177 recomputed transforms differ from saved scene
+matrices by more than 1e-5 relative error.

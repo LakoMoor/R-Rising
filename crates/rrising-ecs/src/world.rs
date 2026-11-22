@@ -12,6 +12,7 @@
 //! are not handled; `Disabled`/`Prefab` flags come from the supplied [`SpecialTypes`].
 
 use anyhow::{ensure, Context, Result};
+use std::collections::HashMap;
 
 use crate::archetype::SpecialTypes;
 use crate::entity::Entity;
@@ -74,6 +75,8 @@ pub struct World {
     pub archetype_map: Vec<usize>,
     /// Every instantiated entity, in input order.
     pub entities: Vec<Entity>,
+    blob_field_offsets: HashMap<TypeIndex, Vec<usize>>,
+    blob_address_ids: HashMap<u64, u64>,
 }
 
 impl World {
@@ -163,6 +166,8 @@ impl World {
             types,
             archetype_map,
             entities,
+            blob_field_offsets: HashMap::new(),
+            blob_address_ids: HashMap::new(),
         })
     }
 
@@ -248,9 +253,41 @@ impl World {
             .query_entity_count(q)
             .expect("valid query chunk metadata")
     }
-    /// FNV-1a 64 over all per-entity component bytes (archetype order, chunk-list order, type
-    /// order inside the archetype), plus entity counts. Independent of change versions. A
-    /// determinism fingerprint, not an original-engine hash.
+    /// Register known blob field layouts and stable identifiers for the diagnostic fingerprint.
+    pub fn register_blob_fingerprint(
+        &mut self,
+        ty: TypeIndex,
+        offsets: Vec<usize>,
+        addresses: &[(u64, u64)],
+    ) -> Result<()> {
+        let info = self.types.type_info(ty).context("unknown type")?;
+        let size = usize::try_from(if ty.is_buffer() {
+            info.element_size
+        } else {
+            info.size_in_chunk
+        })?;
+        ensure!(
+            offsets.windows(2).all(|w| w[0] + 8 <= w[1])
+                && offsets
+                    .iter()
+                    .all(|&o| o.checked_add(8).is_some_and(|end| end <= size)),
+            "invalid blob field offsets"
+        );
+        for &(address, id) in addresses {
+            ensure!(
+                address != 0 && id != 0,
+                "invalid blob address or identifier"
+            );
+            if let Some(previous) = self.blob_address_ids.insert(address, id) {
+                ensure!(previous == id, "conflicting blob identifier");
+            }
+        }
+        self.blob_field_offsets.insert(ty, offsets);
+        Ok(())
+    }
+
+    /// Diagnostic fingerprint of component data, including owned buffer contents. Registered blob
+    /// addresses are replaced by scene-local identifiers; unknown addresses remain raw bytes.
     pub fn state_hash(&self) -> u64 {
         let mut h = Fnv::new();
         for sa in self.store.archetypes() {
@@ -261,13 +298,66 @@ impl World {
                 };
                 h.write(&ch.count.to_le_bytes());
                 for t in &sa.archetype.types {
-                    if let Ok(b) = self.store.chunk_component_bytes(c, t.type_index) {
-                        h.write(b);
+                    let ty = t.type_index;
+                    if ty.is_buffer() {
+                        if let Ok(entities) = self.store.chunk_entities(c) {
+                            let info = self.types.type_info(ty).expect("registered type");
+                            for entity in entities {
+                                if let Ok(payload) =
+                                    self.store.buffer_payload(&self.types, entity, ty)
+                                {
+                                    h.write(&(payload.len() as u64).to_le_bytes());
+                                    self.hash_blob_fields(
+                                        &mut h,
+                                        ty,
+                                        payload,
+                                        info.element_size as usize,
+                                    );
+                                } else if let Ok(bytes) = self.store.component_bytes(entity, ty) {
+                                    h.write(bytes);
+                                }
+                            }
+                        }
+                    } else if let Ok(bytes) = self.store.chunk_component_bytes(c, ty) {
+                        let stride = self
+                            .types
+                            .type_info(ty)
+                            .map_or(0, |info| info.size_in_chunk as usize);
+                        self.hash_blob_fields(&mut h, ty, bytes, stride);
                     }
                 }
             }
         }
         h.finish()
+    }
+
+    fn hash_blob_fields(&self, h: &mut Fnv, ty: TypeIndex, bytes: &[u8], stride: usize) {
+        let Some(offsets) = self.blob_field_offsets.get(&ty) else {
+            h.write(bytes);
+            return;
+        };
+        if stride == 0 {
+            h.write(bytes);
+            return;
+        }
+        for element in bytes.chunks_exact(stride) {
+            let mut start = 0;
+            for &at in offsets {
+                h.write(&element[start..at]);
+                let address =
+                    u64::from_le_bytes(element[at..at + 8].try_into().expect("validated offset"));
+                h.write(
+                    &self
+                        .blob_address_ids
+                        .get(&address)
+                        .copied()
+                        .unwrap_or(address)
+                        .to_le_bytes(),
+                );
+                start = at + 8;
+            }
+            h.write(&element[start..]);
+        }
     }
 
     fn all_chunks_with(&self, t: TypeIndex) -> Vec<crate::chunk::ChunkIndex> {

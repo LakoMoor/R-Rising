@@ -562,6 +562,27 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
         &a.input,
         true,
     )?;
+    let blob_ids: Vec<_> = owned_blobs
+        .iter()
+        .map(|(&offset, blob)| (blob.payload_address(), offset as u64 + 1))
+        .collect();
+    for (&hash, &ty) in &a.type_of_hash {
+        if let Some(offsets) = layouts
+            .get(hash)
+            .and_then(|layout| layout.blob_offsets.as_ref())
+        {
+            if !offsets.is_empty() && !ty.is_shared_component_type() && !ty.is_managed_component() {
+                world.register_blob_fingerprint(
+                    ty,
+                    offsets
+                        .iter()
+                        .map(|&offset| usize::try_from(offset))
+                        .collect::<std::result::Result<Vec<_>, _>>()?,
+                    &blob_ids,
+                )?;
+            }
+        }
+    }
     world.store.retain_lifetime(owned_blobs.clone());
     for (entity, ty, payload) in &a.buffer_payloads {
         world

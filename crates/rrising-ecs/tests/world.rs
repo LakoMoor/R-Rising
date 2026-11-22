@@ -218,3 +218,48 @@ fn world_restores_shared_groups_for_preserved_and_fresh_entities() {
         }
     }
 }
+
+#[test]
+fn diagnostic_hash_normalizes_blob_addresses_and_hashes_external_buffers() {
+    fn make(address: u64) -> (World, Entity, TypeIndex) {
+        let mut t = types();
+        let blob =
+            t.tm.register(TypeSpec::component_data("BlobRef", 8, 8))
+                .unwrap();
+        let buffer = t.tm.register(TypeSpec::buffer("BlobBuffer", 8, 1)).unwrap();
+        let special = special(&t);
+        let input = WorldInput {
+            archetypes: vec![ArchetypeInput {
+                types: vec![blob, buffer],
+            }],
+            chunks: vec![ChunkInput {
+                archetype: 0,
+                entities: EntityIds::Fresh(1),
+                components: vec![(blob, address.to_le_bytes().to_vec())],
+                shared_components: vec![],
+            }],
+        };
+        let mut world = World::build(t.tm, special, 4, &input).unwrap();
+        let entity = world.entities[0];
+        let payload = [address.to_le_bytes(), address.to_le_bytes()].concat();
+        world
+            .store
+            .set_buffer_payload(&world.types, entity, buffer, &payload)
+            .unwrap();
+        world
+            .register_blob_fingerprint(blob, vec![0], &[(address, 123)])
+            .unwrap();
+        world
+            .register_blob_fingerprint(buffer, vec![0], &[(address, 123)])
+            .unwrap();
+        (world, entity, buffer)
+    }
+    let (a, _, _) = make(0x1000);
+    let (mut b, entity, buffer) = make(0x2000);
+    assert_eq!(a.state_hash(), b.state_hash());
+    let changed = [0x2000u64.to_le_bytes(), 0u64.to_le_bytes()].concat();
+    b.store
+        .set_buffer_payload(&b.types, entity, buffer, &changed)
+        .unwrap();
+    assert_ne!(a.state_hash(), b.state_hash());
+}
