@@ -328,3 +328,38 @@ fn transform_system_leaves_unresolved_parents_untouched() {
     // 10 inherits 11's unwritten (all-zero) matrix, so its product is zero
     assert_eq!(ltw_translation(&w, &tt, Entity::new(10, 1)), [0.0; 3]);
 }
+
+#[test]
+fn partial_translation_rotation_preserve_remaining_local_fields() {
+    use rrising_ecs::transform::{local_transform_matrix, Authoring, LocalTransform};
+    let local = LocalTransform {
+        position: [4.0, 5.0, 6.0],
+        rotation: [0.0, 0.0, 0.70710677, 0.70710677],
+        scale: 2.0,
+    };
+    let rotation = [0.0, 0.70710677, 0.0, 0.70710677];
+    let rotation_only = Authoring {
+        lt: Some(local),
+        rotation: Some(rotation),
+        ..Default::default()
+    };
+    assert_eq!(
+        rotation_only.local_matrix(),
+        Some(local_transform_matrix(&LocalTransform {
+            rotation,
+            ..local
+        }))
+    );
+    let translation_only = Authoring {
+        lt: Some(local),
+        translation: Some([8.0, 9.0, 10.0]),
+        ..Default::default()
+    };
+    assert_eq!(
+        translation_only.local_matrix(),
+        Some(local_transform_matrix(&LocalTransform {
+            position: [8.0, 9.0, 10.0],
+            ..local
+        }))
+    );
+}

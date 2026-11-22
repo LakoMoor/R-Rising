@@ -760,3 +760,10 @@ buffers. The all-scene transform scenario again matches across independent Rust 
 scenes contain LocalToWorld, while 811 have none. This is a port-side determinism check, not an
 original-runtime behavioral oracle; 809 of 112,177 recomputed transforms differ from saved scene
 matrices by more than 1e-5 relative error.
+
+Static analysis of client `ProjectM.UpdateLocalTransformSystem.UpdateLocalTransformJob.Execute`
+(RVA `0x77651f0`) shows that, when only Translation or Rotation exists, the corresponding
+LocalTransform field is updated while the other remains unchanged. The combined port-side transform
+adapter now preserves that field, with a synthetic test for both cases. This does not independently
+port the ProjectM update job or Unity's LocalToWorldSystem and does not change the 809 scene-data
+comparisons above; those remain unresolved.

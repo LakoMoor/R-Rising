@@ -130,15 +130,21 @@ fn mat_bytes(m: &Mat) -> [u8; 64] {
 
 impl Authoring {
     /// Source rule measured against stored scene data (module docs, `docs/COMPATIBILITY.md`):
-    /// `Translation`/`Rotation` drive the matrix when present, with `Scale`, else
-    /// `LocalTransform.Scale`, as uniform scale; otherwise `LocalTransform` alone; then
+    /// `Translation`/`Rotation` replace the corresponding `LocalTransform` fields when present;
+    /// absent fields retain their existing local values. `Scale` overrides the local scale; then
     /// `PostTransformMatrix`. `None` when there is no local transform at all.
     pub fn local_matrix(&self) -> Option<Mat> {
         let m = if self.translation.is_some() || self.rotation.is_some() {
             let scale = self.scale.or(self.lt.map(|l| l.scale)).unwrap_or(1.0);
+            // ProjectM.UpdateLocalTransformJob (client RVA 0x77651f0) updates only the
+            // fields for which Translation/Rotation are present, preserving the other field.
             trs_matrix(
-                self.translation.unwrap_or([0.0; 3]),
-                self.rotation.unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                self.translation
+                    .or(self.lt.map(|l| l.position))
+                    .unwrap_or([0.0; 3]),
+                self.rotation
+                    .or(self.lt.map(|l| l.rotation))
+                    .unwrap_or([0.0, 0.0, 0.0, 1.0]),
                 scale,
             )
         } else if let Some(lt) = &self.lt {
