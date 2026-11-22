@@ -97,7 +97,8 @@ The [outer save container is now readable in Rust](save_container.md); both
 remaining original files match captured member ranges and payload fingerprints.
 The [header decoder](save_header.md) also recovers the complete saved type registry
 and prefab/blob metadata. The [job reader](save_jobs.md) indexes saved archetypes,
-entities and component columns. No original save is loaded into the Rust World
-yet. No fixed seed/time control, scripted
+entities and component columns. The partial Rust ECS projection restores supported
+values and prefab topology, while shared components and system execution remain.
+No fixed seed/time control, scripted
 player input, original-client screenshot or original-vs-Rust state comparison
 was captured. Original-game parity scenarios therefore remain **zero**.

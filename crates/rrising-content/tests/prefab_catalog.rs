@@ -1567,3 +1567,41 @@ fn saved_address_blob_components_restore_original_rows() -> Result<()> {
     assert_eq!(restored.skipped_saved_types, 0);
     Ok(())
 }
+
+#[test]
+#[ignore = "requires original server scenes, layout report and two captured saves"]
+fn captured_saves_restore_all_observed_component_columns() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let saves = local_path("RRISING_SAVE_DIR")?;
+    let catalogs = ScenePrefabCatalog::read_server_game_data(&data, &layouts)?;
+    let terrain =
+        rrising_content::static_transforms::StaticTransformCatalog::read_server(&data, &layouts)?;
+    for number in [1, 2] {
+        let save = PersistentSave::open(&saves.join(format!("AutoSave_{number}.save.gz")))?;
+        let snapshot = SavedSnapshot::read(&save)?;
+        let plan = MegaStaticRestorePlan::read(&snapshot)?;
+        let roots = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+        let blobs =
+            ScenePrefabCatalog::read_saved_prefab_blobs(&data, &layouts, snapshot.header())?;
+        let restored = RestoredWorldProjection::build_with_terrain_and_all_blobs(
+            &snapshot, &layouts, &catalogs, &plan, &terrain, roots, &blobs,
+        )?;
+        assert_eq!(
+            (restored.admitted_saved_types, restored.skipped_saved_types),
+            (278, 0)
+        );
+        assert_eq!(
+            (
+                restored.admitted_saved_tag_types,
+                restored.skipped_saved_tag_types
+            ),
+            (49, 6)
+        );
+        assert_eq!(restored.prefab_blob_bindings.len(), 1471);
+        assert_eq!(restored.initialized_simulate_rows, snapshot.entity_count());
+    }
+    Ok(())
+}
