@@ -1396,16 +1396,24 @@ fn main() -> Result<()> {
             let terrain = rrising_content::static_transforms::StaticTransformCatalog::read_server(
                 &opt.data, &layouts,
             )?;
-            let mut restored = RestoredWorldProjection::build_with_terrain(
-                &snapshot,
-                &layouts,
-                &catalogs,
-                &mega_statics,
-                &terrain,
-            )?;
-            if let Some(blobs) = root_blobs {
-                restored.bind_prefab_root_blobs(&snapshot, blobs)?;
-            }
+            let restored = if let Some(blobs) = root_blobs {
+                RestoredWorldProjection::build_with_terrain_and_blobs(
+                    &snapshot,
+                    &layouts,
+                    &catalogs,
+                    &mega_statics,
+                    &terrain,
+                    blobs,
+                )?
+            } else {
+                RestoredWorldProjection::build_with_terrain(
+                    &snapshot,
+                    &layouts,
+                    &catalogs,
+                    &mega_statics,
+                    &terrain,
+                )?
+            };
             let baked_matches = mega_statics
                 .entries
                 .iter()
@@ -1427,7 +1435,7 @@ fn main() -> Result<()> {
                     "conflicts": saved_blobs.conflicts,
                     "null_mismatches": saved_blobs.null_mismatches,
                 },
-                "prefab_root_blob_components": restored.prefab_root_blobs.as_ref().map(|blobs| blobs.values.len()),
+                "prefab_root_blob_components": restored.prefab_root_blobs().map(|blobs| blobs.values.len()),
                 "prefab_blob_bindings": restored.prefab_blob_bindings.len(),
                 "scalar_values": restored.copied_scalar_values,
                 "buffer_rows": restored.copied_buffer_rows,

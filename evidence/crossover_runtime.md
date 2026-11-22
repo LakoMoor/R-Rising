@@ -71,7 +71,12 @@ A regenerated report also includes 1,381 portable server value-type layouts
 that do not occur in the scene hash set. Their metadata-derived identities are
 matched to the saved stable hashes and their stride and flags checked by the
 loader. With this report the same capture admits 271 column types and skips
-seven. This is a storage-level check, not an original-system replay.
+seven. With owned prefab blob storage, the projection also restores
+`BloodConsumeSource`, including its blob address, bringing the current result
+to 273 admitted types and five skipped. Both retained autosaves passed the
+component byte and blob address check. Blob addresses remain valid while the
+projection owns their storage. This is a storage-level check, not an
+original-system replay.
 Twelve stale-version references were cleared. This capture was generated
 independently from the previous two saves and is not a gameplay comparison.
 

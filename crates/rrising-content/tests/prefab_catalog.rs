@@ -1067,7 +1067,7 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
     let mut restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
     restored.bind_prefab_root_blobs(&snapshot, automatic)?;
     assert_eq!(restored.prefab_blob_bindings.len(), 1468);
-    let owned = restored.prefab_root_blobs.as_ref().unwrap();
+    let owned = restored.prefab_root_blobs().unwrap();
     for (&(entity, hash, element), &(guid, source_hash, index)) in &restored.prefab_blob_bindings {
         assert!(restored.store.exists(entity)?);
         assert_eq!(hash, source_hash);
@@ -1094,7 +1094,7 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         .bind_prefab_root_blobs(&snapshot, mismatched)
         .is_err());
     assert_eq!(restored.prefab_blob_bindings, previous_bindings);
-    assert!(restored.prefab_root_blobs.is_some());
+    assert!(restored.prefab_root_blobs().is_some());
     let mut recovered_fields = BTreeMap::<u64, usize>::new();
     for (&(guid, hash), values) in &captured.values {
         let count = requested[&guid][&hash];
@@ -1116,5 +1116,66 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
     assert_eq!(counts["IdleInteractionPointBuffer"], (1432, 1432, 1432, 0));
     assert_eq!(counts["IdleInteractor"], (1, 1, 1, 0));
     assert!(group_counts.values().all(|&count| count == 0));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original server scenes, layout report and captured save"]
+fn blood_source_component_uses_owned_prefab_blob() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let catalogs = ScenePrefabCatalog::read_server_game_data(&data, &layouts)?;
+    let terrain =
+        rrising_content::static_transforms::StaticTransformCatalog::read_server(&data, &layouts)?;
+    let plan = MegaStaticRestorePlan::read(&snapshot)?;
+    let blobs = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    let mut restored = RestoredWorldProjection::build_with_terrain_and_blobs(
+        &snapshot, &layouts, &catalogs, &plan, &terrain, blobs,
+    )?;
+    let saved = snapshot
+        .header()
+        .persistent_component_named("ProjectM.BloodConsumeSource")
+        .context("saved blood source")?;
+    let ty = restored
+        .types
+        .type_index_of("ProjectM.BloodConsumeSource")
+        .context("restored blood source")?;
+    let mut checked = 0;
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                for column in chunk
+                    .columns
+                    .iter()
+                    .filter(|column| column.saved_type_index == saved.saved_type_index)
+                {
+                    for (row, source) in chunk.entities().enumerate() {
+                        let entity = restored.bindings.target(source).context("entity binding")?;
+                        let actual = restored.store.component_bytes(entity, ty)?;
+                        let original = column.scalar(row).context("saved blood source row")?;
+                        let blob = restored
+                            .prefab_blob(entity, saved.stable_type_hash, 0)?
+                            .flatten()
+                            .context("blood source blob")?;
+                        assert_eq!(
+                            u64::from_le_bytes(actual[..8].try_into()?),
+                            blob.payload_address()
+                        );
+                        assert_eq!(&actual[8..], &original[8..]);
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 0);
+    let replacement = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    assert!(restored
+        .bind_prefab_root_blobs(&snapshot, replacement)
+        .is_err());
     Ok(())
 }

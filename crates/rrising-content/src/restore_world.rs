@@ -24,6 +24,7 @@ const STATIC_INDEX: u64 = 0xdd17_1d94_8ccb_47ea;
 const SIMULATE: &str = "Unity.Entities.Simulate";
 const DISABLED: &str = "Unity.Entities.Disabled";
 const INVENTORY_INSTANCE: u64 = 0x7c02_5a52_ca56_3f02;
+const BLOOD_CONSUME_SOURCE: u64 = 0x9f76_a48d_02bc_e2bb;
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -62,7 +63,7 @@ pub struct RestoredWorldProjection {
     pub skipped_saved_tag_types: usize,
     pub initialized_simulate_rows: usize,
     pub restored_disabled_rows: usize,
-    pub prefab_root_blobs: Option<PrefabRootBlobs>,
+    prefab_root_blobs: Option<PrefabRootBlobs>,
     pub prefab_blob_bindings: FxHashMap<(Entity, u64, usize), (i32, u64, usize)>,
 }
 
@@ -77,6 +78,9 @@ pub struct MissingReferences {
 }
 
 impl RestoredWorldProjection {
+    pub fn prefab_root_blobs(&self) -> Option<&PrefabRootBlobs> {
+        self.prefab_root_blobs.as_ref()
+    }
     /// Returns a prefab blob binding, including an explicit null source value.
     pub fn prefab_blob(
         &self,
@@ -112,6 +116,14 @@ impl RestoredWorldProjection {
         snapshot: &SavedSnapshot<'_>,
         blobs: PrefabRootBlobs,
     ) -> Result<()> {
+        ensure!(
+            self.prefab_root_blobs.is_none()
+                || self
+                    .types
+                    .type_index_of("ProjectM.BloodConsumeSource")
+                    .is_none(),
+            "cannot replace blob storage while components refer to it"
+        );
         let guid_type = snapshot
             .header()
             .persistent_components
@@ -215,7 +227,7 @@ impl RestoredWorldProjection {
         layouts: &TypeLayouts,
         catalogs: &[ScenePrefabCatalog],
     ) -> Result<Self> {
-        Self::build_inner(snapshot, layouts, catalogs, None)
+        Self::build_inner(snapshot, layouts, catalogs, None, None)
     }
 
     /// Includes MegaStatic identity and world transform in the projection before remapping saved references.
@@ -226,7 +238,27 @@ impl RestoredWorldProjection {
         plan: &MegaStaticRestorePlan,
         terrain: &StaticTransformCatalog,
     ) -> Result<Self> {
-        Self::build_inner(snapshot, layouts, catalogs, Some((plan, terrain)))
+        Self::build_inner(snapshot, layouts, catalogs, Some((plan, terrain)), None)
+    }
+
+    /// Restores supported components using blob data owned by the resulting projection.
+    pub fn build_with_terrain_and_blobs(
+        snapshot: &SavedSnapshot<'_>,
+        layouts: &TypeLayouts,
+        catalogs: &[ScenePrefabCatalog],
+        plan: &MegaStaticRestorePlan,
+        terrain: &StaticTransformCatalog,
+        blobs: PrefabRootBlobs,
+    ) -> Result<Self> {
+        let mut restored = Self::build_inner(
+            snapshot,
+            layouts,
+            catalogs,
+            Some((plan, terrain)),
+            Some(&blobs),
+        )?;
+        restored.bind_prefab_root_blobs(snapshot, blobs)?;
+        Ok(restored)
     }
 
     fn build_inner(
@@ -234,6 +266,7 @@ impl RestoredWorldProjection {
         layouts: &TypeLayouts,
         catalogs: &[ScenePrefabCatalog],
         placement: Option<(&MegaStaticRestorePlan, &StaticTransformCatalog)>,
+        root_blobs: Option<&PrefabRootBlobs>,
     ) -> Result<Self> {
         let mut types = TypeManager::default();
         types.register(TypeSpec::tag("<reserved null>"))?;
@@ -436,7 +469,14 @@ impl RestoredWorldProjection {
                 && stride == 48
                 && layout.entity_offsets == [16]
                 && layout.blob_offsets.as_deref() == Some(&[40]);
-            if (!layout.portable_value && !inventory_instance)
+            let blood_source = root_blobs.is_some()
+                && hash == BLOOD_CONSUME_SOURCE
+                && layout.name == "ProjectM.BloodConsumeSource"
+                && !buffer
+                && stride == 40
+                && layout.entity_offsets.is_empty()
+                && layout.blob_offsets.as_deref() == Some(&[0]);
+            if (!layout.portable_value && !inventory_instance && !blood_source)
                 || stride <= 0
                 || stride != component.component_size
                 || buffer != saved_type.is_buffer()
@@ -797,10 +837,37 @@ impl RestoredWorldProjection {
                         let mut data = vec![0; *stride];
                         for (row, source) in chunk.entities().enumerate() {
                             let payload = column.scalar(row).context("missing saved scalar row")?;
-                            let payload = if offsets.is_empty() {
+                            let payload = if offsets.is_empty()
+                                && column.stable_type_hash != BLOOD_CONSUME_SOURCE
+                            {
                                 payload
                             } else {
                                 data.copy_from_slice(payload);
+                                if column.stable_type_hash == BLOOD_CONSUME_SOURCE {
+                                    let guid_column = chunk
+                                        .columns
+                                        .iter()
+                                        .find(|saved| saved.stable_type_hash == PREFAB_GUID)
+                                        .context("missing blood source prefab GUID")?;
+                                    let guid = i32::from_le_bytes(
+                                        guid_column
+                                            .scalar(row)
+                                            .context("missing blood source prefab GUID value")?
+                                            .try_into()?,
+                                    );
+                                    let value = root_blobs
+                                        .context("missing prefab blob sources")?
+                                        .values
+                                        .get(&(guid, BLOOD_CONSUME_SOURCE))
+                                        .context("missing blood source prefab blob")?;
+                                    ensure!(
+                                        value.len() == 1,
+                                        "invalid blood source prefab blob count"
+                                    );
+                                    let address =
+                                        value[0].as_ref().map_or(0, |blob| blob.payload_address());
+                                    data[..8].copy_from_slice(&address.to_le_bytes());
+                                }
                                 bindings.patch_references_with(
                                     &mut data,
                                     *stride,
