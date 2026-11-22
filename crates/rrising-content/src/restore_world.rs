@@ -63,7 +63,7 @@ pub struct RestoredWorldProjection {
     pub skipped_saved_tag_types: usize,
     pub initialized_simulate_rows: usize,
     pub restored_disabled_rows: usize,
-    prefab_root_blobs: Option<PrefabRootBlobs>,
+    prefab_root_blobs: Option<std::sync::Arc<PrefabRootBlobs>>,
     pub prefab_blob_bindings: FxHashMap<(Entity, u64, usize), (i32, u64, usize)>,
 }
 
@@ -79,7 +79,7 @@ pub struct MissingReferences {
 
 impl RestoredWorldProjection {
     pub fn prefab_root_blobs(&self) -> Option<&PrefabRootBlobs> {
-        self.prefab_root_blobs.as_ref()
+        self.prefab_root_blobs.as_deref()
     }
     /// Returns a prefab blob binding, including an explicit null source value.
     pub fn prefab_blob(
@@ -200,6 +200,8 @@ impl RestoredWorldProjection {
                 }
             }
         }
+        let blobs = std::sync::Arc::new(blobs);
+        self.store.retain_lifetime(blobs.clone());
         self.prefab_root_blobs = Some(blobs);
         self.prefab_blob_bindings = bindings;
         Ok(())

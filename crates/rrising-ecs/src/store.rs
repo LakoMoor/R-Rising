@@ -133,6 +133,17 @@ fn pack_mask(mask: u128) -> [u64; 2] {
     [mask as u64, (mask >> 64) as u64]
 }
 
+struct LifetimeOwner(Box<dyn std::any::Any + Send + Sync>);
+
+impl std::fmt::Debug for LifetimeOwner {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("LifetimeOwner")
+            .field(&self.0.type_id())
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct EntityComponentStore {
     versions: Vec<i32>,
@@ -148,6 +159,7 @@ pub struct EntityComponentStore {
     archetypes: Vec<StoredArchetype>,
     by_types: HashMap<Vec<i32>, usize>,
     external_buffers: HashMap<i32, HashMap<TypeIndex, Vec<u8>>>,
+    lifetime_owners: Vec<LifetimeOwner>,
     special: SpecialTypes,
     admit_opaque_special_components: bool,
 }
@@ -180,6 +192,7 @@ impl EntityComponentStore {
             archetypes: Vec::new(),
             by_types: HashMap::new(),
             external_buffers: HashMap::new(),
+            lifetime_owners: Vec::new(),
             special,
             admit_opaque_special_components: false,
         };
@@ -228,6 +241,11 @@ impl EntityComponentStore {
     /// modelled; entities with different shared values may share a chunk. Off by default.
     pub fn set_admit_opaque_special_components(&mut self, admit: bool) {
         self.admit_opaque_special_components = admit;
+    }
+
+    /// Keeps backing storage alive for addresses held by component values.
+    pub fn retain_lifetime<T: Send + Sync + 'static>(&mut self, owner: T) {
+        self.lifetime_owners.push(LifetimeOwner(Box::new(owner)));
     }
 
     pub fn capacity(&self) -> i32 {

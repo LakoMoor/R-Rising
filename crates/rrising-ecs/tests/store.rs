@@ -297,3 +297,18 @@ fn enabled_rows_filter_queries_and_survive_swap_back_and_slot_reuse() -> anyhow:
     assert!(store.set_component_enabled(first, gate, false).is_err());
     Ok(())
 }
+
+#[test]
+fn retained_backing_storage_follows_store_lifetime() {
+    use std::sync::Arc;
+    let w = world();
+    let mut original = store(&w, 2);
+    let backing = Arc::new(vec![1u8, 2, 3]);
+    let weak = Arc::downgrade(&backing);
+    original.retain_lifetime(backing.clone());
+    drop(backing);
+    let moved = original;
+    assert!(weak.upgrade().is_some());
+    drop(moved);
+    assert!(weak.upgrade().is_none());
+}
