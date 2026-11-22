@@ -1278,5 +1278,52 @@ fn idle_components_restore_blob_and_excluded_fields() -> Result<()> {
         }
     }
     assert_eq!((points, interactors), (1466, 1));
+    let mut null_blobs = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    for hash in [0x9534_7421_34ef_4051, 0xa413_a8bb_b072_50bc] {
+        let (_, values) = null_blobs
+            .values
+            .iter_mut()
+            .find(|((_, ty), values)| *ty == hash && !values.is_empty())
+            .context("missing source for null case")?;
+        values[0] = None;
+    }
+    let null_restored = RestoredWorldProjection::build_with_terrain_and_blobs(
+        &snapshot, &layouts, &catalogs, &plan, &terrain, null_blobs,
+    )?;
+    let mut checked_nulls = [false; 2];
+    for (&(entity, hash, index), &(guid, _, source_index)) in &null_restored.prefab_blob_bindings {
+        if index != 0 {
+            continue;
+        }
+        let Some(values) = null_restored
+            .prefab_root_blobs()
+            .and_then(|blobs| blobs.values.get(&(guid, hash)))
+        else {
+            continue;
+        };
+        if values[source_index].is_some() {
+            continue;
+        }
+        let (name, offset, slot) = match hash {
+            0x9534_7421_34ef_4051 => ("ProjectM.IdleInteractionPointBuffer", 0, 0),
+            0xa413_a8bb_b072_50bc => ("ProjectM.IdleInteractor", 8, 1),
+            _ => continue,
+        };
+        let ty = null_restored.types.type_index_of(name).unwrap();
+        let bytes = if slot == 0 {
+            null_restored
+                .store
+                .buffer_payload(&null_restored.types, entity, ty)?
+        } else {
+            null_restored.store.component_bytes(entity, ty)?
+        };
+        assert_eq!(&bytes[offset..offset + 8], &[0; 8]);
+        assert!(null_restored
+            .prefab_blob(entity, hash, index)?
+            .unwrap()
+            .is_none());
+        checked_nulls[slot] = true;
+    }
+    assert_eq!(checked_nulls, [true, true]);
     Ok(())
 }

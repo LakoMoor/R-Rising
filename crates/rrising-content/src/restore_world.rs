@@ -854,17 +854,24 @@ impl RestoredWorldProjection {
                                             values.len() == data.len() / *stride,
                                             "idle point prefab buffer length mismatch"
                                         );
-                                        for (element, blob) in
-                                            data.chunks_exact_mut(*stride).zip(values)
+                                        let fields = root_blobs
+                                            .context("missing prefab blob sources")?
+                                            .excluded_fields
+                                            .get(&(guid, IDLE_POINT))
+                                            .context("missing idle point excluded fields")?;
+                                        ensure!(
+                                            fields.len() == values.len(),
+                                            "idle point excluded field count mismatch"
+                                        );
+                                        for ((element, blob), excluded) in
+                                            data.chunks_exact_mut(*stride).zip(values).zip(fields)
                                         {
-                                            let blob = blob.as_ref().context(
-                                                "null idle point blob source unsupported",
-                                            )?;
-                                            ensure!(blob.excluded_fields == [0; 8], "non-null prefab occupier requires scene entity remapping");
-                                            element[..8].copy_from_slice(
-                                                &blob.payload_address().to_le_bytes(),
-                                            );
-                                            element[8..16].copy_from_slice(&blob.excluded_fields);
+                                            ensure!(excluded == &[0; 8], "non-null prefab occupier requires scene entity remapping");
+                                            let address = blob
+                                                .as_ref()
+                                                .map_or(0, |blob| blob.payload_address());
+                                            element[..8].copy_from_slice(&address.to_le_bytes());
+                                            element[8..16].copy_from_slice(excluded);
                                         }
                                     }
                                     bindings.patch_references_with(
@@ -951,13 +958,16 @@ impl RestoredWorldProjection {
                                         values.len() == 1,
                                         "invalid idle interactor prefab blob count"
                                     );
-                                    let blob = values[0]
-                                        .as_ref()
-                                        .context("null idle interactor blob source unsupported")?;
-                                    ensure!(blob.excluded_fields.len() == 16 && blob.excluded_fields[..8] == [0; 8], "non-null prefab interaction requires scene entity remapping");
-                                    data[8..16]
-                                        .copy_from_slice(&blob.payload_address().to_le_bytes());
-                                    data[16..32].copy_from_slice(&blob.excluded_fields);
+                                    let fields = root_blobs
+                                        .context("missing prefab blob sources")?
+                                        .excluded_fields
+                                        .get(&(guid, IDLE_INTERACTOR))
+                                        .context("missing idle interactor excluded fields")?;
+                                    ensure!(fields.len() == 1 && fields[0].len() == 16 && fields[0][..8] == [0; 8], "non-null prefab interaction requires scene entity remapping");
+                                    let address =
+                                        values[0].as_ref().map_or(0, |blob| blob.payload_address());
+                                    data[8..16].copy_from_slice(&address.to_le_bytes());
+                                    data[16..32].copy_from_slice(&fields[0]);
                                 }
                                 bindings.patch_references_with(
                                     &mut data,

@@ -892,6 +892,7 @@ impl PrefabBlobPayload {
 #[derive(Debug, Default)]
 pub struct PrefabRootBlobs {
     pub values: BTreeMap<(i32, u64), Vec<Option<PrefabBlobPayload>>>,
+    pub excluded_fields: BTreeMap<(i32, u64), Vec<Vec<u8>>>,
 }
 
 impl ScenePrefabCatalog {
@@ -1006,7 +1007,18 @@ impl ScenePrefabCatalog {
                     ensure!(bytes.len() % stride == 0, "misaligned prefab blob values");
                     let offset = usize::try_from(offsets[0])?;
                     let mut values = Vec::new();
+                    let mut excluded_values = Vec::new();
                     for element in bytes.chunks_exact(stride) {
+                        let excluded = match hash {
+                            0x9534_7421_34ef_4051 => {
+                                element.get(8..16).context("truncated idle point prefab")?
+                            }
+                            0xa413_a8bb_b072_50bc => element
+                                .get(16..32)
+                                .context("truncated idle interactor prefab")?,
+                            _ => &[],
+                        };
+                        excluded_values.push(excluded.to_vec());
                         let field = element
                             .get(offset..offset.checked_add(4).context("blob field overflow")?)
                             .context("missing blob field")?;
@@ -1016,15 +1028,6 @@ impl ScenePrefabCatalog {
                         } else {
                             let blob =
                                 blobs.find_by_offset(source).context("missing scene blob")?;
-                            let excluded = match hash {
-                                0x9534_7421_34ef_4051 => {
-                                    element.get(8..16).context("truncated idle point prefab")?
-                                }
-                                0xa413_a8bb_b072_50bc => element
-                                    .get(16..32)
-                                    .context("truncated idle interactor prefab")?,
-                                _ => &[],
-                            };
                             values.push(Some(PrefabBlobPayload::new(
                                 blob.hash, blob.data, excluded,
                             )?));
@@ -1036,6 +1039,13 @@ impl ScenePrefabCatalog {
                             .insert((prefab.prefab_guid, hash), values)
                             .is_none(),
                         "duplicate prefab blob source"
+                    );
+                    ensure!(
+                        result
+                            .excluded_fields
+                            .insert((prefab.prefab_guid, hash), excluded_values)
+                            .is_none(),
+                        "duplicate prefab excluded fields"
                     );
                 }
             }
