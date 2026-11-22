@@ -1,6 +1,7 @@
 //! Requires the pinned original installation and RRISING_LAYOUT_REPORT; not a portable CI oracle.
 use rrising_content::{
     entity_scenes::SceneFile,
+    shared_values::decode_known_shared_value,
     type_layouts::{TypeLayouts, LOCAL_TO_WORLD_HASH, LOCAL_TRANSFORM_HASH, TRANSLATION_HASH},
     world_adapter::{build_scene_world, scene_to_world_input, SceneSharedValue},
 };
@@ -45,6 +46,11 @@ fn all_scenes_build_worlds_with_every_entity() {
         for (stored, source) in sw.serialized_shared_values.iter().zip(&shared.unmanaged) {
             assert_eq!(stored.unmanaged_bytes.as_deref(), Some(source.data));
             assert!(stored.portable);
+            assert!(
+                decode_known_shared_value(source.stable_type_hash, source.data)
+                    .expect("valid shared record")
+                    .is_some()
+            );
             assert_eq!(stored.ty, sw.type_of_hash[&source.stable_type_hash]);
         }
         for (stored, source) in sw.serialized_shared_values[shared.unmanaged.len()..]

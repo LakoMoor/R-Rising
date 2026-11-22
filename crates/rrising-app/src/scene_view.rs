@@ -222,7 +222,8 @@ fn parse_index_arrays(blob: &[u8], limit: usize) -> Result<(Vec<i32>, Vec<i32>, 
             .map(|c| i32::from_le_bytes(*c))
             .collect();
         ensure!(
-            v.iter().all(|&x| x >= 0 && (x as usize) < limit),
+            v.iter()
+                .all(|&x| x == -1 || (x >= 0 && (x as usize) < limit)),
             "index outside the referenced-objects table"
         );
         Ok(v)
@@ -457,7 +458,7 @@ pub fn collect(
         let resolve = |i: i32| -> Option<ObjRef> {
             content
                 .player()
-                .resolve_pptr(&ruo.file, pptrs[i as usize])
+                .resolve_pptr(&ruo.file, *pptrs.get(usize::try_from(i).ok()?)?)
                 .ok()
                 .flatten()
         };
@@ -1080,5 +1081,29 @@ impl SimWorld {
             fix(inst, e);
         }
         (ok, missing)
+    }
+}
+
+#[cfg(test)]
+mod managed_array_tests {
+    use super::parse_index_arrays;
+
+    #[test]
+    fn object_indices_accept_null_and_reject_invalid_references() {
+        let mut blob = vec![1, 1];
+        blob.extend_from_slice(&2i32.to_le_bytes());
+        blob.extend_from_slice(&(-1i32).to_le_bytes());
+        blob.extend_from_slice(&1i32.to_le_bytes());
+        blob.push(1);
+        blob.extend_from_slice(&1i32.to_le_bytes());
+        blob.extend_from_slice(&0i32.to_le_bytes());
+        assert_eq!(
+            parse_index_arrays(&blob, 2).unwrap(),
+            (vec![-1, 1], vec![0], blob.len())
+        );
+        blob[6..10].copy_from_slice(&(-2i32).to_le_bytes());
+        assert!(parse_index_arrays(&blob, 2).is_err());
+        blob[6..10].copy_from_slice(&2i32.to_le_bytes());
+        assert!(parse_index_arrays(&blob, 2).is_err());
     }
 }

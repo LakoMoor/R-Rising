@@ -719,3 +719,10 @@ contain no entity or blob references and are marked portable. The other 903 reco
 and remain opaque. The all-scenes test compares every retained record and entity lookup with its
 source scene. Default shared values, managed objects, blob relocation and the original runtime's
 type-specific equality/deduplication are not implemented by this inspection interface.
+
+The three unmanaged shared record types found in the pinned client now have typed decoders:
+`TileModelLayer`, `SceneSection` and `RenderFilterSettings`. All 3,366 original records pass
+size and field checks; this does not establish system behavior or original equality semantics.
+The managed mesh-array locator remains heuristic: the original object adapter at client RVA
+`0x8fddae0` represents a null Unity object as index -1, which the locator now accepts. Record
+boundaries and general managed-object deserialization remain unresolved.
