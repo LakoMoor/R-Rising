@@ -312,3 +312,27 @@ fn retained_backing_storage_follows_store_lifetime() {
     drop(moved);
     assert!(weak.upgrade().is_none());
 }
+
+#[test]
+fn opaque_shared_archetypes_keep_default_shared_indices_per_chunk() {
+    let mut w = world();
+    let shared_a = w.tm.register(TypeSpec::shared("SharedA", 4, 4)).unwrap();
+    let shared_b = w.tm.register(TypeSpec::shared("SharedB", 8, 8)).unwrap();
+    let mut store = store(&w, 2);
+    store.set_admit_opaque_special_components(true);
+    let archetype = store
+        .get_or_create_archetype(&w.tm, &[w.a, shared_a, shared_b])
+        .unwrap();
+    let capacity = store.archetypes()[archetype].archetype.chunk_capacity() as usize;
+    store.create_entities(archetype, capacity + 1).unwrap();
+    let chunks = &store.archetypes()[archetype].chunk_data;
+    assert_eq!((chunks.count(), chunks.shared_component_count()), (2, 2));
+    for chunk in 0..chunks.count() {
+        for component in 0..2 {
+            assert_eq!(
+                chunks.get_shared_component_value(component, chunk).unwrap(),
+                0
+            );
+        }
+    }
+}

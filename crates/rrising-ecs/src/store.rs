@@ -345,11 +345,7 @@ impl EntityComponentStore {
         );
         let chunk_data = crate::chunk_data::ArchetypeChunkData::new(
             archetype.types_count as usize,
-            if special_components {
-                0 // shared values are not tracked in opaque mode
-            } else {
-                l.num_shared_components() as usize
-            },
+            l.num_shared_components() as usize,
         )?;
         self.archetypes.push(StoredArchetype {
             archetype,
@@ -396,7 +392,8 @@ impl EntityComponentStore {
             };
             sa.chunk_data.grow(new_cap)?;
         }
-        let pos = sa.chunk_data.add(ci, 0, &[], gsv)?;
+        let default_shared_values = vec![0; sa.chunk_data.shared_component_count()];
+        let pos = sa.chunk_data.add(ci, 0, &default_shared_values, gsv)?;
         // zero the enabled masks and disabled counts for the re-used metadata row
         let n = sa.chunk_data.component_count();
         sa.chunk_data
