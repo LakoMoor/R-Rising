@@ -665,6 +665,23 @@ impl RestoredWorldProjection {
                 });
             }
         }
+        let prefab_targets: FxHashMap<_, _> = prefabs
+            .iter()
+            .map(|prefab| (prefab.prefab_guid, prefab))
+            .collect();
+        let resolve_prefab_entity =
+            |key: Option<crate::prefab_catalog::PrefabMemberKey>| -> Result<Entity> {
+                match key {
+                    None => Ok(Entity::NULL),
+                    Some(key) => key
+                        .resolve(
+                            prefab_targets
+                                .get(&key.guid)
+                                .context("missing referenced prefab")?,
+                        )
+                        .context("missing referenced prefab member"),
+                }
+            };
         let mut fresh = Vec::with_capacity(snapshot.entity_count());
         let mut initialized_simulate_rows = 0;
         let mut restored_disabled_rows = 0;
@@ -863,23 +880,44 @@ impl RestoredWorldProjection {
                                             fields.len() == values.len(),
                                             "idle point excluded field count mismatch"
                                         );
-                                        for ((element, blob), excluded) in
-                                            data.chunks_exact_mut(*stride).zip(values).zip(fields)
+                                        let entities = root_blobs
+                                            .context("missing prefab blob sources")?
+                                            .excluded_entities
+                                            .get(&(guid, IDLE_POINT))
+                                            .context("missing idle point prefab entities")?;
+                                        ensure!(
+                                            entities.len() == values.len(),
+                                            "idle point prefab entity count mismatch"
+                                        );
+                                        for (((element, blob), excluded), &entity) in data
+                                            .chunks_exact_mut(*stride)
+                                            .zip(values)
+                                            .zip(fields)
+                                            .zip(entities)
                                         {
-                                            ensure!(excluded == &[0; 8], "non-null prefab occupier requires scene entity remapping");
+                                            ensure!(
+                                                excluded.len() == 8,
+                                                "invalid idle point excluded field"
+                                            );
                                             let address = blob
                                                 .as_ref()
                                                 .map_or(0, |blob| blob.payload_address());
                                             element[..8].copy_from_slice(&address.to_le_bytes());
-                                            element[8..16].copy_from_slice(excluded);
+                                            let entity = resolve_prefab_entity(entity)?;
+                                            element[8..12]
+                                                .copy_from_slice(&entity.index.to_le_bytes());
+                                            element[12..16]
+                                                .copy_from_slice(&entity.version.to_le_bytes());
                                         }
                                     }
-                                    bindings.patch_references_with(
-                                        &mut data,
-                                        *stride,
-                                        offsets,
-                                        &mut record_miss,
-                                    )?;
+                                    if column.stable_type_hash != IDLE_POINT {
+                                        bindings.patch_references_with(
+                                            &mut data,
+                                            *stride,
+                                            offsets,
+                                            &mut record_miss,
+                                        )?;
+                                    }
                                     &data
                                 };
                                 store.set_buffer_payload(
@@ -963,18 +1001,35 @@ impl RestoredWorldProjection {
                                         .excluded_fields
                                         .get(&(guid, IDLE_INTERACTOR))
                                         .context("missing idle interactor excluded fields")?;
-                                    ensure!(fields.len() == 1 && fields[0].len() == 16 && fields[0][..8] == [0; 8], "non-null prefab interaction requires scene entity remapping");
+                                    ensure!(
+                                        fields.len() == 1 && fields[0].len() == 16,
+                                        "invalid idle interactor excluded fields"
+                                    );
+                                    let entities = root_blobs
+                                        .context("missing prefab blob sources")?
+                                        .excluded_entities
+                                        .get(&(guid, IDLE_INTERACTOR))
+                                        .context("missing idle interactor prefab entity")?;
+                                    ensure!(
+                                        entities.len() == 1,
+                                        "invalid idle interactor prefab entity count"
+                                    );
+                                    let entity = resolve_prefab_entity(entities[0])?;
                                     let address =
                                         values[0].as_ref().map_or(0, |blob| blob.payload_address());
                                     data[8..16].copy_from_slice(&address.to_le_bytes());
                                     data[16..32].copy_from_slice(&fields[0]);
+                                    data[16..20].copy_from_slice(&entity.index.to_le_bytes());
+                                    data[20..24].copy_from_slice(&entity.version.to_le_bytes());
                                 }
-                                bindings.patch_references_with(
-                                    &mut data,
-                                    *stride,
-                                    offsets,
-                                    &mut record_miss,
-                                )?;
+                                if column.stable_type_hash != IDLE_INTERACTOR {
+                                    bindings.patch_references_with(
+                                        &mut data,
+                                        *stride,
+                                        offsets,
+                                        &mut record_miss,
+                                    )?;
+                                }
                                 &data
                             };
                             store.set_component_bytes(

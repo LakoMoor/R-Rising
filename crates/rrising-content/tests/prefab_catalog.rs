@@ -1279,13 +1279,26 @@ fn idle_components_restore_blob_and_excluded_fields() -> Result<()> {
     }
     assert_eq!((points, interactors), (1466, 1));
     let mut null_blobs = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
-    for hash in [0x9534_7421_34ef_4051, 0xa413_a8bb_b072_50bc] {
-        let (_, values) = null_blobs
+    let linked = catalogs
+        .iter()
+        .flat_map(|catalog| &catalog.prefabs)
+        .find(|prefab| prefab.linked_entities.len() > 1)
+        .context("missing linked prefab")?;
+    for (slot, hash) in [0x9534_7421_34ef_4051, 0xa413_a8bb_b072_50bc]
+        .into_iter()
+        .enumerate()
+    {
+        let (&key, values) = null_blobs
             .values
             .iter_mut()
             .find(|((_, ty), values)| *ty == hash && !values.is_empty())
             .context("missing source for null case")?;
         values[0] = None;
+        null_blobs.excluded_entities.get_mut(&key).unwrap()[0] =
+            Some(rrising_content::prefab_catalog::PrefabMemberKey {
+                guid: linked.prefab_guid,
+                ordinal: slot,
+            });
     }
     let null_restored = RestoredWorldProjection::build_with_terrain_and_blobs(
         &snapshot, &layouts, &catalogs, &plan, &terrain, null_blobs,
@@ -1318,6 +1331,25 @@ fn idle_components_restore_blob_and_excluded_fields() -> Result<()> {
             null_restored.store.component_bytes(entity, ty)?
         };
         assert_eq!(&bytes[offset..offset + 8], &[0; 8]);
+        let expected_prefab = null_restored
+            .prefabs
+            .iter()
+            .find(|prefab| prefab.prefab_guid == linked.prefab_guid)
+            .unwrap();
+        let expected = if slot == 0 {
+            expected_prefab.entity
+        } else {
+            expected_prefab.linked_entities[1]
+        };
+        let entity_offset = if slot == 0 { 8 } else { 16 };
+        assert_eq!(
+            i32::from_le_bytes(bytes[entity_offset..entity_offset + 4].try_into()?),
+            expected.index
+        );
+        assert_eq!(
+            i32::from_le_bytes(bytes[entity_offset + 4..entity_offset + 8].try_into()?),
+            expected.version
+        );
         assert!(null_restored
             .prefab_blob(entity, hash, index)?
             .unwrap()

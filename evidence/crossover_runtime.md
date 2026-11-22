@@ -77,8 +77,9 @@ to 273 admitted types and five skipped. The projection also restores
 `IdleInteractionPointBuffer` and `IdleInteractor`, bringing the total to
 275 admitted types and three skipped. On both retained autosaves a test checks
 1,466 buffer elements and one scalar against saved bytes and the source prefab
-blob and excluded fields. Null blob sources are covered by a modified-input regression test. Non-null
-prefab entity references in these two components are not yet handled. Both retained autosaves passed the
+blob and excluded fields. Null blob sources and non-null references to registered prefab roots and linked
+members are covered by modified-input regression tests. References outside the
+registered prefab catalog remain unsupported. Both retained autosaves passed the
 component byte and blob address check. Blob addresses remain valid while the
 projection owns their storage. This is a storage-level check, not an
 original-system replay.

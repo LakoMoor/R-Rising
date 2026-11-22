@@ -893,6 +893,7 @@ impl PrefabBlobPayload {
 pub struct PrefabRootBlobs {
     pub values: BTreeMap<(i32, u64), Vec<Option<PrefabBlobPayload>>>,
     pub excluded_fields: BTreeMap<(i32, u64), Vec<Vec<u8>>>,
+    pub excluded_entities: BTreeMap<(i32, u64), Vec<Option<PrefabMemberKey>>>,
 }
 
 impl ScenePrefabCatalog {
@@ -964,6 +965,28 @@ impl ScenePrefabCatalog {
             let resolved = layouts.resolve_scene(&scene)?;
             let buffers = scene.buffer_data()?;
             let blobs = scene.blob_assets()?;
+            let mut prefab_members = rustc_hash::FxHashMap::default();
+            let mut ambiguous = rustc_hash::FxHashSet::default();
+            for prefab in &catalog.prefabs {
+                let members = if prefab.linked_entities.is_empty() {
+                    std::slice::from_ref(&prefab.entity)
+                } else {
+                    &prefab.linked_entities
+                };
+                for (ordinal, &entity) in members.iter().enumerate() {
+                    let key = PrefabMemberKey {
+                        guid: prefab.prefab_guid,
+                        ordinal,
+                    };
+                    if prefab_members
+                        .insert(entity, key)
+                        .is_some_and(|previous| previous != key)
+                    {
+                        ambiguous.insert(entity);
+                    }
+                }
+            }
+            prefab_members.retain(|entity, _| !ambiguous.contains(entity));
             let mut locations = rustc_hash::FxHashMap::default();
             for (chunk_index, chunk) in resolved.chunks.iter().enumerate() {
                 for row in 0..usize::try_from(chunk.header.count)? {
@@ -1008,6 +1031,7 @@ impl ScenePrefabCatalog {
                     let offset = usize::try_from(offsets[0])?;
                     let mut values = Vec::new();
                     let mut excluded_values = Vec::new();
+                    let mut excluded_entities = Vec::new();
                     for element in bytes.chunks_exact(stride) {
                         let excluded = match hash {
                             0x9534_7421_34ef_4051 => {
@@ -1019,6 +1043,17 @@ impl ScenePrefabCatalog {
                             _ => &[],
                         };
                         excluded_values.push(excluded.to_vec());
+                        let entity = if excluded.is_empty() {
+                            None
+                        } else {
+                            let entity = read_entity(&excluded[..8])?;
+                            if entity == Entity::NULL {
+                                None
+                            } else {
+                                Some(*prefab_members.get(&entity).context("excluded prefab entity is not a uniquely registered prefab member")?)
+                            }
+                        };
+                        excluded_entities.push(entity);
                         let field = element
                             .get(offset..offset.checked_add(4).context("blob field overflow")?)
                             .context("missing blob field")?;
@@ -1046,6 +1081,13 @@ impl ScenePrefabCatalog {
                             .insert((prefab.prefab_guid, hash), excluded_values)
                             .is_none(),
                         "duplicate prefab excluded fields"
+                    );
+                    ensure!(
+                        result
+                            .excluded_entities
+                            .insert((prefab.prefab_guid, hash), excluded_entities)
+                            .is_none(),
+                        "duplicate prefab excluded entities"
                     );
                 }
             }
