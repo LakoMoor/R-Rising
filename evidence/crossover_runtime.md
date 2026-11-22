@@ -75,7 +75,9 @@ seven. With owned prefab blob storage, the projection also restores
 `BloodConsumeSource`, including its blob address, bringing the current result
 to 273 admitted types and five skipped. The projection also restores
 `IdleInteractionPointBuffer` and `IdleInteractor`, bringing the total to
-275 admitted types and three skipped. On both retained autosaves a test checks
+275 admitted types and three skipped. The projection now restores
+`AbilitySpawnPrefabOnStartCast` from its prefab blob field, giving 276 admitted
+types and two skipped on the same save. On both retained autosaves a test checks
 1,466 buffer elements and one scalar against saved bytes and the source prefab
 blob and excluded fields. Null blob sources and non-null references to registered prefab roots and linked
 members are covered by modified-input regression tests. References outside the

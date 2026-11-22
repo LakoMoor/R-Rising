@@ -27,6 +27,7 @@ const INVENTORY_INSTANCE: u64 = 0x7c02_5a52_ca56_3f02;
 const BLOOD_CONSUME_SOURCE: u64 = 0x9f76_a48d_02bc_e2bb;
 const IDLE_POINT: u64 = 0x9534_7421_34ef_4051;
 const IDLE_INTERACTOR: u64 = 0xa413_a8bb_b072_50bc;
+const ABILITY_SPAWN: u64 = 0x779b_44a3_f06b_eeb7;
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -123,7 +124,8 @@ impl RestoredWorldProjection {
                 || [
                     "ProjectM.BloodConsumeSource",
                     "ProjectM.IdleInteractionPointBuffer",
-                    "ProjectM.IdleInteractor"
+                    "ProjectM.IdleInteractor",
+                    "ProjectM.AbilitySpawnPrefabOnStartCast"
                 ]
                 .iter()
                 .all(|name| self.types.type_index_of(name).is_none()),
@@ -149,6 +151,7 @@ impl RestoredWorldProjection {
                                 0x9534_7421_34ef_4051
                                     | 0x9f76_a48d_02bc_e2bb
                                     | 0xa413_a8bb_b072_50bc
+                                    | ABILITY_SPAWN
                             )
                         })
                         .collect();
@@ -451,7 +454,7 @@ impl RestoredWorldProjection {
             if !observed.contains(&saved_type)
                 || scalars.contains_key(&saved_type)
                 || buffers.contains_key(&saved_type)
-                || blob_types.contains(&hash)
+                || (blob_types.contains(&hash) && !(hash == ABILITY_SPAWN && root_blobs.is_some()))
             {
                 continue;
             }
@@ -476,6 +479,13 @@ impl RestoredWorldProjection {
                 && stride == 48
                 && layout.entity_offsets == [16]
                 && layout.blob_offsets.as_deref() == Some(&[40]);
+            let ability_spawn = root_blobs.is_some()
+                && hash == ABILITY_SPAWN
+                && layout.name == "ProjectM.AbilitySpawnPrefabOnStartCast"
+                && buffer
+                && stride == 24
+                && layout.entity_offsets.is_empty()
+                && layout.blob_offsets.as_deref() == Some(&[8]);
             let blood_source = root_blobs.is_some()
                 && hash == BLOOD_CONSUME_SOURCE
                 && layout.name == "ProjectM.BloodConsumeSource"
@@ -501,7 +511,8 @@ impl RestoredWorldProjection {
                 && !inventory_instance
                 && !blood_source
                 && !idle_point
-                && !idle_interactor)
+                && !idle_interactor
+                && !ability_spawn)
                 || stride <= 0
                 || stride != component.component_size
                 || buffer != saved_type.is_buffer()
@@ -840,6 +851,7 @@ impl RestoredWorldProjection {
                             {
                                 let payload = if offsets.is_empty()
                                     && column.stable_type_hash != INVENTORY_INSTANCE
+                                    && column.stable_type_hash != ABILITY_SPAWN
                                 {
                                     payload
                                 } else {
@@ -848,6 +860,36 @@ impl RestoredWorldProjection {
                                     if column.stable_type_hash == INVENTORY_INSTANCE {
                                         for element in data.chunks_exact_mut(*stride) {
                                             element[40..48].fill(0);
+                                        }
+                                    }
+                                    if column.stable_type_hash == ABILITY_SPAWN {
+                                        let guid_column = chunk
+                                            .columns
+                                            .iter()
+                                            .find(|saved| saved.stable_type_hash == PREFAB_GUID)
+                                            .context("missing ability prefab GUID")?;
+                                        let guid = i32::from_le_bytes(
+                                            guid_column
+                                                .scalar(row)
+                                                .context("missing ability prefab GUID value")?
+                                                .try_into()?,
+                                        );
+                                        let values = root_blobs
+                                            .context("missing prefab blob sources")?
+                                            .values
+                                            .get(&(guid, ABILITY_SPAWN))
+                                            .context("missing ability prefab blob")?;
+                                        ensure!(
+                                            values.len() == data.len() / *stride,
+                                            "ability prefab buffer length mismatch"
+                                        );
+                                        for (element, blob) in
+                                            data.chunks_exact_mut(*stride).zip(values)
+                                        {
+                                            let address = blob
+                                                .as_ref()
+                                                .map_or(0, |blob| blob.payload_address());
+                                            element[8..16].copy_from_slice(&address.to_le_bytes());
                                         }
                                     }
                                     if column.stable_type_hash == IDLE_POINT {

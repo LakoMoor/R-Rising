@@ -777,6 +777,7 @@ fn saved_blob_column_references_match_prefab_payloads() -> Result<()> {
     let mut mapped = 0usize;
     let mut missing = 0usize;
     let mut types = BTreeMap::new();
+    let mut observed = BTreeMap::<u64, (usize, usize, usize)>::new();
     for (_, job) in snapshot.jobs() {
         for archetype in &job.archetypes {
             for chunk in &archetype.chunks {
@@ -802,12 +803,16 @@ fn saved_blob_column_references_match_prefab_payloads() -> Result<()> {
                                 let offset = usize::try_from(offset)?;
                                 let identifier =
                                     u64::from_le_bytes(element[offset..offset + 8].try_into()?);
+                                let entry = observed.entry(column.stable_type_hash).or_default();
                                 if identifier == 0 {
                                     nulls += 1;
+                                    entry.0 += 1;
                                 } else if blobs.payloads.contains_key(&identifier) {
                                     mapped += 1;
+                                    entry.1 += 1;
                                 } else {
                                     missing += 1;
+                                    entry.2 += 1;
                                     *types.entry(column.stable_type_hash).or_insert(0usize) += 1;
                                 }
                             }
@@ -817,6 +822,7 @@ fn saved_blob_column_references_match_prefab_payloads() -> Result<()> {
             }
         }
     }
+    println!("by component: {observed:?}");
     println!("blob values null={nulls} mapped={mapped} missing={missing} missing_types={types:?}");
     assert_eq!((nulls, mapped, missing), (501, 0, 1468));
     Ok(())
@@ -1064,7 +1070,7 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         &layouts,
         &snapshot,
     )?;
-    assert_eq!(automatic.values.len(), captured.values.len());
+    assert!(automatic.values.len() >= captured.values.len());
     for (key, expected) in &captured.values {
         let actual = automatic
             .values
@@ -1082,17 +1088,17 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
         ScenePrefabCatalog::read_server_game_data(&local_path("VRISING_SERVER_DATA")?, &layouts)?;
     let mut restored = RestoredWorldProjection::build(&snapshot, &layouts, &catalogs)?;
     restored.bind_prefab_root_blobs(&snapshot, automatic)?;
-    assert_eq!(restored.prefab_blob_bindings.len(), 1468);
+    assert_eq!(restored.prefab_blob_bindings.len(), 1471);
     let owned = restored.prefab_root_blobs().unwrap();
     for (&(entity, hash, element), &(guid, source_hash, index)) in &restored.prefab_blob_bindings {
         assert!(restored.store.exists(entity)?);
         assert_eq!(hash, source_hash);
-        let expected = owned.values[&(guid, hash)][index].as_ref().unwrap();
-        let actual = restored
-            .prefab_blob(entity, hash, element)?
-            .flatten()
-            .unwrap();
-        assert_eq!((actual.hash, &actual.data), (expected.hash, &expected.data));
+        let expected = owned.values[&(guid, hash)][index].as_ref();
+        let actual = restored.prefab_blob(entity, hash, element)?.unwrap();
+        assert_eq!(
+            actual.map(|value| (value.hash, &value.data)),
+            expected.map(|value| (value.hash, &value.data))
+        );
     }
     let previous_bindings = restored.prefab_blob_bindings.clone();
     let mut mismatched = ScenePrefabCatalog::read_saved_root_blobs(
@@ -1357,5 +1363,136 @@ fn idle_components_restore_blob_and_excluded_fields() -> Result<()> {
         checked_nulls[slot] = true;
     }
     assert_eq!(checked_nulls, [true, true]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original save, server scenes and type report"]
+fn ability_prefab_blob_sources_are_available() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let blobs = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    let mut count = 0;
+    let mut nonnull = 0;
+    for ((_, hash), values) in &blobs.values {
+        if *hash == 0x779b_44a3_f06b_eeb7 {
+            count += values.len();
+            nonnull += values.iter().filter(|value| value.is_some()).count();
+        }
+    }
+    println!("ability prefab elements={count} nonnull={nonnull}");
+    assert!(count > 0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original server scenes, layout report and captured save"]
+fn ability_spawn_buffer_restores_prefab_blob_fields() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let catalogs = ScenePrefabCatalog::read_server_game_data(&data, &layouts)?;
+    let terrain =
+        rrising_content::static_transforms::StaticTransformCatalog::read_server(&data, &layouts)?;
+    let plan = MegaStaticRestorePlan::read(&snapshot)?;
+    let blobs = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    let restored = RestoredWorldProjection::build_with_terrain_and_blobs(
+        &snapshot, &layouts, &catalogs, &plan, &terrain, blobs,
+    )?;
+    let saved = snapshot
+        .header()
+        .persistent_component_named("ProjectM.AbilitySpawnPrefabOnStartCast")
+        .context("saved ability")?;
+    let ty = restored
+        .types
+        .type_index_of("ProjectM.AbilitySpawnPrefabOnStartCast")
+        .context("live ability")?;
+    let mut checked = 0;
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                for column in chunk
+                    .columns
+                    .iter()
+                    .filter(|column| column.saved_type_index == saved.saved_type_index)
+                {
+                    for (source, original) in chunk
+                        .entities()
+                        .zip(column.buffers().context("ability buffer")?)
+                    {
+                        let entity = restored.bindings.target(source).context("entity binding")?;
+                        let actual = restored.store.buffer_payload(&restored.types, entity, ty)?;
+                        assert_eq!(actual.len(), original.len());
+                        for (index, (actual, saved)) in actual
+                            .as_chunks::<24>()
+                            .0
+                            .iter()
+                            .zip(original.as_chunks::<24>().0)
+                            .enumerate()
+                        {
+                            let blob = restored
+                                .prefab_blob(entity, 0x779b_44a3_f06b_eeb7, index)?
+                                .context("missing ability blob binding")?;
+                            assert_eq!(
+                                u64::from_le_bytes(actual[8..16].try_into()?),
+                                blob.map_or(0, |blob| blob.payload_address())
+                            );
+                            assert_eq!(&actual[..8], &saved[..8]);
+                            assert_eq!(&actual[16..], &saved[16..]);
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(checked, 3);
+    let mut modified = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    let source = modified
+        .values
+        .iter_mut()
+        .find(|((_, hash), values)| {
+            *hash == 0x9f76_a48d_02bc_e2bb && values.first().is_some_and(Option::is_some)
+        })
+        .context("missing donor blob")?
+        .1[0]
+        .take();
+    let target = modified
+        .values
+        .iter_mut()
+        .find(|((_, hash), values)| *hash == 0x779b_44a3_f06b_eeb7 && !values.is_empty())
+        .context("missing ability prefab")?
+        .1;
+    target[0] = source;
+    let modified = RestoredWorldProjection::build_with_terrain_and_blobs(
+        &snapshot, &layouts, &catalogs, &plan, &terrain, modified,
+    )?;
+    let ty = modified
+        .types
+        .type_index_of("ProjectM.AbilitySpawnPrefabOnStartCast")
+        .unwrap();
+    let mut nonnull = 0;
+    for &(entity, hash, element) in modified.prefab_blob_bindings.keys() {
+        if hash != 0x779b_44a3_f06b_eeb7 {
+            continue;
+        }
+        if let Some(blob) = modified.prefab_blob(entity, hash, element)?.flatten() {
+            let actual = modified.store.buffer_payload(&modified.types, entity, ty)?;
+            let offset = element * 24 + 8;
+            assert_eq!(
+                u64::from_le_bytes(actual[offset..offset + 8].try_into()?),
+                blob.payload_address()
+            );
+            nonnull += 1;
+        }
+    }
+    assert!(nonnull > 0);
     Ok(())
 }

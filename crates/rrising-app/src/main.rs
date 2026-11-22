@@ -1380,6 +1380,7 @@ fn main() -> Result<()> {
                 0x9534_7421_34ef_4051,
                 0x9f76_a48d_02bc_e2bb,
                 0xa413_a8bb_b072_50bc,
+                0x779b_44a3_f06b_eeb7,
             ]
             .iter()
             .all(|&hash| {
