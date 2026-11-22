@@ -1496,3 +1496,74 @@ fn ability_spawn_buffer_restores_prefab_blob_fields() -> Result<()> {
     assert!(nonnull > 0);
     Ok(())
 }
+
+#[test]
+#[ignore = "requires original server scenes, layout report and captured save"]
+fn saved_address_blob_components_restore_original_rows() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let catalogs = ScenePrefabCatalog::read_server_game_data(&data, &layouts)?;
+    let terrain =
+        rrising_content::static_transforms::StaticTransformCatalog::read_server(&data, &layouts)?;
+    let plan = MegaStaticRestorePlan::read(&snapshot)?;
+    let roots = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    let blobs = ScenePrefabCatalog::read_saved_prefab_blobs(&data, &layouts, snapshot.header())?;
+    let restored = RestoredWorldProjection::build_with_terrain_and_all_blobs(
+        &snapshot, &layouts, &catalogs, &plan, &terrain, roots, &blobs,
+    )?;
+    let mut counts = BTreeMap::<u64, usize>::new();
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                for column in &chunk.columns {
+                    let (name, blob_offset, entity_offsets) = match column.stable_type_hash {
+                        0x7c9b_c53b_fad2_7b65 => ("ProjectM.DestroyAfterDuration", 16, &[][..]),
+                        0x543e_ac33_4767_b905 => ("ProjectM.Gameplay.Scripting.Script_CreateGameplayEventOnDamageTakenToEntityCategory_DataServer", 40, &[4][..]),
+                        _ => continue,
+                    };
+                    let ty = restored
+                        .types
+                        .type_index_of(name)
+                        .context("missing restored blob type")?;
+                    let rows: Vec<_> = match column.buffers() {
+                        Some(rows) => rows.collect(),
+                        None => (0..chunk.entities().len())
+                            .map(|row| column.scalar(row).unwrap())
+                            .collect(),
+                    };
+                    for (source, saved) in chunk.entities().zip(rows) {
+                        let entity = restored
+                            .bindings
+                            .target(source)
+                            .context("missing entity binding")?;
+                        let actual = if column.saved_type_index.is_buffer() {
+                            restored.store.buffer_payload(&restored.types, entity, ty)?
+                        } else {
+                            restored.store.component_bytes(entity, ty)?
+                        };
+                        let mut expected = saved.to_vec();
+                        for element in expected.chunks_exact_mut(column.element_size()) {
+                            assert_eq!(&element[blob_offset..blob_offset + 8], &[0; 8]);
+                        }
+                        restored.bindings.patch_references(
+                            &mut expected,
+                            column.element_size(),
+                            entity_offsets,
+                        )?;
+                        assert_eq!(actual, expected);
+                        *counts.entry(column.stable_type_hash).or_default() +=
+                            saved.len() / column.element_size();
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(counts[&0x7c9b_c53b_fad2_7b65], 248);
+    assert_eq!(counts[&0x543e_ac33_4767_b905], 2);
+    assert_eq!(restored.skipped_saved_types, 0);
+    Ok(())
+}

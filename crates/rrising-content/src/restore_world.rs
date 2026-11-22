@@ -11,7 +11,8 @@ use rustc_hash::FxHashMap;
 use crate::{
     persistence::{MegaStaticRestorePlan, PrefabReference, SavedEntityBindings, SavedSnapshot},
     prefab_catalog::{
-        LinkedPrefabTemplate, PrefabBlobPayload, PrefabRootBlobs, ScenePrefabCatalog,
+        LinkedPrefabTemplate, PrefabBlobPayload, PrefabRootBlobs, SavedPrefabBlobs,
+        ScenePrefabCatalog,
     },
     static_transforms::StaticTransformCatalog,
     type_layouts::{TypeLayouts, ENTITY_HASH, ROTATION_HASH, TRANSLATION_HASH},
@@ -28,6 +29,22 @@ const BLOOD_CONSUME_SOURCE: u64 = 0x9f76_a48d_02bc_e2bb;
 const IDLE_POINT: u64 = 0x9534_7421_34ef_4051;
 const IDLE_INTERACTOR: u64 = 0xa413_a8bb_b072_50bc;
 const ABILITY_SPAWN: u64 = 0x779b_44a3_f06b_eeb7;
+const DESTROY_AFTER_DURATION: u64 = 0x7c9b_c53b_fad2_7b65;
+const DAMAGE_EVENT_SCRIPT: u64 = 0x543e_ac33_4767_b905;
+
+fn remap_saved_blob(field: &mut [u8], blobs: &FxHashMap<u64, PrefabBlobPayload>) -> Result<()> {
+    let saved = u64::from_le_bytes(field.try_into()?);
+    let address = if saved == 0 {
+        0
+    } else {
+        blobs
+            .get(&saved)
+            .context("saved blob has no current prefab source")?
+            .payload_address()
+    };
+    field.copy_from_slice(&address.to_le_bytes());
+    Ok(())
+}
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -237,7 +254,7 @@ impl RestoredWorldProjection {
         layouts: &TypeLayouts,
         catalogs: &[ScenePrefabCatalog],
     ) -> Result<Self> {
-        Self::build_inner(snapshot, layouts, catalogs, None, None)
+        Self::build_inner(snapshot, layouts, catalogs, None, None, None)
     }
 
     /// Includes MegaStatic identity and world transform in the projection before remapping saved references.
@@ -248,7 +265,14 @@ impl RestoredWorldProjection {
         plan: &MegaStaticRestorePlan,
         terrain: &StaticTransformCatalog,
     ) -> Result<Self> {
-        Self::build_inner(snapshot, layouts, catalogs, Some((plan, terrain)), None)
+        Self::build_inner(
+            snapshot,
+            layouts,
+            catalogs,
+            Some((plan, terrain)),
+            None,
+            None,
+        )
     }
 
     /// Restores supported components using blob data owned by the resulting projection.
@@ -266,8 +290,41 @@ impl RestoredWorldProjection {
             catalogs,
             Some((plan, terrain)),
             Some(&blobs),
+            None,
         )?;
         restored.bind_prefab_root_blobs(snapshot, blobs)?;
+        Ok(restored)
+    }
+
+    /// Restores supported prefab-copied and saved-address-remapped blob fields.
+    pub fn build_with_terrain_and_all_blobs(
+        snapshot: &SavedSnapshot<'_>,
+        layouts: &TypeLayouts,
+        catalogs: &[ScenePrefabCatalog],
+        plan: &MegaStaticRestorePlan,
+        terrain: &StaticTransformCatalog,
+        roots: PrefabRootBlobs,
+        saved: &SavedPrefabBlobs,
+    ) -> Result<Self> {
+        let payloads = std::sync::Arc::new(
+            saved
+                .payloads
+                .iter()
+                .map(|(&address, (hash, data))| {
+                    Ok((address, PrefabBlobPayload::new(*hash, data, &[])?))
+                })
+                .collect::<Result<FxHashMap<_, _>>>()?,
+        );
+        let mut restored = Self::build_inner(
+            snapshot,
+            layouts,
+            catalogs,
+            Some((plan, terrain)),
+            Some(&roots),
+            Some(&payloads),
+        )?;
+        restored.store.retain_lifetime(payloads);
+        restored.bind_prefab_root_blobs(snapshot, roots)?;
         Ok(restored)
     }
 
@@ -277,6 +334,7 @@ impl RestoredWorldProjection {
         catalogs: &[ScenePrefabCatalog],
         placement: Option<(&MegaStaticRestorePlan, &StaticTransformCatalog)>,
         root_blobs: Option<&PrefabRootBlobs>,
+        saved_blobs: Option<&FxHashMap<u64, PrefabBlobPayload>>,
     ) -> Result<Self> {
         let mut types = TypeManager::default();
         types.register(TypeSpec::tag("<reserved null>"))?;
@@ -454,7 +512,10 @@ impl RestoredWorldProjection {
             if !observed.contains(&saved_type)
                 || scalars.contains_key(&saved_type)
                 || buffers.contains_key(&saved_type)
-                || (blob_types.contains(&hash) && !(hash == ABILITY_SPAWN && root_blobs.is_some()))
+                || (blob_types.contains(&hash)
+                    && !(hash == ABILITY_SPAWN && root_blobs.is_some())
+                    && !(matches!(hash, DESTROY_AFTER_DURATION | DAMAGE_EVENT_SCRIPT)
+                        && saved_blobs.is_some()))
             {
                 continue;
             }
@@ -486,6 +547,17 @@ impl RestoredWorldProjection {
                 && stride == 24
                 && layout.entity_offsets.is_empty()
                 && layout.blob_offsets.as_deref() == Some(&[8]);
+            let destroy_after_duration = saved_blobs.is_some()
+                && hash == DESTROY_AFTER_DURATION
+                && layout.name == "ProjectM.DestroyAfterDuration"
+                && !buffer
+                && stride == 24
+                && layout.entity_offsets.is_empty()
+                && layout.blob_offsets.as_deref() == Some(&[16]);
+            let damage_event_script = saved_blobs.is_some() && hash == DAMAGE_EVENT_SCRIPT
+                && layout.name == "ProjectM.Gameplay.Scripting.Script_CreateGameplayEventOnDamageTakenToEntityCategory_DataServer"
+                && buffer && stride == 48 && layout.entity_offsets == [4]
+                && layout.blob_offsets.as_deref() == Some(&[40]);
             let blood_source = root_blobs.is_some()
                 && hash == BLOOD_CONSUME_SOURCE
                 && layout.name == "ProjectM.BloodConsumeSource"
@@ -512,7 +584,9 @@ impl RestoredWorldProjection {
                 && !blood_source
                 && !idle_point
                 && !idle_interactor
-                && !ability_spawn)
+                && !ability_spawn
+                && !destroy_after_duration
+                && !damage_event_script)
                 || stride <= 0
                 || stride != component.component_size
                 || buffer != saved_type.is_buffer()
@@ -852,11 +926,19 @@ impl RestoredWorldProjection {
                                 let payload = if offsets.is_empty()
                                     && column.stable_type_hash != INVENTORY_INSTANCE
                                     && column.stable_type_hash != ABILITY_SPAWN
+                                    && column.stable_type_hash != DAMAGE_EVENT_SCRIPT
                                 {
                                     payload
                                 } else {
                                     data.clear();
                                     data.extend_from_slice(payload);
+                                    if column.stable_type_hash == DAMAGE_EVENT_SCRIPT {
+                                        let blobs =
+                                            saved_blobs.context("missing saved blob sources")?;
+                                        for element in data.chunks_exact_mut(*stride) {
+                                            remap_saved_blob(&mut element[40..48], blobs)?;
+                                        }
+                                    }
                                     if column.stable_type_hash == INVENTORY_INSTANCE {
                                         for element in data.chunks_exact_mut(*stride) {
                                             element[40..48].fill(0);
@@ -988,10 +1070,17 @@ impl RestoredWorldProjection {
                             let payload = if offsets.is_empty()
                                 && column.stable_type_hash != BLOOD_CONSUME_SOURCE
                                 && column.stable_type_hash != IDLE_INTERACTOR
+                                && column.stable_type_hash != DESTROY_AFTER_DURATION
                             {
                                 payload
                             } else {
                                 data.copy_from_slice(payload);
+                                if column.stable_type_hash == DESTROY_AFTER_DURATION {
+                                    remap_saved_blob(
+                                        &mut data[16..24],
+                                        saved_blobs.context("missing saved blob sources")?,
+                                    )?;
+                                }
                                 if column.stable_type_hash == BLOOD_CONSUME_SOURCE {
                                     let guid_column = chunk
                                         .columns
@@ -1126,5 +1215,27 @@ impl RestoredWorldProjection {
             prefab_root_blobs: None,
             prefab_blob_bindings: FxHashMap::default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod blob_remap_tests {
+    use super::*;
+
+    #[test]
+    fn remaps_null_and_known_addresses_and_rejects_unknown_values() -> Result<()> {
+        let mut blobs = FxHashMap::default();
+        blobs.insert(123, PrefabBlobPayload::new(7, &[1, 2, 3, 4], &[])?);
+        let address = blobs[&123].payload_address();
+        let mut field = 123u64.to_le_bytes();
+        remap_saved_blob(&mut field, &blobs)?;
+        assert_eq!(u64::from_le_bytes(field), address);
+        let mut null = 0u64.to_le_bytes();
+        remap_saved_blob(&mut null, &blobs)?;
+        assert_eq!(null, [0; 8]);
+        let mut unknown = 456u64.to_le_bytes();
+        assert!(remap_saved_blob(&mut unknown, &blobs).is_err());
+        assert_eq!(u64::from_le_bytes(unknown), 456);
+        Ok(())
     }
 }

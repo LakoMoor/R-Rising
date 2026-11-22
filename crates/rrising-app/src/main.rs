@@ -1398,13 +1398,14 @@ fn main() -> Result<()> {
                 &opt.data, &layouts,
             )?;
             let restored = if let Some(blobs) = root_blobs {
-                RestoredWorldProjection::build_with_terrain_and_blobs(
+                RestoredWorldProjection::build_with_terrain_and_all_blobs(
                     &snapshot,
                     &layouts,
                     &catalogs,
                     &mega_statics,
                     &terrain,
                     blobs,
+                    &saved_blobs,
                 )?
             } else {
                 RestoredWorldProjection::build_with_terrain(

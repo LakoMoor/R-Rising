@@ -861,7 +861,7 @@ pub struct PrefabBlobPayload {
 struct BlobBlock([u8; 16]);
 
 impl PrefabBlobPayload {
-    fn new(hash: u64, data: &[u8], excluded_fields: &[u8]) -> Result<Self> {
+    pub(crate) fn new(hash: u64, data: &[u8], excluded_fields: &[u8]) -> Result<Self> {
         let length = i32::try_from(data.len()).context("blob payload is too large")?;
         let blocks = data.len().checked_add(15).context("blob length overflow")? / 16;
         let mut storage =
