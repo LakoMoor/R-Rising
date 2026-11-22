@@ -303,6 +303,25 @@ class Probe:
                     raise Unsupported('generic field contains Entity offsets that are not recovered')
         return offsets
 
+    def contains_blob(self, expression, seen=None):
+        """Detect blob references inside generic value fields without assuming their layout."""
+        if expression[0] != 'type':
+            return False  # pointers/managed arrays do not inline their referenced value
+        index = expression[1]
+        if self.full_name(index) == 'Unity.Entities.BlobAssetReference`1':
+            return True
+        row = self.type_rows[index]
+        if not row['bitfield'] & 1 or row['bitfield'] & 2 or self.full_name(index) in self.identities.SCALARS:
+            return False
+        seen = set() if seen is None else seen
+        if expression in seen:
+            raise Unsupported('recursive value type while finding blob references')
+        seen.add(expression)
+        try:
+            return any(self.contains_blob(field, seen) for _, field, _ in self.identities.fields(expression))
+        finally:
+            seen.remove(expression)
+
     def blob_offsets(self, i, base=0):
         """Find BlobAssetReference fields whose offsets are known from native layouts."""
         row = self.type_rows[i]
@@ -318,11 +337,28 @@ class Probe:
                 expression = self.identities.expr(descriptor)
                 if expression[0] == 'type' and self.full_name(expression[1]) == 'Unity.Entities.BlobAssetReference`1':
                     offsets.append(offset)
-                else:
+                elif self.contains_blob(expression):
                     raise Unsupported('nested generic blob offsets not recovered')
             elif field['typedef_index'] is not None:
                 offsets.extend(self.blob_offsets(field['typedef_index'], offset))
         return offsets
+
+    def blob_offsets_generic(self, expression, expected_size):
+        """Recover the two pinned database-record instantiations from their closed fields."""
+        if expression[0] != 'type' or self.full_name(expression[1]) != 'Rukhanka.NewBlobAssetDatabaseRecord`1':
+            raise Unsupported('generic blob layout not recovered')
+        fields = self.identities.fields(expression)
+        if len(fields) != 2 or [name for name, _, _ in fields] != ['hash', 'value']:
+            raise Unsupported('unexpected database record fields')
+        name = self.identities.full_name
+        if name(fields[0][1]) != 'Unity.Entities.Hash128' or self.full_name(fields[1][1][1]) != 'Unity.Entities.BlobAssetReference`1':
+            raise Unsupported('unexpected database record field types')
+        hash_size, _, _ = self.identities.sequential_layout(fields[0][1])
+        blob_size, blob_align, _ = self.identities.sequential_layout(fields[1][1])
+        offset = (hash_size + blob_align - 1) // blob_align * blob_align
+        if (hash_size, blob_size, blob_align, offset, expected_size) != (16, 8, 8, 16, 24):
+            raise Unsupported('database record layout differs from validated shape')
+        return [offset]
 
     @functools.lru_cache(None)
     def portable_value(self, expression):
@@ -672,7 +708,12 @@ def main():
     identity_only.sort(key=lambda row: row['name'])
     for row in matched:
         try:
-            row['ecs']['blob_offsets'] = probe.blob_offsets(row['metadata_type_index'])
+            stable = int(row['stable_hash'], 16)
+            expression = identities.expressions.get(stable)
+            if expression and expression[0] == 'type' and expression[2]:
+                row['ecs']['blob_offsets'] = probe.blob_offsets_generic(expression, row['managed_value_size'])
+            else:
+                row['ecs']['blob_offsets'] = probe.blob_offsets(row['metadata_type_index'])
         except (Unsupported, RecursionError, struct.error):
             pass
         if row['ecs']['managed']:
@@ -745,8 +786,12 @@ def main():
             raise ValueError('MountModelStreaming generic Entity-offset case changed')
         for name in ['Rukhanka.NewBlobAssetDatabaseRecord`1<Rukhanka.AnimationClipBlob>', 'Rukhanka.NewBlobAssetDatabaseRecord`1<Rukhanka.AvatarMaskBlob>']:
             record = by_name[name]['ecs']
-            if (record['category'], record['element_size'], record['buffer_capacity'], record['size_in_chunk']) != ('buffer', 24, 5, 136):
+            if (record['category'], record['element_size'], record['buffer_capacity'], record['size_in_chunk'], record.get('blob_offsets')) != ('buffer', 24, 5, 136, [16]):
                 raise ValueError('constructed generic buffer shape changed: '+name)
+        if by_name['ProjectM.ApplyBuffOnGameplayEvent']['ecs'].get('blob_offsets') != [56]:
+            raise ValueError('ApplyBuffOnGameplayEvent blob field changed')
+        if any('blob_offsets' not in row['ecs'] for row in matched):
+            raise ValueError('a scene type has unknown blob field offsets')
         if not by_name['ProjectM.ProfessorCoilPairElement']['ecs']['iequatable'] or by_name['Unity.Entities.Entity']['ecs']['iequatable']:
             raise ValueError('IEquatable flag derivation changed')
         if by_name['ProjectM.VampireTag']['ecs']['size_in_chunk'] != 0:

@@ -747,3 +747,9 @@ reference fields are also checked across all scenes. An independent inventory fo
 non-null and 45,067 null buffer fields, with no invalid known offsets. Type layouts remain unknown
 for 16,711 component rows, so their possible blob references are not covered. This is a Rust-side
 load path; original runtime execution and browser blob behavior have not been verified.
+
+The pinned client probe now traverses generic value fields when determining whether nested blob
+references exist. This recovers `ApplyBuffOnGameplayEvent` field offset 56 and the two closed
+`NewBlobAssetDatabaseRecord<T>` layouts at offset 16. All 1,772 scene type reports now include
+blob-offset results; their identities and shapes are offline-derived and are not a runtime TypeInfo
+oracle. All-scene scalar and buffer load tests pass with the resulting report.
