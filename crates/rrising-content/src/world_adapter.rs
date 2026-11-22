@@ -9,7 +9,7 @@
 //!   copied as raw serialized bytes. Managed slots are opaque: they are *not* valid managed-store
 //!   handles and no managed object is attached.
 //! - Used inline and external buffer elements are copied into owned ECS storage. Capacity and
-//!   inline/external placement may be normalized; serialized blob references are not relocated.
+//!   inline/external placement may be normalized. Known blob fields are relocated at world build.
 //! - Entity references: the scene stores references in its own (scene-local) id space. A remap
 //!   table (`rrising_ecs::EntityRemapTable`, source id -> live id, ids being preserved) is applied
 //!   to every per-entity component's `Entity` fields (offsets from the recovered layouts); a
@@ -21,7 +21,7 @@
 //! - The archetype/type order inside the store is the port's ("entity first, rest by packed
 //!   value"), not necessarily the original's; component bytes are addressed by type, so this does
 //!   not change what a query returns.
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::{bail, ensure, Context, Result};
 use rrising_ecs::{
@@ -29,7 +29,8 @@ use rrising_ecs::{
     SpecialTypes, TypeIndex, TypeManager, World, WorldInput,
 };
 
-use crate::entity_scenes::SceneFile;
+use crate::entity_scenes::{SceneBlobAssets, SceneFile};
+use crate::prefab_catalog::PrefabBlobPayload;
 use crate::type_layouts::{EnabledSceneRows, TypeLayouts, ENTITY_HASH};
 
 /// What the adapter copied or deliberately left out.
@@ -64,6 +65,7 @@ pub struct SceneWorld {
     pub stats: AdapterStats,
     /// Scene-local serialized shared records, indexed by the chunk's nonzero shared index minus one.
     pub serialized_shared_values: Vec<SerializedSharedValue>,
+    scene_blobs: Arc<BTreeMap<i32, PrefabBlobPayload>>,
 }
 
 /// Serialized scene data, not a live Unity managed object or a relocated native value.
@@ -88,6 +90,24 @@ pub enum SceneSharedValue<'a> {
 }
 
 impl SceneWorld {
+    /// Address of a relocated serialized blob offset, valid for the lifetime of this world/store.
+    pub fn scene_blob_address(&self, offset: i32) -> Option<u64> {
+        if offset == -1 {
+            Some(0)
+        } else {
+            self.scene_blobs
+                .get(&offset)
+                .map(PrefabBlobPayload::payload_address)
+        }
+    }
+
+    /// Original blob payload for a relocated serialized offset.
+    pub fn scene_blob_data(&self, offset: i32) -> Option<&[u8]> {
+        self.scene_blobs
+            .get(&offset)
+            .map(|blob| blob.data.as_slice())
+    }
+
     /// Inspect an entity's scene-local shared value without treating serialized pointers as live.
     pub fn serialized_shared_value(
         &self,
@@ -457,9 +477,84 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
     })
 }
 
+fn patch_scene_blob_fields(
+    bytes: &mut [u8],
+    stride: usize,
+    offsets: &[i32],
+    blobs: &SceneBlobAssets<'_>,
+    owned: &mut BTreeMap<i32, PrefabBlobPayload>,
+) -> Result<()> {
+    if offsets.is_empty() {
+        return Ok(());
+    }
+    ensure!(
+        stride > 0 && bytes.len().is_multiple_of(stride),
+        "invalid blob component stride"
+    );
+    for element in bytes.chunks_exact_mut(stride) {
+        for &offset in offsets {
+            let at = usize::try_from(offset)?;
+            let field = element
+                .get_mut(at..at.checked_add(8).context("blob field overflow")?)
+                .context("blob field outside component")?;
+            let serialized = i64::from_le_bytes(field.try_into()?);
+            let serialized = i32::try_from(serialized).context("invalid serialized blob offset")?;
+            let address = if serialized == -1 {
+                0
+            } else {
+                if let std::collections::btree_map::Entry::Vacant(entry) = owned.entry(serialized) {
+                    let source = blobs
+                        .find_by_offset(serialized)
+                        .context("unknown scene blob offset")?;
+                    entry.insert(PrefabBlobPayload::new(source.hash, source.data, &[])?);
+                }
+                owned[&serialized].payload_address()
+            };
+            field.copy_from_slice(&address.to_le_bytes());
+        }
+    }
+    Ok(())
+}
+
 /// Convert and build the world for one scene.
 pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<SceneWorld> {
-    let a = scene_to_world_input(layouts, scene)?;
+    let mut a = scene_to_world_input(layouts, scene)?;
+    let blobs = scene.blob_assets()?;
+    let mut owned_blobs = BTreeMap::new();
+    let by_type: BTreeMap<_, _> = a
+        .type_of_hash
+        .iter()
+        .map(|(&hash, &ty)| (ty, hash))
+        .collect();
+    for chunk in &mut a.input.chunks {
+        for (ty, bytes) in &mut chunk.components {
+            if ty.is_buffer() || ty.is_managed_component() {
+                continue;
+            }
+            let Some(layout) = by_type.get(ty).and_then(|h| layouts.get(*h)) else {
+                continue;
+            };
+            if let Some(offsets) = &layout.blob_offsets {
+                let stride = usize::try_from(layout.spec.size_in_chunk)?;
+                patch_scene_blob_fields(bytes, stride, offsets, &blobs, &mut owned_blobs)?;
+            }
+        }
+    }
+    for (_, ty, bytes) in &mut a.buffer_payloads {
+        let Some(layout) = by_type.get(ty).and_then(|h| layouts.get(*h)) else {
+            continue;
+        };
+        if let Some(offsets) = &layout.blob_offsets {
+            patch_scene_blob_fields(
+                bytes,
+                usize::try_from(layout.spec.element_size)?,
+                offsets,
+                &blobs,
+                &mut owned_blobs,
+            )?;
+        }
+    }
+    let owned_blobs = Arc::new(owned_blobs);
     let mut world = World::build_with(
         a.types,
         a.special,
@@ -467,6 +562,7 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
         &a.input,
         true,
     )?;
+    world.store.retain_lifetime(owned_blobs.clone());
     for (entity, ty, payload) in &a.buffer_payloads {
         world
             .store
@@ -480,6 +576,7 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
         type_of_hash: a.type_of_hash,
         stats: a.stats,
         serialized_shared_values: a.serialized_shared_values,
+        scene_blobs: owned_blobs,
     })
 }
 

@@ -321,6 +321,19 @@ fn original_scene_buffer_payloads_survive_world_build() {
                             }
                         }
                     }
+                    if let Some(offsets) = &record.blob_offsets {
+                        for element in expected.chunks_exact_mut(element_size) {
+                            for &offset in offsets {
+                                let at = offset as usize;
+                                let source =
+                                    i64::from_le_bytes(element[at..at + 8].try_into().unwrap());
+                                let address = sw
+                                    .scene_blob_address(i32::try_from(source).unwrap())
+                                    .expect("blob mapping");
+                                element[at..at + 8].copy_from_slice(&address.to_le_bytes());
+                            }
+                        }
+                    }
                     assert_eq!(
                         sw.world
                             .store
@@ -340,4 +353,81 @@ fn original_scene_buffer_payloads_survive_world_build() {
     }
     println!("buffer rows, external patches, used bytes: {counts:?}");
     assert!(counts[0] > 0 && counts[1] > 0 && counts[2] > 0);
+}
+
+#[test]
+#[ignore = "requires pinned original scenes and RRISING_LAYOUT_REPORT"]
+fn original_scalar_blob_fields_are_relocated() {
+    use rrising_ecs::Entity;
+    let report = std::env::var_os("RRISING_LAYOUT_REPORT").expect("layout report");
+    let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("game data"));
+    let layouts = TypeLayouts::from_json(&std::fs::read(report).unwrap()).unwrap();
+    let mut counts = [0usize; 3];
+    for path in std::fs::read_dir(data.join("StreamingAssets/EntityScenes")).unwrap() {
+        let path = path.unwrap().path();
+        if !path.extension().is_some_and(|e| e == "entities") {
+            continue;
+        }
+        let scene = SceneFile::open(&path).unwrap();
+        let resolved = layouts.resolve_scene(&scene).unwrap();
+        let blobs = scene.blob_assets().unwrap();
+        let sw = build_scene_world(&layouts, &scene).unwrap();
+        for chunk in &resolved.chunks {
+            let arch = resolved.archetypes[chunk.header.archetype_index as usize]
+                .as_ref()
+                .unwrap();
+            let id_base = arch.data.layout.offsets[0] as usize;
+            for (slot, ty) in arch.types.iter().enumerate().skip(1) {
+                if ty.is_buffer()
+                    || ty.is_managed_component()
+                    || ty.is_chunk_component()
+                    || ty.is_shared_component_type()
+                    || ty.is_zero_sized()
+                {
+                    continue;
+                }
+                let layout = layouts.get(arch.hashes[slot]).unwrap();
+                let Some(offsets) = &layout.blob_offsets else {
+                    counts[2] += 1;
+                    continue;
+                };
+                if offsets.is_empty() {
+                    continue;
+                }
+                let stride = arch.data.layout.sizeofs[slot] as usize;
+                let base = arch.data.layout.offsets[slot] as usize;
+                let world_ty = sw.type_of_hash[&arch.hashes[slot]];
+                for row in 0..chunk.header.count as usize {
+                    let id = &chunk.buffer[id_base + row * 8..id_base + row * 8 + 8];
+                    let e = Entity::new(
+                        i32::from_le_bytes(id[..4].try_into().unwrap()),
+                        i32::from_le_bytes(id[4..].try_into().unwrap()),
+                    );
+                    let value = sw.world.store.component_bytes(e, world_ty).unwrap();
+                    for &offset in offsets {
+                        let offset = offset as usize;
+                        let at = base + row * stride + offset;
+                        let source = i32::try_from(i64::from_le_bytes(
+                            chunk.buffer[at..at + 8].try_into().unwrap(),
+                        ))
+                        .unwrap();
+                        let address =
+                            u64::from_le_bytes(value[offset..offset + 8].try_into().unwrap());
+                        assert_eq!(Some(address), sw.scene_blob_address(source));
+                        if source == -1 {
+                            counts[0] += 1;
+                        } else {
+                            counts[1] += 1;
+                            assert_eq!(
+                                sw.scene_blob_data(source),
+                                Some(blobs.find_by_offset(source).unwrap().data)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!("null, non-null fields, unknown-layout slots: {counts:?}");
+    assert!(counts[1] > 0);
 }

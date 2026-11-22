@@ -738,4 +738,12 @@ Scene world building now copies used dynamic-buffer elements into owned ECS stor
 their entity references. The pinned client's 1,183 scenes contain 274,197 buffer rows, including
 89,120 external allocations and 305,184,507 used bytes; a separate test compares every restored
 row against its source and checks entity remapping. Capacity and inline/external placement may be
-normalized. Blob references and other native pointers within values remain serialized, not relocated.
+normalized. Known blob-reference fields are relocated during world building; unrecognized blob fields and other native pointers remain serialized.
+
+Scene world loading relocates recovered blob-reference fields in scalar components and dynamic
+buffers to aligned, world-owned blob payloads; -1 is mapped to null. An all-scenes check verifies
+85,403 non-null and 8,444 null scalar fields against the original records. Buffer contents and
+reference fields are also checked across all scenes. An independent inventory found 180,056
+non-null and 45,067 null buffer fields, with no invalid known offsets. Type layouts remain unknown
+for 16,711 component rows, so their possible blob references are not covered. This is a Rust-side
+load path; original runtime execution and browser blob behavior have not been verified.
