@@ -581,7 +581,31 @@ impl EntityComponentStore {
     /// Capacity is grown so the last slot stays free (the invariant `IncreaseCapacity` relies on),
     /// then the free list is rebuilt ascending over all free slots.
     pub fn restore_entities(&mut self, arch: usize, ids: &[Entity]) -> Result<()> {
+        let shared_count = self
+            .archetypes
+            .get(arch)
+            .context("unknown archetype")?
+            .chunk_data
+            .shared_component_count();
+        self.restore_entities_with_shared(arch, ids, &vec![0; shared_count])
+    }
+
+    /// Restore scene entity IDs while retaining their shared-component group indices.
+    pub fn restore_entities_with_shared(
+        &mut self,
+        arch: usize,
+        ids: &[Entity],
+        shared_values: &[i32],
+    ) -> Result<()> {
         ensure!(arch < self.archetypes.len(), "unknown archetype {arch}");
+        ensure!(
+            shared_values.len() == self.archetypes[arch].chunk_data.shared_component_count(),
+            "shared component count mismatch"
+        );
+        ensure!(
+            shared_values.iter().all(|&value| value >= 0),
+            "negative shared component index"
+        );
         let mut max = -1i32;
         let mut seen = std::collections::HashSet::new();
         for e in ids {
@@ -618,8 +642,7 @@ impl EntityComponentStore {
                 .is_null(),
             "last entity slot is live"
         );
-        let shared_count = self.archetypes[arch].chunk_data.shared_component_count();
-        self.create_entities_inner(arch, ids.len(), Some(ids), &vec![0; shared_count])?;
+        self.create_entities_inner(arch, ids.len(), Some(ids), shared_values)?;
         // rebuild the free list over all free slots, ascending, last slot terminating with -1
         let free: Vec<i32> = (0..self.capacity)
             .filter(|&i| self.entity_in_chunk[i as usize].chunk.is_null())

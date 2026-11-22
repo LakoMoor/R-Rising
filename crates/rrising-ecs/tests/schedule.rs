@@ -156,11 +156,13 @@ fn scene() -> (World, TransformTypes) {
         ],
         chunks: vec![
             ChunkInput {
+                shared_components: vec![],
                 archetype: 0,
                 entities: EntityIds::Preserved(vec![Entity::new(12, 1)]),
                 components: vec![(t, f(&[1.0, 2.0, 3.0])), (r, f(&ID_R))],
             },
             ChunkInput {
+                shared_components: vec![],
                 archetype: 1,
                 entities: EntityIds::Preserved(vec![Entity::new(10, 1), Entity::new(11, 1)]),
                 components: vec![

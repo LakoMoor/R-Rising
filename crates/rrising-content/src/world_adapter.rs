@@ -168,6 +168,8 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         }
         chunk_ids.push(ids);
     }
+    let shared = scene.shared_and_managed_components()?;
+    let mut shared_cursor = 0usize;
     let buffers = scene.buffer_data()?;
     let enabled = EnabledSceneRows::read(scene, &resolved)?;
     let mut disabled_components = Vec::new();
@@ -187,6 +189,36 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
                 .with_context(|| format!("chunk {} slot {slot} outside buffer", chunk.index))
         };
         let ids = std::mem::take(&mut chunk_ids[ci]);
+        let mut shared_components = Vec::new();
+        for &slot in arch.data.layout.memory_order_to_archetype.iter().skip(1) {
+            let slot = usize::try_from(slot)?;
+            let ty = arch.types[slot];
+            if !ty.is_shared_component_type() || ty.is_chunk_component() {
+                continue;
+            }
+            let value = *shared
+                .shared_component_remap
+                .get(shared_cursor)
+                .context("shared component remap shorter than chunk slots")?;
+            shared_cursor += 1;
+            if value != 0 {
+                let index = usize::try_from(value - 1)?;
+                let hash = if index < shared.unmanaged.len() {
+                    shared.unmanaged[index].stable_type_hash
+                } else {
+                    shared
+                        .managed_shared_records
+                        .get(index - shared.unmanaged.len())
+                        .context("shared component index outside records")?
+                        .stable_type_hash
+                };
+                ensure!(
+                    hash == arch.hashes[slot],
+                    "chunk {ci}: shared component type mismatch"
+                );
+            }
+            shared_components.push((archetypes[ai].types[slot - 1], value));
+        }
         let mut components = Vec::new();
         for slot in 1..arch.types.len() {
             let t = arch.types[slot];
@@ -263,11 +295,16 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         stats.chunks += 1;
         stats.entities += count;
         chunks.push(ChunkInput {
+            shared_components,
             archetype: ai,
             entities: EntityIds::Preserved(ids),
             components,
         });
     }
+    ensure!(
+        shared_cursor == shared.shared_component_remap.len(),
+        "unused shared component remap entries"
+    );
     stats.disabled_components = disabled_components.len();
     Ok(AdaptedScene {
         special: special_types(&types, entity),
@@ -345,6 +382,7 @@ mod special_type_tests {
             ],
             chunks: (0..3)
                 .map(|archetype| ChunkInput {
+                    shared_components: vec![],
                     archetype,
                     entities: EntityIds::Fresh(1),
                     components: vec![],

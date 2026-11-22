@@ -2,7 +2,7 @@
 use rrising_content::{
     entity_scenes::SceneFile,
     type_layouts::{TypeLayouts, LOCAL_TO_WORLD_HASH, LOCAL_TRANSFORM_HASH, TRANSLATION_HASH},
-    world_adapter::build_scene_world,
+    world_adapter::{build_scene_world, scene_to_world_input},
 };
 use rrising_ecs::EntityQuery;
 use std::{path::PathBuf, time::Instant};
@@ -30,6 +30,40 @@ fn all_scenes_build_worlds_with_every_entity() {
         let sw = build_scene_world(&layouts, &scene)
             .unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
         build_time += t.elapsed();
+        let adapted = scene_to_world_input(&layouts, &scene).expect("scene input");
+        for source_chunk in &adapted.input.chunks {
+            let rrising_ecs::EntityIds::Preserved(ids) = &source_chunk.entities else {
+                panic!("scene must preserve ids")
+            };
+            for &entity in ids {
+                let chunk = sw
+                    .world
+                    .store
+                    .entity_in_chunk(entity.index)
+                    .expect("entity location")
+                    .chunk;
+                let stored =
+                    &sw.world.store.archetypes()[sw.world.archetype_map[source_chunk.archetype]];
+                let list = sw.world.store.chunk(chunk).expect("chunk").list_index as usize;
+                let layout = &stored.archetype.data.layout;
+                for &(ty, expected) in &source_chunk.shared_components {
+                    let shared_types = &stored.archetype.types[layout.first_shared_component
+                        as usize
+                        ..layout.first_chunk_component as usize];
+                    let slot = shared_types
+                        .iter()
+                        .position(|t| t.type_index == ty)
+                        .expect("shared type");
+                    assert_eq!(
+                        stored
+                            .chunk_data
+                            .get_shared_component_value(slot, list)
+                            .expect("shared value"),
+                        expected
+                    );
+                }
+            }
+        }
         entities += sw.stats.entities;
         chunks_in += sw.stats.chunks;
         disabled += sw.stats.disabled_components;

@@ -73,6 +73,7 @@ fn builds_preserving_ids_and_component_bytes() {
     let input = WorldInput {
         archetypes: vec![ArchetypeInput { types: vec![t.a] }],
         chunks: vec![ChunkInput {
+            shared_components: vec![],
             archetype: 0,
             entities: EntityIds::Preserved(ids.clone()),
             components: vec![(t.a, data)],
@@ -103,6 +104,7 @@ fn rejects_duplicate_or_bad_ids_and_bad_byte_lengths() {
         let input = WorldInput {
             archetypes: vec![ArchetypeInput { types: vec![t.a] }],
             chunks: vec![ChunkInput {
+                shared_components: vec![],
                 archetype: 0,
                 entities: EntityIds::Preserved(ids),
                 components: vec![(t.a, vec![0; bytes])],
@@ -122,6 +124,7 @@ fn query_counts_on_synthetic_data_with_disabled_and_prefab() {
     let t = types();
     let (a, tag, dis, pre) = (t.a, t.tag, t.disabled, t.prefab);
     let chunk = |arch, n| ChunkInput {
+        shared_components: vec![],
         archetype: arch,
         entities: EntityIds::Fresh(n),
         components: vec![],
@@ -168,4 +171,50 @@ fn query_counts_on_synthetic_data_with_disabled_and_prefab() {
     // explicitly requiring Disabled still needs include_disabled in this port-side matcher
     let q_req = EntityQuery::new(&[ComponentType::read_only(dis)]);
     assert_eq!(w.query_count(&q_req), 0);
+}
+
+#[test]
+fn world_restores_shared_groups_for_preserved_and_fresh_entities() {
+    let mut t = types();
+    let a = t.tm.register(TypeSpec::shared("SharedA", 4, 4)).unwrap();
+    let b = t.tm.register(TypeSpec::shared("SharedB", 4, 4)).unwrap();
+    let special = special(&t);
+    let chunk = |entities, a_value, b_value| ChunkInput {
+        archetype: 0,
+        entities,
+        components: vec![],
+        // Deliberately reverse the type order to check type-based mapping.
+        shared_components: vec![(b, b_value), (a, a_value)],
+    };
+    let input = WorldInput {
+        archetypes: vec![ArchetypeInput { types: vec![a, b] }],
+        chunks: vec![
+            chunk(EntityIds::Preserved(vec![Entity::new(10, 2)]), 7, 8),
+            chunk(EntityIds::Preserved(vec![Entity::new(11, 3)]), 7, 9),
+            chunk(EntityIds::Fresh(1), 7, 8),
+        ],
+    };
+    let w = World::build_with(t.tm, special, 16, &input, true).unwrap();
+    let locate = |e: Entity| w.store.entity_in_chunk(e.index).unwrap().chunk;
+    assert_eq!(locate(w.entities[0]), locate(w.entities[2]));
+    assert_ne!(locate(w.entities[0]), locate(w.entities[1]));
+    let stored = &w.store.archetypes()[w.archetype_map[0]];
+    for (entity, expected_b) in [(w.entities[0], 8), (w.entities[1], 9)] {
+        let list = w.store.chunk(locate(entity)).unwrap().list_index as usize;
+        let layout = &stored.archetype.data.layout;
+        for (slot, ty) in stored.archetype.types
+            [layout.first_shared_component as usize..layout.first_chunk_component as usize]
+            .iter()
+            .enumerate()
+        {
+            let expected = if ty.type_index == a { 7 } else { expected_b };
+            assert_eq!(
+                stored
+                    .chunk_data
+                    .get_shared_component_value(slot, list)
+                    .unwrap(),
+                expected
+            );
+        }
+    }
 }

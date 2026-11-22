@@ -8,10 +8,10 @@
 //!
 //! Limits: archetypes with shared/managed/chunk/cleanup components are refused by the store unless
 //! [`World::build_with`] asks for opaque admission (layout only; values not modelled);
-//! shared-component values, chunk components, buffer heap payloads and entity-reference patching
+//! shared-component value payloads, chunk components, buffer heap payloads and entity-reference patching
 //! are not handled; `Disabled`/`Prefab` flags come from the supplied [`SpecialTypes`].
 
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 
 use crate::archetype::SpecialTypes;
 use crate::entity::Entity;
@@ -55,6 +55,8 @@ pub struct ChunkInput {
     /// Component bytes per type, tightly packed `entities.len() * size_of(type)` bytes (the
     /// structure-of-arrays layout a chunk stores). Types not listed stay zeroed.
     pub components: Vec<(TypeIndex, Vec<u8>)>,
+    /// Scene-local shared value indices, keyed by component type. Missing entries default to zero.
+    pub shared_components: Vec<(TypeIndex, i32)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -110,16 +112,33 @@ impl World {
                 chunk.archetype
             );
             let arch = archetype_map[chunk.archetype];
+            let layout = &store.archetypes()[arch].archetype;
+            let shared_types = &layout.types[layout.data.layout.first_shared_component as usize
+                ..layout.data.layout.first_chunk_component as usize];
+            let mut shared_values = vec![0; shared_types.len()];
+            let mut seen = std::collections::HashSet::new();
+            for &(ty, value) in &chunk.shared_components {
+                ensure!(seen.insert(ty), "chunk {ci}: duplicate shared component");
+                let slot = shared_types
+                    .iter()
+                    .position(|t| t.type_index == ty)
+                    .with_context(|| {
+                        format!("chunk {ci}: shared component absent from archetype")
+                    })?;
+                shared_values[slot] = value;
+            }
             let count = chunk.entities.len();
             if count == 0 {
                 continue;
             }
             let ids = match &chunk.entities {
                 EntityIds::Preserved(ids) => {
-                    store.restore_entities(arch, ids)?;
+                    store.restore_entities_with_shared(arch, ids, &shared_values)?;
                     ids.clone()
                 }
-                EntityIds::Fresh(n) => store.create_entities(arch, *n)?,
+                EntityIds::Fresh(n) => {
+                    store.create_entities_with_shared(arch, *n, &shared_values)?
+                }
             };
             for (t, data) in &chunk.components {
                 let size = store.component_bytes(ids[0], *t)?.len();

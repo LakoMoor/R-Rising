@@ -163,6 +163,7 @@ fn world(case: &Case, excluded: Option<&str>) -> (World, SharedSteeringTypes, En
         ],
         chunks: vec![
             ChunkInput {
+                shared_components: vec![],
                 archetype: 0,
                 entities: EntityIds::Preserved(vec![Entity::new(31, 1)]),
                 components: vec![
@@ -172,6 +173,7 @@ fn world(case: &Case, excluded: Option<&str>) -> (World, SharedSteeringTypes, En
                 ],
             },
             ChunkInput {
+                shared_components: vec![],
                 archetype: 1,
                 entities: EntityIds::Preserved(vec![target]),
                 components: vec![
