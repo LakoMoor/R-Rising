@@ -235,6 +235,11 @@ fn parse_index_arrays(blob: &[u8], limit: usize) -> Result<(Vec<i32>, Vec<i32>, 
     Ok((a, b, at))
 }
 
+/// Only static mesh and material array indices can be resolved from baked scene assets.
+fn needs_runtime_or_range_resolution(info: MaterialMeshInfo) -> bool {
+    info.has_material_mesh_index_range() || info.is_runtime_mesh() || info.is_runtime_material()
+}
+
 fn matrix_instance(m: [f32; 16]) -> Option<Instance> {
     if m.iter().any(|x| !x.is_finite()) {
         return None;
@@ -619,7 +624,7 @@ pub fn collect(
             };
             stats.with_material_mesh_info += 1;
             let info = MaterialMeshInfo::from_bytes(bytes)?;
-            if info.has_material_mesh_index_range() || info.is_runtime_mesh() {
+            if needs_runtime_or_range_resolution(info) {
                 stats.unresolved_runtime_or_range += 1;
                 {
                     markers.push(inst);
@@ -1086,7 +1091,24 @@ impl SimWorld {
 
 #[cfg(test)]
 mod managed_array_tests {
-    use super::parse_index_arrays;
+    use super::{needs_runtime_or_range_resolution, parse_index_arrays};
+    use rrising_ecs::MaterialMeshInfo;
+
+    #[test]
+    fn requires_both_mesh_and_material_to_be_static() {
+        assert!(!needs_runtime_or_range_resolution(
+            MaterialMeshInfo::from_render_mesh_array_indices(0, 0, 0)
+        ));
+        assert!(needs_runtime_or_range_resolution(MaterialMeshInfo::new(
+            3, -1, 0
+        )));
+        assert!(needs_runtime_or_range_resolution(MaterialMeshInfo::new(
+            -1, 3, 0
+        )));
+        assert!(needs_runtime_or_range_resolution(
+            MaterialMeshInfo::from_material_mesh_index_range(0, 1).unwrap()
+        ));
+    }
 
     #[test]
     fn object_indices_accept_null_and_reject_invalid_references() {

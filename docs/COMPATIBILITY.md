@@ -726,3 +726,10 @@ size and field checks; this does not establish system behavior or original equal
 The managed mesh-array locator remains heuristic: the original object adapter at client RVA
 `0x8fddae0` represents a null Unity object as index -1, which the locator now accepts. Record
 boundaries and general managed-object deserialization remain unresolved.
+
+An inventory of `MaterialMeshInfo` in all 1,183 pinned client scenes found 809,820 records: all
+use static mesh and material indices, with no runtime IDs or material/mesh index ranges. Runtime
+material IDs are now reported unresolved rather than drawn with a guessed neutral material. The
+original runtime's `RenderMeshArray` has a separate 12-byte-per-entry `MaterialMeshIndex` array;
+`ManagedRenderMeshArray` holds only mesh and material arrays, so runtime range rendering remains
+unimplemented. This inventory is scene data, not a claim about dynamically spawned entities.
