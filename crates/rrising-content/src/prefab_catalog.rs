@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn prefab_blob_payload_preserves_aligned_header_and_bytes() -> Result<()> {
         let source: Vec<_> = (0..37).collect();
-        let blob = PrefabBlobPayload::new(0x1234, &source)?;
+        let blob = PrefabBlobPayload::new(0x1234, &source, &[])?;
         let address = blob.payload_address();
         assert_eq!(address % 16, 0);
         assert_eq!(
@@ -852,6 +852,7 @@ impl ScenePrefabCatalog {
 pub struct PrefabBlobPayload {
     pub hash: u64,
     pub data: Vec<u8>,
+    pub excluded_fields: Vec<u8>,
     storage: Box<[BlobBlock]>,
 }
 
@@ -860,7 +861,7 @@ pub struct PrefabBlobPayload {
 struct BlobBlock([u8; 16]);
 
 impl PrefabBlobPayload {
-    fn new(hash: u64, data: &[u8]) -> Result<Self> {
+    fn new(hash: u64, data: &[u8], excluded_fields: &[u8]) -> Result<Self> {
         let length = i32::try_from(data.len()).context("blob payload is too large")?;
         let blocks = data.len().checked_add(15).context("blob length overflow")? / 16;
         let mut storage =
@@ -877,6 +878,7 @@ impl PrefabBlobPayload {
         Ok(Self {
             hash,
             data: data.to_vec(),
+            excluded_fields: excluded_fields.to_vec(),
             storage,
         })
     }
@@ -1014,7 +1016,18 @@ impl ScenePrefabCatalog {
                         } else {
                             let blob =
                                 blobs.find_by_offset(source).context("missing scene blob")?;
-                            values.push(Some(PrefabBlobPayload::new(blob.hash, blob.data)?));
+                            let excluded = match hash {
+                                0x9534_7421_34ef_4051 => {
+                                    element.get(8..16).context("truncated idle point prefab")?
+                                }
+                                0xa413_a8bb_b072_50bc => element
+                                    .get(16..32)
+                                    .context("truncated idle interactor prefab")?,
+                                _ => &[],
+                            };
+                            values.push(Some(PrefabBlobPayload::new(
+                                blob.hash, blob.data, excluded,
+                            )?));
                         }
                     }
                     ensure!(

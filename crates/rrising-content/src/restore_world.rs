@@ -25,6 +25,8 @@ const SIMULATE: &str = "Unity.Entities.Simulate";
 const DISABLED: &str = "Unity.Entities.Disabled";
 const INVENTORY_INSTANCE: u64 = 0x7c02_5a52_ca56_3f02;
 const BLOOD_CONSUME_SOURCE: u64 = 0x9f76_a48d_02bc_e2bb;
+const IDLE_POINT: u64 = 0x9534_7421_34ef_4051;
+const IDLE_INTERACTOR: u64 = 0xa413_a8bb_b072_50bc;
 const SCALARS: [(&str, u64, usize, &[usize]); 4] = [
     ("ProjectM.Buff", 0x5c06_8978_8602_b4e5, 32, &[8]),
     ("ProjectM.EntityOwner", 0x4a55_fea9_09ee_9afc, 8, &[0]),
@@ -118,10 +120,13 @@ impl RestoredWorldProjection {
     ) -> Result<()> {
         ensure!(
             self.prefab_root_blobs.is_none()
-                || self
-                    .types
-                    .type_index_of("ProjectM.BloodConsumeSource")
-                    .is_none(),
+                || [
+                    "ProjectM.BloodConsumeSource",
+                    "ProjectM.IdleInteractionPointBuffer",
+                    "ProjectM.IdleInteractor"
+                ]
+                .iter()
+                .all(|name| self.types.type_index_of(name).is_none()),
             "cannot replace blob storage while components refer to it"
         );
         let guid_type = snapshot
@@ -478,7 +483,25 @@ impl RestoredWorldProjection {
                 && stride == 40
                 && layout.entity_offsets.is_empty()
                 && layout.blob_offsets.as_deref() == Some(&[0]);
-            if (!layout.portable_value && !inventory_instance && !blood_source)
+            let idle_point = root_blobs.is_some()
+                && hash == IDLE_POINT
+                && layout.name == "ProjectM.IdleInteractionPointBuffer"
+                && buffer
+                && stride == 24
+                && layout.entity_offsets == [8]
+                && layout.blob_offsets.as_deref() == Some(&[0]);
+            let idle_interactor = root_blobs.is_some()
+                && hash == IDLE_INTERACTOR
+                && layout.name == "ProjectM.IdleInteractor"
+                && !buffer
+                && stride == 32
+                && layout.entity_offsets == [16]
+                && layout.blob_offsets.as_deref() == Some(&[8]);
+            if (!layout.portable_value
+                && !inventory_instance
+                && !blood_source
+                && !idle_point
+                && !idle_interactor)
                 || stride <= 0
                 || stride != component.component_size
                 || buffer != saved_type.is_buffer()
@@ -795,7 +818,9 @@ impl RestoredWorldProjection {
                             let payloads =
                                 column.buffers().context("expected saved buffer rows")?;
                             let mut data = Vec::new();
-                            for (source, payload) in chunk.entities().zip(payloads) {
+                            for (row, (source, payload)) in
+                                chunk.entities().zip(payloads).enumerate()
+                            {
                                 let payload = if offsets.is_empty()
                                     && column.stable_type_hash != INVENTORY_INSTANCE
                                 {
@@ -806,6 +831,40 @@ impl RestoredWorldProjection {
                                     if column.stable_type_hash == INVENTORY_INSTANCE {
                                         for element in data.chunks_exact_mut(*stride) {
                                             element[40..48].fill(0);
+                                        }
+                                    }
+                                    if column.stable_type_hash == IDLE_POINT {
+                                        let guid_column = chunk
+                                            .columns
+                                            .iter()
+                                            .find(|saved| saved.stable_type_hash == PREFAB_GUID)
+                                            .context("missing idle point prefab GUID")?;
+                                        let guid = i32::from_le_bytes(
+                                            guid_column
+                                                .scalar(row)
+                                                .context("missing idle point GUID value")?
+                                                .try_into()?,
+                                        );
+                                        let values = root_blobs
+                                            .context("missing prefab blob sources")?
+                                            .values
+                                            .get(&(guid, IDLE_POINT))
+                                            .context("missing idle point prefab blob")?;
+                                        ensure!(
+                                            values.len() == data.len() / *stride,
+                                            "idle point prefab buffer length mismatch"
+                                        );
+                                        for (element, blob) in
+                                            data.chunks_exact_mut(*stride).zip(values)
+                                        {
+                                            let blob = blob.as_ref().context(
+                                                "null idle point blob source unsupported",
+                                            )?;
+                                            ensure!(blob.excluded_fields == [0; 8], "non-null prefab occupier requires scene entity remapping");
+                                            element[..8].copy_from_slice(
+                                                &blob.payload_address().to_le_bytes(),
+                                            );
+                                            element[8..16].copy_from_slice(&blob.excluded_fields);
                                         }
                                     }
                                     bindings.patch_references_with(
@@ -841,6 +900,7 @@ impl RestoredWorldProjection {
                             let payload = column.scalar(row).context("missing saved scalar row")?;
                             let payload = if offsets.is_empty()
                                 && column.stable_type_hash != BLOOD_CONSUME_SOURCE
+                                && column.stable_type_hash != IDLE_INTERACTOR
                             {
                                 payload
                             } else {
@@ -869,6 +929,35 @@ impl RestoredWorldProjection {
                                     let address =
                                         value[0].as_ref().map_or(0, |blob| blob.payload_address());
                                     data[..8].copy_from_slice(&address.to_le_bytes());
+                                }
+                                if column.stable_type_hash == IDLE_INTERACTOR {
+                                    let guid_column = chunk
+                                        .columns
+                                        .iter()
+                                        .find(|saved| saved.stable_type_hash == PREFAB_GUID)
+                                        .context("missing idle interactor prefab GUID")?;
+                                    let guid = i32::from_le_bytes(
+                                        guid_column
+                                            .scalar(row)
+                                            .context("missing idle interactor GUID value")?
+                                            .try_into()?,
+                                    );
+                                    let values = root_blobs
+                                        .context("missing prefab blob sources")?
+                                        .values
+                                        .get(&(guid, IDLE_INTERACTOR))
+                                        .context("missing idle interactor prefab blob")?;
+                                    ensure!(
+                                        values.len() == 1,
+                                        "invalid idle interactor prefab blob count"
+                                    );
+                                    let blob = values[0]
+                                        .as_ref()
+                                        .context("null idle interactor blob source unsupported")?;
+                                    ensure!(blob.excluded_fields.len() == 16 && blob.excluded_fields[..8] == [0; 8], "non-null prefab interaction requires scene entity remapping");
+                                    data[8..16]
+                                        .copy_from_slice(&blob.payload_address().to_le_bytes());
+                                    data[16..32].copy_from_slice(&blob.excluded_fields);
                                 }
                                 bindings.patch_references_with(
                                     &mut data,

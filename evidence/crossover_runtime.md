@@ -73,7 +73,12 @@ matched to the saved stable hashes and their stride and flags checked by the
 loader. With this report the same capture admits 271 column types and skips
 seven. With owned prefab blob storage, the projection also restores
 `BloodConsumeSource`, including its blob address, bringing the current result
-to 273 admitted types and five skipped. Both retained autosaves passed the
+to 273 admitted types and five skipped. The projection also restores
+`IdleInteractionPointBuffer` and `IdleInteractor`, bringing the total to
+275 admitted types and three skipped. On both retained autosaves a test checks
+1,466 buffer elements and one scalar against saved bytes and the source prefab
+blob and excluded fields. Null blob sources and non-null prefab entity references
+in these two components are not yet handled. Both retained autosaves passed the
 component byte and blob address check. Blob addresses remain valid while the
 projection owns their storage. This is a storage-level check, not an
 original-system replay.

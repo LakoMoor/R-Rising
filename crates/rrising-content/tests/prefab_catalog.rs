@@ -964,6 +964,7 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
     )?)?)?;
     let mut scene_matches = BTreeMap::<u64, usize>::new();
     let mut scene_blob_counts = BTreeMap::<u64, (usize, usize, usize)>::new();
+    let mut excluded_fields = BTreeMap::<u64, std::collections::BTreeSet<Vec<u8>>>::new();
     for (scene_id, _) in SERVER_PREFAB_SCENES {
         let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
         let catalog = ScenePrefabCatalog::read(&scene, &layouts)?;
@@ -1016,6 +1017,21 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
                             .context("scene component bytes")?;
                         let offsets = layout.blob_offsets.as_ref().context("blob offsets")?;
                         for element in bytes.chunks_exact(stride) {
+                            match hash {
+                                0x9534_7421_34ef_4051 => {
+                                    excluded_fields
+                                        .entry(hash)
+                                        .or_default()
+                                        .insert(element[8..16].to_vec());
+                                }
+                                0xa413_a8bb_b072_50bc => {
+                                    excluded_fields
+                                        .entry(hash)
+                                        .or_default()
+                                        .insert(element[16..32].to_vec());
+                                }
+                                _ => {}
+                            }
                             for &offset in offsets {
                                 let start = usize::try_from(offset)?;
                                 let raw = i32::from_le_bytes(element[start..start + 4].try_into()?);
@@ -1104,6 +1120,7 @@ fn saved_blob_columns_have_registered_prefab_guids() -> Result<()> {
     assert_eq!(recovered_fields[&0x9534_7421_34ef_4051], 1466);
     assert_eq!(recovered_fields[&0x9f76_a48d_02bc_e2bb], 1);
     assert_eq!(recovered_fields[&0xa413_a8bb_b072_50bc], 1);
+    println!("excluded prefab fields: {excluded_fields:?}");
     println!("scene root component matches: {scene_matches:?}, blob fields null/resolved/missing: {scene_blob_counts:?}");
     assert_eq!(scene_blob_counts[&0x9534_7421_34ef_4051], (0, 1466, 0));
     assert_eq!(scene_blob_counts[&0x9f76_a48d_02bc_e2bb], (0, 1, 0));
@@ -1177,5 +1194,89 @@ fn blood_source_component_uses_owned_prefab_blob() -> Result<()> {
     assert!(restored
         .bind_prefab_root_blobs(&snapshot, replacement)
         .is_err());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original server scenes, layout report and captured save"]
+fn idle_components_restore_blob_and_excluded_fields() -> Result<()> {
+    let data = local_path("VRISING_SERVER_DATA")?;
+    let layouts = TypeLayouts::from_server_json(&std::fs::read(local_path(
+        "RRISING_SERVER_LAYOUT_REPORT",
+    )?)?)?;
+    let save = PersistentSave::open(&local_path("RRISING_SAVE_FILE")?)?;
+    let snapshot = SavedSnapshot::read(&save)?;
+    let catalogs = ScenePrefabCatalog::read_server_game_data(&data, &layouts)?;
+    let terrain =
+        rrising_content::static_transforms::StaticTransformCatalog::read_server(&data, &layouts)?;
+    let plan = MegaStaticRestorePlan::read(&snapshot)?;
+    let blobs = ScenePrefabCatalog::read_saved_root_blobs(&data, &layouts, &snapshot)?;
+    let restored = RestoredWorldProjection::build_with_terrain_and_blobs(
+        &snapshot, &layouts, &catalogs, &plan, &terrain, blobs,
+    )?;
+    let mut points = 0;
+    let mut interactors = 0;
+    for (_, job) in snapshot.jobs() {
+        for archetype in &job.archetypes {
+            for chunk in &archetype.chunks {
+                for column in &chunk.columns {
+                    let hash = column.stable_type_hash;
+                    let name = match hash {
+                        0x9534_7421_34ef_4051 => "ProjectM.IdleInteractionPointBuffer",
+                        0xa413_a8bb_b072_50bc => "ProjectM.IdleInteractor",
+                        _ => continue,
+                    };
+                    let ty = restored
+                        .types
+                        .type_index_of(name)
+                        .context("restored idle type")?;
+                    let buffers: Vec<_> = match column.buffers() {
+                        Some(rows) => rows.collect(),
+                        None => (0..chunk.entities().len())
+                            .map(|row| column.scalar(row).unwrap())
+                            .collect(),
+                    };
+                    for (source, original) in chunk.entities().zip(buffers) {
+                        let entity = restored.bindings.target(source).context("entity binding")?;
+                        let actual = if hash == 0x9534_7421_34ef_4051 {
+                            restored.store.buffer_payload(&restored.types, entity, ty)?
+                        } else {
+                            restored.store.component_bytes(entity, ty)?
+                        };
+                        let stride = column.element_size();
+                        assert_eq!(actual.len(), original.len());
+                        for (index, (actual, saved)) in actual
+                            .chunks_exact(stride)
+                            .zip(original.chunks_exact(stride))
+                            .enumerate()
+                        {
+                            let blob = restored
+                                .prefab_blob(entity, hash, index)?
+                                .flatten()
+                                .context("idle blob")?;
+                            if hash == 0x9534_7421_34ef_4051 {
+                                assert_eq!(
+                                    u64::from_le_bytes(actual[..8].try_into()?),
+                                    blob.payload_address()
+                                );
+                                assert_eq!(&actual[8..16], &blob.excluded_fields);
+                                assert_eq!(&actual[16..24], &saved[16..24]);
+                                points += 1;
+                            } else {
+                                assert_eq!(&actual[..8], &saved[..8]);
+                                assert_eq!(
+                                    u64::from_le_bytes(actual[8..16].try_into()?),
+                                    blob.payload_address()
+                                );
+                                assert_eq!(&actual[16..32], &blob.excluded_fields);
+                                interactors += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!((points, interactors), (1466, 1));
     Ok(())
 }
