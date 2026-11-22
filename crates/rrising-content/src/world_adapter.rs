@@ -15,9 +15,9 @@
 //!   reference that is not live in the scene becomes `Entity.Null`, as `RemapEntity` does. Buffer
 //!   elements have no heap payload in the `World`, so their references are classified from the
 //!   scene's buffer data but not patched. Counts are in [`AdapterStats`].
-//! - Shared-component values and chunk-component values are not carried. Their archetypes are admitted through the store's opaque mode, which keeps the
-//!   original layout algorithm but not shared-value chunk grouping: the store packs entities into
-//!   chunks itself, so chunk boundaries can differ from the scene's.
+//! - Shared indices group chunks, and serialized unmanaged shared bytes are retained separately.
+//!   Those bytes are not live shared-component values: references and managed objects are not
+//!   restored. Chunk-component values are not carried.
 //! - The archetype/type order inside the store is the port's ("entity first, rest by packed
 //!   value"), not necessarily the original's; component bytes are addressed by type, so this does
 //!   not change what a query returns.
@@ -62,6 +62,78 @@ pub struct SceneWorld {
     pub world: World,
     pub type_of_hash: BTreeMap<u64, TypeIndex>,
     pub stats: AdapterStats,
+    /// Scene-local serialized shared records, indexed by the chunk's nonzero shared index minus one.
+    pub serialized_shared_values: Vec<SerializedSharedValue>,
+}
+
+/// Serialized scene data, not a live Unity managed object or a relocated native value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SerializedSharedValue {
+    pub ty: TypeIndex,
+    /// `None` denotes a managed record whose object is not decoded.
+    pub unmanaged_bytes: Option<Vec<u8>>,
+    /// Offline layout evidence says the value has no nonportable fields or unresolved references.
+    pub portable: bool,
+}
+
+/// The source of a shared-component value for an entity in a scene world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneSharedValue<'a> {
+    /// Serialized index zero. The original default value is type-dependent.
+    Default,
+    /// Raw serialized bytes; embedded references are not relocated.
+    Unmanaged(&'a [u8]),
+    /// The managed object has not been decoded.
+    Managed,
+}
+
+impl SceneWorld {
+    /// Inspect an entity's scene-local shared value without treating serialized pointers as live.
+    pub fn serialized_shared_value(
+        &self,
+        entity: Entity,
+        ty: TypeIndex,
+    ) -> Result<SceneSharedValue<'_>> {
+        ensure!(self.world.store.exists(entity)?, "entity is not live");
+        let location = self
+            .world
+            .store
+            .entity_in_chunk(entity.index)
+            .context("missing entity location")?;
+        let chunk = self
+            .world
+            .store
+            .chunk(location.chunk)
+            .context("missing entity chunk")?;
+        let arch = self
+            .world
+            .store
+            .archetypes()
+            .get(usize::try_from(chunk.archetype_index)?)
+            .context("missing archetype")?;
+        let layout = &arch.archetype.data.layout;
+        let shared_types = &arch.archetype.types
+            [layout.first_shared_component as usize..layout.first_chunk_component as usize];
+        let slot = shared_types
+            .iter()
+            .position(|t| t.type_index == ty)
+            .context("entity lacks shared component type")?;
+        let index = arch
+            .chunk_data
+            .get_shared_component_value(slot, usize::try_from(chunk.list_index)?)?;
+        if index == 0 {
+            return Ok(SceneSharedValue::Default);
+        }
+        let record = self
+            .serialized_shared_values
+            .get(usize::try_from(index - 1)?)
+            .context("unknown serialized shared component index")?;
+        ensure!(record.ty == ty, "serialized shared component type mismatch");
+        Ok(match &record.unmanaged_bytes {
+            Some(bytes) => SceneSharedValue::Unmanaged(bytes),
+            None => SceneSharedValue::Managed,
+        })
+    }
 }
 
 /// Plain input plus the type registry it refers to.
@@ -72,6 +144,7 @@ pub struct AdaptedScene {
     pub input: WorldInput,
     pub type_of_hash: BTreeMap<u64, TypeIndex>,
     pub stats: AdapterStats,
+    pub serialized_shared_values: Vec<SerializedSharedValue>,
     disabled_components: Vec<(Entity, TypeIndex)>,
 }
 
@@ -169,6 +242,46 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         chunk_ids.push(ids);
     }
     let shared = scene.shared_and_managed_components()?;
+    let mut serialized_shared_values =
+        Vec::with_capacity(shared.serialized_shared_component_count());
+    for record in &shared.unmanaged {
+        let ty = *type_of_hash
+            .get(&record.stable_type_hash)
+            .context("unknown unmanaged shared type")?;
+        ensure!(
+            ty.is_shared_component_type() && !ty.is_managed_type(),
+            "invalid unmanaged shared type"
+        );
+        let recovered = layouts
+            .get(record.stable_type_hash)
+            .context("missing shared layout")?;
+        ensure!(
+            record.data.len() == usize::try_from(recovered.spec.type_size)?,
+            "shared component size mismatch"
+        );
+        let portable = recovered.portable_value
+            && recovered.entity_offsets.is_empty()
+            && recovered.blob_offsets.as_ref().is_some_and(Vec::is_empty);
+        serialized_shared_values.push(SerializedSharedValue {
+            ty,
+            unmanaged_bytes: Some(record.data.to_vec()),
+            portable,
+        });
+    }
+    for record in &shared.managed_shared_records {
+        let ty = *type_of_hash
+            .get(&record.stable_type_hash)
+            .context("unknown managed shared type")?;
+        ensure!(
+            ty.is_shared_component_type() && ty.is_managed_type(),
+            "invalid managed shared type"
+        );
+        serialized_shared_values.push(SerializedSharedValue {
+            ty,
+            unmanaged_bytes: None,
+            portable: false,
+        });
+    }
     let mut shared_cursor = 0usize;
     let buffers = scene.buffer_data()?;
     let enabled = EnabledSceneRows::read(scene, &resolved)?;
@@ -312,6 +425,7 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         input: WorldInput { archetypes, chunks },
         type_of_hash,
         stats,
+        serialized_shared_values,
         disabled_components,
     })
 }
@@ -333,6 +447,7 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
         world,
         type_of_hash: a.type_of_hash,
         stats: a.stats,
+        serialized_shared_values: a.serialized_shared_values,
     })
 }
 

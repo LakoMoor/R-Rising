@@ -2,7 +2,7 @@
 use rrising_content::{
     entity_scenes::SceneFile,
     type_layouts::{TypeLayouts, LOCAL_TO_WORLD_HASH, LOCAL_TRANSFORM_HASH, TRANSLATION_HASH},
-    world_adapter::{build_scene_world, scene_to_world_input},
+    world_adapter::{build_scene_world, scene_to_world_input, SceneSharedValue},
 };
 use rrising_ecs::EntityQuery;
 use std::{path::PathBuf, time::Instant};
@@ -23,6 +23,8 @@ fn all_scenes_build_worlds_with_every_entity() {
     let (mut entities, mut live, mut chunks_in, mut chunks_built) = (0usize, 0usize, 0, 0);
     let mut counts = [0usize; 3];
     let mut disabled = 0;
+    let mut unmanaged = 0;
+    let mut managed = 0;
     let mut build_time = std::time::Duration::ZERO;
     for path in &paths {
         let scene = SceneFile::open(path).expect("scene");
@@ -31,6 +33,28 @@ fn all_scenes_build_worlds_with_every_entity() {
             .unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
         build_time += t.elapsed();
         let adapted = scene_to_world_input(&layouts, &scene).expect("scene input");
+        let shared = scene
+            .shared_and_managed_components()
+            .expect("shared records");
+        unmanaged += shared.unmanaged.len();
+        managed += shared.managed_shared_records.len();
+        assert_eq!(
+            sw.serialized_shared_values.len(),
+            shared.serialized_shared_component_count()
+        );
+        for (stored, source) in sw.serialized_shared_values.iter().zip(&shared.unmanaged) {
+            assert_eq!(stored.unmanaged_bytes.as_deref(), Some(source.data));
+            assert!(stored.portable);
+            assert_eq!(stored.ty, sw.type_of_hash[&source.stable_type_hash]);
+        }
+        for (stored, source) in sw.serialized_shared_values[shared.unmanaged.len()..]
+            .iter()
+            .zip(&shared.managed_shared_records)
+        {
+            assert_eq!(stored.unmanaged_bytes, None);
+            assert!(!stored.portable);
+            assert_eq!(stored.ty, sw.type_of_hash[&source.stable_type_hash]);
+        }
         for source_chunk in &adapted.input.chunks {
             let rrising_ecs::EntityIds::Preserved(ids) = &source_chunk.entities else {
                 panic!("scene must preserve ids")
@@ -54,6 +78,18 @@ fn all_scenes_build_worlds_with_every_entity() {
                         .iter()
                         .position(|t| t.type_index == ty)
                         .expect("shared type");
+                    let expected_value = if expected == 0 {
+                        SceneSharedValue::Default
+                    } else if (expected as usize) <= shared.unmanaged.len() {
+                        SceneSharedValue::Unmanaged(shared.unmanaged[expected as usize - 1].data)
+                    } else {
+                        SceneSharedValue::Managed
+                    };
+                    assert_eq!(
+                        sw.serialized_shared_value(entity, ty)
+                            .expect("shared lookup"),
+                        expected_value
+                    );
                     assert_eq!(
                         stored
                             .chunk_data
@@ -112,6 +148,7 @@ fn all_scenes_build_worlds_with_every_entity() {
     assert_eq!(entities, 1_385_671);
     assert_eq!(live, 1_385_671);
     assert_eq!(disabled, 162);
+    assert_eq!((unmanaged, managed), (3366, 903));
     assert!(counts.iter().any(|&c| c > 0));
 }
 
