@@ -8,7 +8,7 @@ original assets, executables or decompiled sources should be distributed.
 | Boundary | Implementation | Runtime connection | Evidence | Remaining acceptance |
 | --- | --- | --- | --- | --- |
 | Archive / object readers | Present | Native showcase | 4,409 archives, 188,063 indexed objects; real-content tests | Catalog read and wired into native startup; request scheduling remains |
-| Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | `world_adapter` builds one `World` per scene (opaque special components) | 9 scene tests + `world_adapter` test: all 1,183 scenes, 1,385,671 entities with preserved ids | Shared indices preserve scene-local chunk groups; unmanaged serialized values are retained as raw bytes, while managed objects, chunk components and buffer heap payloads remain unmodelled; entity-reference remap is identity-validated (0 dangling), not native-replayed |
+| Entity scene format | Container, archetypes, chunks, masks, buffers, shared components, blobs | `world_adapter` builds one `World` per scene (opaque special components) | 9 scene tests + `world_adapter` test: all 1,183 scenes, 1,385,671 entities with preserved ids | Shared indices preserve scene-local chunk groups; unmanaged serialized values are retained as raw bytes, while managed objects and chunk components remain unmodelled; entity-reference remap is identity-validated (0 dangling), not native-replayed |
 | Math | Broad API coverage | Scene transforms and transform system | 23 scalar and 8 matrix/quaternion replay targets, 2,048 inputs each; normalization uses a sqrt stub | Remaining overloads, SIMD approximations and transcendental rounding deviations in PORT.md |
 | ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Scene Worlds, deterministic schedule and TransformSystem; `--scene-sim` feeds viewer/export | Store tests derived from decompiled bodies; native replay for pure getters, comparisons and change versions; 372 real-scene transform scenarios | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, original system scheduling |
 | Rendering | Basic lit meshes, sub-meshes and cutout pipeline | Original-scene viewer, optional transform-system output | GPU regressions; native/WebGPU screenshots; stored-vs-simulated Rust image comparison | Animation, HDRP, transparent materials, terrain blending and original-game visual parity |
@@ -733,3 +733,9 @@ material IDs are now reported unresolved rather than drawn with a guessed neutra
 original runtime's `RenderMeshArray` has a separate 12-byte-per-entry `MaterialMeshIndex` array;
 `ManagedRenderMeshArray` holds only mesh and material arrays, so runtime range rendering remains
 unimplemented. This inventory is scene data, not a claim about dynamically spawned entities.
+
+Scene world building now copies used dynamic-buffer elements into owned ECS storage and remaps
+their entity references. The pinned client's 1,183 scenes contain 274,197 buffer rows, including
+89,120 external allocations and 305,184,507 used bytes; a separate test compares every restored
+row against its source and checks entity remapping. Capacity and inline/external placement may be
+normalized. Blob references and other native pointers within values remain serialized, not relocated.

@@ -260,3 +260,84 @@ fn entity_references_resolve_and_parent_chains_are_acyclic() {
     );
     assert_eq!((post_patch_live, post_patch_nonnull), (36_200, 36_200));
 }
+
+#[test]
+#[ignore = "requires pinned original scenes and RRISING_LAYOUT_REPORT"]
+fn original_scene_buffer_payloads_survive_world_build() {
+    use rrising_ecs::Entity;
+    let report = std::env::var_os("RRISING_LAYOUT_REPORT").expect("layout report");
+    let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("game data"));
+    let layouts = TypeLayouts::from_json(&std::fs::read(report).unwrap()).unwrap();
+    let mut counts = [0usize; 3]; // buffer rows, external patches, used bytes
+    for path in std::fs::read_dir(data.join("StreamingAssets/EntityScenes")).unwrap() {
+        let path = path.unwrap().path();
+        if !path.extension().is_some_and(|e| e == "entities") {
+            continue;
+        }
+        let scene = SceneFile::open(&path).unwrap();
+        let resolved = layouts.resolve_scene(&scene).unwrap();
+        let patches = scene.buffer_data().unwrap();
+        let sw = build_scene_world(&layouts, &scene).unwrap();
+        for chunk in &resolved.chunks {
+            let arch = resolved.archetypes[chunk.header.archetype_index as usize]
+                .as_ref()
+                .unwrap();
+            let entity_offset = arch.data.layout.offsets[0] as usize;
+            for (slot, ty) in arch.types.iter().enumerate().skip(1) {
+                if !ty.is_buffer() || ty.is_chunk_component() {
+                    continue;
+                }
+                let record = layouts.get(arch.hashes[slot]).unwrap();
+                let element_size = record.spec.element_size as usize;
+                let stride = arch.data.layout.sizeofs[slot] as usize;
+                let base = arch.data.layout.offsets[slot] as usize;
+                let world_ty = sw.type_of_hash[&arch.hashes[slot]];
+                for row in 0..chunk.header.count as usize {
+                    let id = &chunk.buffer[entity_offset + row * 8..entity_offset + row * 8 + 8];
+                    let entity = Entity::new(
+                        i32::from_le_bytes(id[..4].try_into().unwrap()),
+                        i32::from_le_bytes(id[4..].try_into().unwrap()),
+                    );
+                    let at = base + row * stride;
+                    let len = i32::from_le_bytes(chunk.buffer[at + 8..at + 12].try_into().unwrap())
+                        as usize;
+                    let patch = patches.per_chunk[chunk.index]
+                        .patches
+                        .iter()
+                        .find(|p| p.chunk_offset as usize == at);
+                    let data = patch.map_or(&chunk.buffer[at + 16..at + stride], |p| p.data);
+                    let mut expected = data[..len * element_size].to_vec();
+                    for element in expected.chunks_exact_mut(element_size) {
+                        for &offset in &record.entity_offsets {
+                            let offset = offset as usize;
+                            let source = Entity::new(
+                                i32::from_le_bytes(element[offset..offset + 4].try_into().unwrap()),
+                                i32::from_le_bytes(
+                                    element[offset + 4..offset + 8].try_into().unwrap(),
+                                ),
+                            );
+                            if sw.world.resolve(source).is_none() {
+                                element[offset..offset + 8].fill(0);
+                            }
+                        }
+                    }
+                    assert_eq!(
+                        sw.world
+                            .store
+                            .buffer_payload(&sw.world.types, entity, world_ty)
+                            .unwrap(),
+                        expected,
+                        "{} chunk {} row {row}",
+                        path.display(),
+                        chunk.index
+                    );
+                    counts[0] += 1;
+                    counts[1] += usize::from(patch.is_some());
+                    counts[2] += expected.len();
+                }
+            }
+        }
+    }
+    println!("buffer rows, external patches, used bytes: {counts:?}");
+    assert!(counts[0] > 0 && counts[1] > 0 && counts[2] > 0);
+}

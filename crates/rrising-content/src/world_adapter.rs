@@ -5,16 +5,16 @@
 //! each component's slice of the serialized chunk. One scene becomes one world.
 //!
 //! What is and is not carried (see `docs/COMPATIBILITY.md`):
-//! - Per-entity components, including zero-filled buffer headers and managed 4-byte slots, are
+//! - Per-entity components, including managed 4-byte slots, are
 //!   copied as raw serialized bytes. Managed slots are opaque: they are *not* valid managed-store
 //!   handles and no managed object is attached.
-//! - Buffer headers carry length/capacity but there is no heap payload behind them.
+//! - Used inline and external buffer elements are copied into owned ECS storage. Capacity and
+//!   inline/external placement may be normalized; serialized blob references are not relocated.
 //! - Entity references: the scene stores references in its own (scene-local) id space. A remap
 //!   table (`rrising_ecs::EntityRemapTable`, source id -> live id, ids being preserved) is applied
 //!   to every per-entity component's `Entity` fields (offsets from the recovered layouts); a
 //!   reference that is not live in the scene becomes `Entity.Null`, as `RemapEntity` does. Buffer
-//!   elements have no heap payload in the `World`, so their references are classified from the
-//!   scene's buffer data but not patched. Counts are in [`AdapterStats`].
+//!   elements are remapped as well. Counts are in [`AdapterStats`].
 //! - Shared indices group chunks, and serialized unmanaged shared bytes are retained separately.
 //!   Those bytes are not live shared-component values: references and managed objects are not
 //!   restored. Chunk-component values are not carried.
@@ -25,8 +25,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{bail, ensure, Context, Result};
 use rrising_ecs::{
-    classify_elements, remap_elements, ArchetypeInput, ChunkInput, Entity, EntityIds,
-    EntityRemapTable, RefCounts, SpecialTypes, TypeIndex, TypeManager, World, WorldInput,
+    remap_elements, ArchetypeInput, ChunkInput, Entity, EntityIds, EntityRemapTable, RefCounts,
+    SpecialTypes, TypeIndex, TypeManager, World, WorldInput,
 };
 
 use crate::entity_scenes::SceneFile;
@@ -146,6 +146,7 @@ pub struct AdaptedScene {
     pub stats: AdapterStats,
     pub serialized_shared_values: Vec<SerializedSharedValue>,
     disabled_components: Vec<(Entity, TypeIndex)>,
+    buffer_payloads: Vec<(Entity, TypeIndex, Vec<u8>)>,
 }
 
 /// Original store initialization at RVA 0x8fa9840 populates these identities;
@@ -286,6 +287,7 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
     let buffers = scene.buffer_data()?;
     let enabled = EnabledSceneRows::read(scene, &resolved)?;
     let mut disabled_components = Vec::new();
+    let mut buffer_payloads = Vec::new();
 
     let mut chunks = Vec::with_capacity(resolved.chunks.len());
     for (ci, chunk) in resolved.chunks.iter().enumerate() {
@@ -354,45 +356,69 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
             let rec = layouts.get(hash).context("recovered type")?;
             let stride = usize::from(layout.sizeofs[slot]);
             let mut bytes = slice(slot)?.to_vec();
-            if !rec.entity_offsets.is_empty() && !t.is_managed_component() {
+            if t.is_buffer() {
+                let elem = usize::try_from(rec.spec.element_size)?;
+                ensure!(elem > 0, "buffer element size is zero");
+                let patches = &buffers.per_chunk[chunk.index].patches;
+                let base = usize::try_from(layout.offsets[slot])?;
                 let mut c = RefCounts::default();
-                if t.is_buffer() {
-                    let elem = usize::try_from(rec.spec.element_size)?;
-                    let patches = &buffers.per_chunk[chunk.index].patches;
-                    let base = usize::try_from(layout.offsets[slot])?;
-                    for i in 0..count {
-                        let at = base + i * stride;
-                        let h = &chunk.buffer[at..at + 16];
-                        let len = usize::try_from(i32::from_le_bytes(h[8..12].try_into()?))?;
-                        let data: &[u8] = match patches
-                            .iter()
-                            .find(|p| usize::try_from(p.chunk_offset).ok() == Some(at))
-                        {
-                            Some(p) => p.data,
-                            None => &chunk.buffer[at + 16..at + stride],
-                        };
-                        let used = data.get(..len * elem).with_context(|| {
-                            format!(
-                                "chunk {} buffer {at}: {len} elements exceed data",
-                                chunk.index
-                            )
-                        })?;
-                        classify_elements(used, elem, &rec.entity_offsets, &table, &mut c);
+                for (i, &entity) in ids.iter().enumerate() {
+                    let at = base + i * stride;
+                    let h = chunk
+                        .buffer
+                        .get(at..at + 16)
+                        .context("buffer header outside chunk")?;
+                    let len = usize::try_from(i32::from_le_bytes(h[8..12].try_into()?))?;
+                    let capacity = usize::try_from(i32::from_le_bytes(h[12..16].try_into()?))?;
+                    ensure!(len <= capacity, "buffer length exceeds capacity");
+                    let data = match patches
+                        .iter()
+                        .find(|p| usize::try_from(p.chunk_offset).ok() == Some(at))
+                    {
+                        Some(p) => p.data,
+                        None => chunk
+                            .buffer
+                            .get(at + 16..at + stride)
+                            .context("inline buffer outside chunk")?,
+                    };
+                    let used = len.checked_mul(elem).context("buffer size overflow")?;
+                    let mut payload = data
+                        .get(..used)
+                        .context("buffer elements exceed data")?
+                        .to_vec();
+                    if !rec.entity_offsets.is_empty() {
+                        remap_elements(
+                            &mut payload,
+                            elem,
+                            &rec.entity_offsets,
+                            &table,
+                            true,
+                            &mut c,
+                        );
                     }
-                    stats.buffer_refs = add_counts(stats.buffer_refs, c);
-                } else {
-                    remap_elements(
-                        &mut bytes,
-                        stride,
-                        &rec.entity_offsets,
-                        &table,
-                        true,
-                        &mut c,
-                    );
-                    stats.scalar_refs = add_counts(stats.scalar_refs, c);
-                    if hash == PARENT_HASH {
-                        stats.parent_refs = add_counts(stats.parent_refs, c);
-                    }
+                    buffer_payloads.push((entity, archetypes[ai].types[slot - 1], payload));
+                }
+                stats.buffer_refs = add_counts(stats.buffer_refs, c);
+                let bad = c.dangling + c.stale_version;
+                if bad > 0 {
+                    *stats
+                        .unresolved_by_type
+                        .entry(rec.name.clone())
+                        .or_default() += bad;
+                }
+            } else if !rec.entity_offsets.is_empty() && !t.is_managed_component() {
+                let mut c = RefCounts::default();
+                remap_elements(
+                    &mut bytes,
+                    stride,
+                    &rec.entity_offsets,
+                    &table,
+                    true,
+                    &mut c,
+                );
+                stats.scalar_refs = add_counts(stats.scalar_refs, c);
+                if hash == PARENT_HASH {
+                    stats.parent_refs = add_counts(stats.parent_refs, c);
                 }
                 let bad = c.dangling + c.stale_version;
                 if bad > 0 {
@@ -427,6 +453,7 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         stats,
         serialized_shared_values,
         disabled_components,
+        buffer_payloads,
     })
 }
 
@@ -440,6 +467,11 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
         &a.input,
         true,
     )?;
+    for (entity, ty, payload) in &a.buffer_payloads {
+        world
+            .store
+            .set_buffer_payload(&world.types, *entity, *ty, payload)?;
+    }
     for &(entity, ty) in &a.disabled_components {
         world.store.set_component_enabled(entity, ty, false)?;
     }
