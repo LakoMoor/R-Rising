@@ -986,15 +986,13 @@ const POST_HASH: u64 = 0x0233_3773_b807_e90d;
 const STEP_NS: u64 = 16_666_667;
 
 /// Build a scene World and run fixed frames. Shared steering, if live candidates
-/// exist, updates EntityInput before LocalTransform synchronization and LocalToWorld. No locomotion,
-/// navigation service, complete write-group filtering or original game-loop ordering is supplied.
+/// exist, updates EntityInput before transforms update LocalToWorld. No locomotion,
+/// navigation service or original game-loop ordering is supplied by this driver.
 pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result<SimWorld> {
     use rrising_content::type_layouts::{LOCAL_TRANSFORM_HASH, ROTATION_HASH, TRANSLATION_HASH};
     use rrising_content::world_adapter::{build_scene_world, PARENT_HASH};
     use rrising_core::movement::{SharedSteeringSystem, SharedSteeringTypes};
-    use rrising_ecs::transform::{
-        LocalTransformSyncSystem, LocalTransformSyncTypes, TransformSystem, TransformTypes,
-    };
+    use rrising_ecs::transform::{TransformSystem, TransformTypes};
     use rrising_ecs::Schedule;
     let layouts = TypeLayouts::from_json(&std::fs::read(layouts_path)?)?;
     let scene = SceneFile::open(scene_path)?;
@@ -1024,19 +1022,7 @@ pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result
         sched.add_system("SetInput", Box::new(SharedSteeringSystem::new(types)))?;
     }
     sched.add_group("Simulation")?;
-    if let Some(local) = tt.local_transform {
-        sched.add_system(
-            "Simulation",
-            Box::new(LocalTransformSyncSystem::new(LocalTransformSyncTypes {
-                local,
-                translation: tt.translation,
-                rotation: tt.rotation,
-                scale: tt.scale,
-                static_tag: ty(0x495a_dd5c_e819_8ca0),
-            })),
-        )?;
-    }
-    sched.add_system("Simulation", Box::new(TransformSystem::local_only(tt)))?;
+    sched.add_system("Simulation", Box::new(TransformSystem::new(tt)))?;
     let mut frame_ms = Vec::with_capacity(frames);
     let (mut written_first, mut written_last) = (0, 0);
     let mut steering_input_updates = 0;

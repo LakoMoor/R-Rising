@@ -781,10 +781,12 @@ slot with the global system version; LocalTransform synchronization checks it as
 Translation and Rotation versions. Synthetic tests cover version updates and ordinary component
 writes; this is not a replay of the original runtime job.
 
-The scene simulation driver now schedules the partial ProjectM LocalTransform synchronization
+An experimental scene test schedules the partial ProjectM LocalTransform synchronization
 before the local-only matrix pass. On 372 pinned scenes with LocalToWorld, an independent comparison
 of the prior Rust path and the new path found 1,327 changed matrices among 919,206; 341 were closer
 to baked matrices and 174 farther (the rest tied under summed absolute error). Baked matrices are
 not an original runtime oracle. LocalToWorld write-group filtering, complete prefab/disabled handling,
 ParentSystem and original game-loop scheduling remain incomplete; these results do not establish
-runtime parity.
+runtime parity. The viewer retains its earlier simulation path until the new path handles prefab
+filtering: an independent inspection of one scene found all 52 changed matrices belonged to prefab
+entities, including 51 previously identical to baked values.
