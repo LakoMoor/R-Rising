@@ -363,3 +363,184 @@ fn partial_translation_rotation_preserve_remaining_local_fields() {
         }))
     );
 }
+
+#[test]
+fn local_only_transform_reads_local_transform_not_legacy_translation() {
+    let mut tm = TypeManager::default();
+    tm.register(TypeSpec::tag("<reserved null>")).unwrap();
+    let mut entity_spec = TypeSpec::component_data("Entity", 8, 8);
+    entity_spec.category = TypeCategory::EntityData;
+    let entity_type = tm.register(entity_spec).unwrap();
+    let local = tm
+        .register(TypeSpec::component_data("LocalTransform", 32, 4))
+        .unwrap();
+    let translation = tm
+        .register(TypeSpec::component_data("Translation", 12, 4))
+        .unwrap();
+    let ltw = tm
+        .register(TypeSpec::component_data("LocalToWorld", 64, 4))
+        .unwrap();
+    let local_bytes: Vec<u8> = [4.0f32, 5.0, 6.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    let translation_bytes: Vec<u8> = [50.0f32, 60.0, 70.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    let input = WorldInput {
+        archetypes: vec![ArchetypeInput {
+            types: vec![local, translation, ltw],
+        }],
+        chunks: vec![ChunkInput {
+            archetype: 0,
+            entities: EntityIds::Fresh(1),
+            components: vec![(local, local_bytes), (translation, translation_bytes)],
+            shared_components: vec![],
+        }],
+    };
+    let mut world = World::build(tm, SpecialTypes::new(entity_type), 4, &input).unwrap();
+    let mut schedule = Schedule::new(10).unwrap();
+    schedule.add_group("transform").unwrap();
+    schedule
+        .add_system(
+            "transform",
+            Box::new(TransformSystem::local_only(TransformTypes {
+                local_to_world: ltw,
+                local_transform: Some(local),
+                translation: Some(translation),
+                rotation: None,
+                scale: None,
+                post_transform: None,
+                parent: None,
+            })),
+        )
+        .unwrap();
+    schedule.run_frame(&mut world).unwrap();
+    let bytes = world.store.component_bytes(world.entities[0], ltw).unwrap();
+    let pos: Vec<f32> = bytes[48..60]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|v| f32::from_le_bytes(*v))
+        .collect();
+    assert_eq!(pos, [4.0, 5.0, 6.0]);
+    let before = world.component_versions(ltw);
+    world
+        .store
+        .set_component_bytes(world.entities[0], translation, &[0; 12])
+        .unwrap();
+    schedule.run_frame(&mut world).unwrap();
+    assert_eq!(world.component_versions(ltw), before);
+}
+
+#[test]
+fn local_sync_then_matrix_respects_static_and_change_filter() {
+    use rrising_ecs::transform::{LocalTransformSyncSystem, LocalTransformSyncTypes};
+    let mut tm = TypeManager::default();
+    tm.register(TypeSpec::tag("<reserved null>")).unwrap();
+    let mut es = TypeSpec::component_data("Entity", 8, 8);
+    es.category = TypeCategory::EntityData;
+    let entity_type = tm.register(es).unwrap();
+    let local = tm
+        .register(TypeSpec::component_data("LocalTransform", 32, 4))
+        .unwrap();
+    let translation = tm
+        .register(TypeSpec::component_data("Translation", 12, 4))
+        .unwrap();
+    let scale = tm
+        .register(TypeSpec::component_data("Scale", 4, 4))
+        .unwrap();
+    let static_tag = tm.register(TypeSpec::tag("Static")).unwrap();
+    let ltw = tm
+        .register(TypeSpec::component_data("LocalToWorld", 64, 4))
+        .unwrap();
+    let local_data: Vec<u8> = [1.0f32, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    let position: Vec<u8> = [4.0f32, 5.0, 6.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    let chunk = |archetype| ChunkInput {
+        archetype,
+        entities: EntityIds::Fresh(1),
+        components: vec![
+            (local, local_data.clone()),
+            (translation, position.clone()),
+            (scale, 2.0f32.to_le_bytes().to_vec()),
+        ],
+        shared_components: vec![],
+    };
+    let input = WorldInput {
+        archetypes: vec![
+            ArchetypeInput {
+                types: vec![local, translation, scale, ltw],
+            },
+            ArchetypeInput {
+                types: vec![local, translation, scale, ltw, static_tag],
+            },
+        ],
+        chunks: vec![chunk(0), chunk(1)],
+    };
+    let mut world = World::build(tm, SpecialTypes::new(entity_type), 4, &input).unwrap();
+    let mut schedule = Schedule::new(10).unwrap();
+    schedule.add_group("transform").unwrap();
+    schedule
+        .add_system(
+            "transform",
+            Box::new(LocalTransformSyncSystem::new(LocalTransformSyncTypes {
+                local,
+                translation: Some(translation),
+                rotation: None,
+                scale: Some(scale),
+                static_tag: Some(static_tag),
+            })),
+        )
+        .unwrap();
+    schedule
+        .add_system(
+            "transform",
+            Box::new(TransformSystem::local_only(TransformTypes {
+                local_to_world: ltw,
+                local_transform: Some(local),
+                translation: Some(translation),
+                rotation: None,
+                scale: Some(scale),
+                post_transform: None,
+                parent: None,
+            })),
+        )
+        .unwrap();
+    schedule.run_frame(&mut world).unwrap();
+    let f = |world: &World, e: Entity, ty, at| {
+        f32::from_le_bytes(
+            world.store.component_bytes(e, ty).unwrap()[at..at + 4]
+                .try_into()
+                .unwrap(),
+        )
+    };
+    let (dynamic, frozen) = (world.entities[0], world.entities[1]);
+    assert_eq!(
+        (f(&world, dynamic, local, 0), f(&world, dynamic, local, 12)),
+        (4.0, 2.0)
+    );
+    assert_eq!(
+        (f(&world, frozen, local, 0), f(&world, frozen, local, 12)),
+        (1.0, 1.0)
+    );
+    assert_eq!(f(&world, dynamic, ltw, 48), 4.0);
+    world
+        .store
+        .set_component_bytes(dynamic, scale, &3.0f32.to_le_bytes())
+        .unwrap();
+    schedule.run_frame(&mut world).unwrap();
+    assert_eq!(f(&world, dynamic, local, 12), 2.0);
+    world
+        .store
+        .set_component_bytes(dynamic, translation, &position)
+        .unwrap();
+    schedule.run_frame(&mut world).unwrap();
+    assert_eq!(f(&world, dynamic, local, 12), 3.0);
+}

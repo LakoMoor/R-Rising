@@ -11,7 +11,7 @@
 //! `LocalToWorld` values the original stored in its scene files*
 //! (`crates/rrising-content/tests/transform_golden.rs`, `docs/COMPATIBILITY.md`). Where a variant was
 //! measured and rejected, the module says so rather than keeping both.
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use rrising_math::{float3, float4, float4x4, quaternion};
 
 use crate::chunk::ChunkIndex;
@@ -197,6 +197,94 @@ impl TransformStats {
     }
 }
 
+/// Inputs for ProjectM's preceding translation/rotation-to-local update.
+#[derive(Clone, Copy, Debug)]
+pub struct LocalTransformSyncTypes {
+    pub local: TypeIndex,
+    pub translation: Option<TypeIndex>,
+    pub rotation: Option<TypeIndex>,
+    pub scale: Option<TypeIndex>,
+    pub static_tag: Option<TypeIndex>,
+}
+
+/// Copies changed translation/rotation components to LocalTransform. Structural order-change
+/// detection is not yet implemented; the initial frame and component changes are handled.
+pub struct LocalTransformSyncSystem {
+    types: LocalTransformSyncTypes,
+}
+
+impl LocalTransformSyncSystem {
+    pub fn new(types: LocalTransformSyncTypes) -> Self {
+        Self { types }
+    }
+}
+
+impl System for LocalTransformSyncSystem {
+    fn name(&self) -> &str {
+        "LocalTransformSyncSystem"
+    }
+    fn update(&mut self, world: &mut World, ctx: &FrameContext) -> Result<()> {
+        let t = self.types;
+        let query = EntityQuery {
+            all: vec![t.local],
+            none: t.static_tag.into_iter().collect(),
+            ..Default::default()
+        };
+        for chunk in world.store.query_chunks(&query) {
+            let present =
+                |ty: Option<TypeIndex>| ty.filter(|&ty| world.store.chunk_has_component(chunk, ty));
+            let translation = present(t.translation);
+            let rotation = present(t.rotation);
+            if translation.is_none() && rotation.is_none() {
+                continue;
+            }
+            let changed = [translation, rotation].into_iter().flatten().try_fold(
+                false,
+                |changed, ty| -> Result<bool> {
+                    Ok(changed || ctx.did_change(world.store.chunk_change_version(chunk, ty)?))
+                },
+            )?;
+            if !changed {
+                continue;
+            }
+            let count = world.store.chunk(chunk).context("missing chunk")?.count as usize;
+            let read = |ty: Option<TypeIndex>, stride: usize| -> Result<Option<Vec<u8>>> {
+                let Some(ty) = ty else { return Ok(None) };
+                let bytes = world.store.chunk_component_bytes(chunk, ty)?;
+                ensure!(
+                    bytes.len() == count * stride,
+                    "invalid transform component size"
+                );
+                Ok(Some(bytes.to_vec()))
+            };
+            let positions = read(translation, 12)?;
+            let rotations = read(rotation, 16)?;
+            let scales = read(present(t.scale), 4)?;
+            let target = world.store.chunk_component_bytes_mut(chunk, t.local)?;
+            ensure!(
+                target.len() == count * 32,
+                "invalid LocalTransform component size"
+            );
+            for row in 0..count {
+                let local = &mut target[row * 32..(row + 1) * 32];
+                if let Some(bytes) = &positions {
+                    local[..12].copy_from_slice(&bytes[row * 12..(row + 1) * 12]);
+                }
+                if let Some(bytes) = &rotations {
+                    local[16..32].copy_from_slice(&bytes[row * 16..(row + 1) * 16]);
+                }
+                if let Some(bytes) = &scales {
+                    local[12..16].copy_from_slice(&bytes[row * 4..(row + 1) * 4]);
+                }
+            }
+        }
+        Ok(())
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Computes `LocalToWorld` from authoring components and the `Parent` hierarchy, parents before
 /// children, skipping chunks whose inputs did not change since the system last ran.
 ///
@@ -214,6 +302,7 @@ impl TransformStats {
 pub struct TransformSystem {
     types: TransformTypes,
     stats: TransformStats,
+    local_only: bool,
 }
 
 const MAX_DEPTH: u32 = 64;
@@ -234,6 +323,17 @@ impl TransformSystem {
         Self {
             types,
             stats: TransformStats::default(),
+            local_only: false,
+        }
+    }
+
+    /// Compute matrices from LocalTransform and PostTransformMatrix only. This reflects the
+    /// input types of Unity's LocalToWorld jobs; preceding game systems must update LocalTransform.
+    pub fn local_only(types: TransformTypes) -> Self {
+        Self {
+            types,
+            stats: TransformStats::default(),
+            local_only: true,
         }
     }
 
@@ -246,9 +346,9 @@ impl TransformSystem {
         let t = &self.types;
         [
             t.local_transform,
-            t.translation,
-            t.rotation,
-            t.scale,
+            if self.local_only { None } else { t.translation },
+            if self.local_only { None } else { t.rotation },
+            if self.local_only { None } else { t.scale },
             t.post_transform,
             t.parent,
         ]
@@ -259,10 +359,14 @@ impl TransformSystem {
 
     fn has_source(&self, w: &World, c: ChunkIndex) -> bool {
         let t = &self.types;
-        [t.local_transform, t.translation, t.rotation]
-            .into_iter()
-            .flatten()
-            .any(|ty| w.store.chunk_has_component(c, ty))
+        [
+            t.local_transform,
+            if self.local_only { None } else { t.translation },
+            if self.local_only { None } else { t.rotation },
+        ]
+        .into_iter()
+        .flatten()
+        .any(|ty| w.store.chunk_has_component(c, ty))
     }
 
     fn chunk_inputs_changed(&self, w: &World, c: ChunkIndex, ctx: &FrameContext) -> Result<bool> {
@@ -302,9 +406,21 @@ impl TransformSystem {
                     rotation: [v[4], v[5], v[6], v[7]],
                 }
             }),
-            translation: get(t.translation, 12)?.map(f32s::<3>),
-            rotation: get(t.rotation, 16)?.map(f32s::<4>),
-            scale: get(t.scale, 4)?.map(|b| f32s::<1>(b)[0]),
+            translation: if self.local_only {
+                None
+            } else {
+                get(t.translation, 12)?.map(f32s::<3>)
+            },
+            rotation: if self.local_only {
+                None
+            } else {
+                get(t.rotation, 16)?.map(f32s::<4>)
+            },
+            scale: if self.local_only {
+                None
+            } else {
+                get(t.scale, 4)?.map(|b| f32s::<1>(b)[0])
+            },
             post: get(t.post_transform, 64)?.map(f32s::<16>),
         })
     }

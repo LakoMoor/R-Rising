@@ -767,3 +767,11 @@ LocalTransform field is updated while the other remains unchanged. The combined 
 adapter now preserves that field, with a synthetic test for both cases. This does not independently
 port the ProjectM update job or Unity's LocalToWorldSystem and does not change the 809 scene-data
 comparisons above; those remain unresolved.
+
+A separate `LocalTransformSyncSystem` follows the client job's recovered query: LocalTransform
+and either Translation or Rotation, excluding Static and the default Disabled/Prefab exclusions.
+It updates present fields and copies Scale only when a translation/rotation change triggers the job.
+An independent scene-data test checks 102 eligible rows over the pinned client scenes. The job's
+structural order-change trigger is not implemented. `TransformSystem::local_only` separately reads
+LocalTransform for matrix computation; this remains a partial system port, without original runtime
+replay, full Unity write-group filtering or automatic replacement of the legacy scene simulation.
