@@ -373,3 +373,36 @@ fn shared_indices_select_separate_chunks_and_default_group() {
         .create_entities_with_shared(archetype, 1, &[-1])
         .is_err());
 }
+
+#[test]
+fn structural_changes_update_chunk_order_version() {
+    let w = world();
+    let mut store = store(&w, 4);
+    let arch = store.get_or_create_archetype(&w.tm, &[w.a]).unwrap();
+    let first = store.create_entity(arch).unwrap();
+    let chunk = store.entity_in_chunk(first.index).unwrap().chunk;
+    assert_eq!(
+        store.chunk_order_version(chunk).unwrap(),
+        store.global_system_version()
+    );
+    store.increment_global_system_version();
+    store
+        .set_component_bytes(first, w.a, &[7, 0, 0, 0])
+        .unwrap();
+    assert_ne!(
+        store.chunk_order_version(chunk).unwrap(),
+        store.global_system_version()
+    );
+    let second = store.create_entity(arch).unwrap();
+    assert_eq!(store.entity_in_chunk(second.index).unwrap().chunk, chunk);
+    assert_eq!(
+        store.chunk_order_version(chunk).unwrap(),
+        store.global_system_version()
+    );
+    store.increment_global_system_version();
+    store.destroy_entity(second).unwrap();
+    assert_eq!(
+        store.chunk_order_version(chunk).unwrap(),
+        store.global_system_version()
+    );
+}

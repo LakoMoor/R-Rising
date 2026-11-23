@@ -208,7 +208,7 @@ pub struct LocalTransformSyncTypes {
 }
 
 /// Copies changed translation/rotation components to LocalTransform. Structural order-change
-/// detection is not yet implemented; the initial frame and component changes are handled.
+/// detection is based on the chunk's Entity order version.
 pub struct LocalTransformSyncSystem {
     types: LocalTransformSyncTypes,
 }
@@ -244,7 +244,7 @@ impl System for LocalTransformSyncSystem {
                     Ok(changed || ctx.did_change(world.store.chunk_change_version(chunk, ty)?))
                 },
             )?;
-            if !changed {
+            if !changed && !ctx.did_change(world.store.chunk_order_version(chunk)?) {
                 continue;
             }
             let count = world.store.chunk(chunk).context("missing chunk")?.count as usize;

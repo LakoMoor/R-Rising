@@ -743,6 +743,9 @@ impl EntityComponentStore {
         }
         self.archetypes[arch]
             .chunk_data
+            .set_order_version(li, gsv)?;
+        self.archetypes[arch]
+            .chunk_data
             .set_all_change_version(li, gsv)?;
         self.bump_order_versions(arch);
         Ok(())
@@ -874,6 +877,9 @@ impl EntityComponentStore {
         }
         self.bump_order_versions(arch);
         if self.chunk_mut(ci)?.count - count != 0 {
+            self.archetypes[arch]
+                .chunk_data
+                .set_order_version(li, gsv)?;
             self.archetypes[arch]
                 .chunk_data
                 .set_all_change_version(li, gsv)?;
@@ -1117,6 +1123,14 @@ impl EntityComponentStore {
 
     /// Change version of one component in one chunk. Compare through
     /// [`crate::change_version::did_change`] to handle the zero sentinel and wrapping.
+    /// `ArchetypeChunk.GetOrderVersion`: the Entity change-version slot.
+    pub fn chunk_order_version(&self, c: ChunkIndex) -> Result<u32> {
+        let chunk = self.chunk(c).context("chunk is not allocated")?;
+        self.archetypes[chunk.archetype_index as usize]
+            .chunk_data
+            .get_order_version(chunk.list_index as usize)
+    }
+
     pub fn chunk_change_version(&self, c: ChunkIndex, t: TypeIndex) -> Result<u32> {
         let (arch, ti, _, _) = self.chunk_type_slot(c, t)?;
         let li = self.chunk(c).unwrap().list_index as usize;

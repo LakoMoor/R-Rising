@@ -771,7 +771,12 @@ comparisons above; those remain unresolved.
 A separate `LocalTransformSyncSystem` follows the client job's recovered query: LocalTransform
 and either Translation or Rotation, excluding Static and the default Disabled/Prefab exclusions.
 It updates present fields and copies Scale only when a translation/rotation change triggers the job.
-An independent scene-data test checks 102 eligible rows over the pinned client scenes. The job's
-structural order-change trigger is not implemented. `TransformSystem::local_only` separately reads
+An independent scene-data test checks 102 eligible rows over the pinned client scenes. The job also checks the chunk order version on structural changes. `TransformSystem::local_only` separately reads
 LocalTransform for matrix computation; this remains a partial system port, without original runtime
 replay, full Unity write-group filtering or automatic replacement of the legacy scene simulation.
+
+Chunk structural order versions now occupy the Entity change-version slot, matching
+`ArchetypeChunk.DidOrderChange` at client RVA `0x8ed6ce0`. Creating or removing entities stamps the
+slot with the global system version; LocalTransform synchronization checks it as well as the
+Translation and Rotation versions. Synthetic tests cover version updates and ordinary component
+writes; this is not a replay of the original runtime job.
