@@ -79,3 +79,14 @@ values into a running world remain separate steps.
 RRISING_SAVE_DIR=/path/to/captured/saves \
   cargo test --locked -p rrising-content --test persistence_bindings -- --ignored
 ```
+
+## Shared-identity chunk grouping (exploratory, AutoSave_1)
+
+`tests/persistence_shared_grouping.rs` (ignored; needs `RRISING_SAVE_DIR`, optional
+`RRISING_SAVE_FILE`) counts job archetypes whose type list contains a shared-component
+identity. In AutoSave_1: 136 job archetypes, 109 with a shared identity, and 89 of those
+have a chunk-size signature that also occurs in the nonpersistent world-data archetypes.
+This is a weak, non-unique match (identical size lists can occur by chance); it does **not**
+recover shared values or prove the grouping. The job member itself stores no shared value
+payload (chunks are consumed exactly without one), so values must come from elsewhere or be
+derived on load; this remains unresolved and unmeasured.
