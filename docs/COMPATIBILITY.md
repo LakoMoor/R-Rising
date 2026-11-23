@@ -780,3 +780,11 @@ Chunk structural order versions now occupy the Entity change-version slot, match
 slot with the global system version; LocalTransform synchronization checks it as well as the
 Translation and Rotation versions. Synthetic tests cover version updates and ordinary component
 writes; this is not a replay of the original runtime job.
+
+The scene simulation driver now schedules the partial ProjectM LocalTransform synchronization
+before the local-only matrix pass. On 372 pinned scenes with LocalToWorld, an independent comparison
+of the prior Rust path and the new path found 1,327 changed matrices among 919,206; 341 were closer
+to baked matrices and 174 farther (the rest tied under summed absolute error). Baked matrices are
+not an original runtime oracle. LocalToWorld write-group filtering, complete prefab/disabled handling,
+ParentSystem and original game-loop scheduling remain incomplete; these results do not establish
+runtime parity.
