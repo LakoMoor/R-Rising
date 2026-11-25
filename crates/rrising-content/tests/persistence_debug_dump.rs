@@ -151,3 +151,23 @@ fn archetype_byte_spans_versus_dump_sizes() -> Result<()> {
     println!("archetypes with a following archetype {total}: byte span exact {exact}, within one byte {within_one}");
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RRISING_SAVE_DIR/RRISING_SAVE_FILE"]
+fn snapshot_read_timing() -> Result<()> {
+    let dir = PathBuf::from(std::env::var_os("RRISING_SAVE_DIR").context("RRISING_SAVE_DIR")?);
+    let file = std::env::var("RRISING_SAVE_FILE").context("RRISING_SAVE_FILE")?;
+    let mut ms = Vec::new();
+    for _ in 0..5 {
+        let start = std::time::Instant::now();
+        let save = PersistentSave::open(&dir.join(&file))?;
+        let snap = SavedSnapshot::read(&save)?;
+        ms.push((start.elapsed().as_secs_f64() * 1000.0, snap.entity_count()));
+    }
+    ms.sort_by(|a, b| a.0.total_cmp(&b.0));
+    println!(
+        "open+read median {:.1} ms, entities {} (Rust only, release)",
+        ms[2].0, ms[2].1
+    );
+    Ok(())
+}

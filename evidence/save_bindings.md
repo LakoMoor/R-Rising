@@ -191,3 +191,8 @@ The same dump also lists each archetype's serialized size in bytes. Taking the R
 archetype start offsets, the distance to the next archetype in the same job equals a dump size with
 the same chunk and entity counts for **133 / 133** archetypes (exact bytes, none off by one). The
 three last-in-job archetypes have no following offset and were not checked. Still structure only.
+
+Rust-only timing (no original comparison): opening and indexing the 7.6 MB gzip autosave, 274,652
+entities, takes a median of 149.5 ms over five release runs (`snapshot_read_timing`), measured on
+an Apple M-series host with a load average of about 18-27 from unrelated processes, so the figure is
+noisy. The original's own load time is not comparable and was not measured.
