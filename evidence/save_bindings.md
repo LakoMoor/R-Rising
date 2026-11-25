@@ -186,3 +186,8 @@ saved type is in `Incl` or `Excl`. So the saved type list contains excluded comp
 which agrees with the loader copying their data from prefabs. The match is on names, entity and chunk
 counts only: it does not compare component bytes or shared values, and no other save had a dump
 (AutoSave_3 has none). One save, one build.
+
+The same dump also lists each archetype's serialized size in bytes. Taking the Rust reader's
+archetype start offsets, the distance to the next archetype in the same job equals a dump size with
+the same chunk and entity counts for **133 / 133** archetypes (exact bytes, none off by one). The
+three last-in-job archetypes have no following offset and were not checked. Still structure only.

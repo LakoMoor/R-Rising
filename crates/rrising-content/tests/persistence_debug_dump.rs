@@ -100,3 +100,54 @@ fn saved_type_lists_lie_between_dump_included_and_included_plus_excluded() -> Re
     println!("archetypes {total}, one-to-one matched with Incl <= saved types <= Incl+Excl: {ok}");
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RRISING_SAVE_DIR/RRISING_SAVE_FILE with the original debug dump beside the save"]
+fn archetype_byte_spans_versus_dump_sizes() -> Result<()> {
+    let dir = PathBuf::from(std::env::var_os("RRISING_SAVE_DIR").context("RRISING_SAVE_DIR")?);
+    let file = std::env::var("RRISING_SAVE_FILE").context("RRISING_SAVE_FILE")?;
+    let text = std::fs::read_to_string(dir.join(format!("{file}_DebugDump.txt")))?;
+    let mut sizes: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+    let mut sections = 0;
+    for line in text.lines() {
+        if line.starts_with('[') {
+            sections += 1;
+        }
+        if sections > 2 {
+            break;
+        }
+        if let Some((head, _)) = line.split_once(": Archetype Incl(") {
+            let nums: Vec<usize> = head
+                .split(',')
+                .map(|p| {
+                    p.split_whitespace()
+                        .filter(|t| t.chars().all(|c| c.is_ascii_digit()))
+                        .collect::<String>()
+                        .parse()
+                        .unwrap_or(0)
+                })
+                .collect();
+            sizes.entry((nums[1], nums[2])).or_default().push(nums[0]);
+        }
+    }
+    let save = PersistentSave::open(&dir.join(&file))?;
+    let snap = SavedSnapshot::read(&save)?;
+    let (mut exact, mut within_one, mut total) = (0, 0, 0);
+    for (_, job) in snap.jobs() {
+        for pair in job.archetypes.windows(2) {
+            let a = &pair[0];
+            let span_bits = pair[1].offset_bits - a.offset_bits;
+            let entities: usize = a.chunks.iter().map(|c| c.entities().len()).sum();
+            total += 1;
+            let candidates = sizes.get(&(a.chunks.len(), entities));
+            let bytes = (span_bits / 8) as usize;
+            if candidates.is_some_and(|c| c.contains(&bytes)) {
+                exact += 1;
+            } else if candidates.is_some_and(|c| c.iter().any(|&s| s.abs_diff(bytes) <= 1)) {
+                within_one += 1;
+            }
+        }
+    }
+    println!("archetypes with a following archetype {total}: byte span exact {exact}, within one byte {within_one}");
+    Ok(())
+}
