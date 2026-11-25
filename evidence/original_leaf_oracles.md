@@ -136,3 +136,13 @@ The shared steering job (`0x669a880`) and normalizer (`0x63354f0`) now also have
 metadata is preinitialized and sqrt uses a stub. Rust math and complete EntityInput bytes
 match the captured set, including through the Rust World/schedule integration. Original
 ECS lookups and the running original scheduler remain outside this replay's boundary.
+
+## AimPrediction (client RVAs 0x7f8f010, 0x7f8ef70)
+
+`tools/capture_aim_prediction.py` replays the original `FirstOrderInterceptTime` and
+`FirstOrderIntercept` bytes (sqrt wrapper stubbed, constants read from the pinned image) on 4,096
+controlled cases, including equal-speed, static, coincident and NaN/infinity inputs. The Rust port in
+`rrising-core/src/aim.rs` matches all 4,096 time results and all 4,096 intercept points bit for bit
+(NaN payloads compared as NaN). A first Rust version using the textbook form of the equal-speed branch
+(`-c / (2 d)`) failed 319 times; the original does not negate there, and the replay caught it.
+Scope: one pure function pair; no game systems, no scheduling.
