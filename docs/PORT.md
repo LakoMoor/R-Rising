@@ -633,3 +633,14 @@ Shared-value continuation: REA `search_procedures` on the 250 MB server GameAsse
 `LoadPersistenceSystemV2.DeserializeLoadFile` (client RVA 0x7e472a0) is the candidate routine for
 shared-value restoration, but its pseudo-code was not yet resolved to a rule. Shared-value restore
 therefore stays unmeasured; see evidence/save_bindings.md. No parity claim changes.
+
+Save-restore continuation (2026-11-25): Ghidra 12.2 and Il2CppDumper 6.7.46 now recover names and
+RVAs of the pinned server image (Cpp2IL 2022.1.0-pre-21 cannot find the registration structs for
+metadata 31.1). Loader path for shared and excluded components, the exclusion predicate, the
+`ExcludeComponent` option semantics, and a structural match of the saved archetype index against the
+original's own debug dump (136/136 archetypes, 133/133 byte spans, one autosave) are in
+evidence/save_bindings.md. Unresolved: about 50 of 125 excluded names, the excluded-assembly set, and
+shared/prefab value reproduction. Still unmeasured: any behavior, content-value, launch or
+performance parity with the original; original-game scenarios remain 0.
+Next acceptance: one scenario that runs on both the original (server through CrossOver) and the Rust
+runtime from the same restored state and compares observable output.
