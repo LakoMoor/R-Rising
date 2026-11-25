@@ -146,3 +146,14 @@ controlled cases, including equal-speed, static, coincident and NaN/infinity inp
 (NaN payloads compared as NaN). A first Rust version using the textbook form of the equal-speed branch
 (`-c / (2 d)`) failed 319 times; the original does not negate there, and the replay caught it.
 Scope: one pure function pair; no game systems, no scheduling.
+
+## Small helpers (client RVAs 0x7c98bc0, 0x811e700, 0x7f7cd00)
+
+`tools/capture_small_helpers.py` replays `SunUtility.IsInSun` (`x > 0.5`),
+`BloodBuffUtility.GetProgress(float, float)` (`(q - t) / (100 - t)`) and
+`SoundVolumetricMath.Lerp` (clamped float3 lerp) on 4,096 cases each, including NaN and infinity.
+`rrising-core/src/helpers.rs` matches all of them bit for bit. The replay corrected a first guess: a NaN
+`t` in the lerp becomes 1.0 (the NaN guard jumps onto the load of 1.0) rather than passing through.
+After this capture the inventory counts 100 distinct addresses and 218,112 evaluations; still function
+evidence, not game parity. Not covered: `GetDistancePoint` (needs initialized class metadata),
+`GetRequiredPoints` and the other static-table readers.

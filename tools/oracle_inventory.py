@@ -47,7 +47,8 @@ def inventory():
                             ['five supplied-value ECS accessors; initialized metadata and float2.zero; sqrtss wrapper stub']
                             if path.name == 'movement_shared.tsv' else
                             ['IL2CPP sqrt wrapper replaced by sqrtss']
-                            if path.name == 'aim_prediction.tsv' else [],
+                            if path.name == 'aim_prediction.tsv' else
+                            [] if path.name == 'small_helpers.tsv' else [],
         })
     return {
         'schema_version': 1,

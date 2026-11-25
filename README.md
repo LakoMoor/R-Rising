@@ -26,7 +26,7 @@ performance improvement has been demonstrated.
 | Scene archetypes with recovered storage shape | 17,579 / 17,579 (31,723 / 31,723 chunks; 1,385,671 entities) | Validated offline by layout/buffer/patch checks; managed components admitted only as 4-byte slots; not world execution |
 | Native showcase | 48 objects, 26 bound textures | Verified on macOS / Metal |
 | Browser showcase | Same 48 exported objects | Verified in Chrome / WebGPU |
-| Original-game scenarios | 0 | Game parity **unmeasured**; 97 distinct native function addresses have replay tests (sqrt stub; steering isolates five ECS accessors); see [oracle evidence](evidence/original_leaf_oracles.md) |
+| Original-game scenarios | 0 | Game parity **unmeasured**; 100 distinct native function addresses have replay tests (sqrt stub; steering isolates five ECS accessors); see [oracle evidence](evidence/original_leaf_oracles.md) |
 | Original runtime reference | Dedicated server boots through CrossOver; six autosaves captured | [Measured startup/save evidence](evidence/crossover_runtime.md); no deterministic Rust comparison yet |
 | Save index vs original debug dump | 136 / 136 archetypes agree on chunk count, entity count and included/excluded component names; 133 / 133 serialized byte spans match exactly (one server autosave) | Structure only; no component bytes or shared values compared. See [save bindings](evidence/save_bindings.md) |
 | Saves | Containers, complete headers and all 8 serialization jobs read across two original autosaves; 274,238 and 274,236 entity rows | Partial ECS restore admits all 278 observed column types in two newer autosaves and 49 tag types; six shared-component types remain unprojected. [Save allocation and query evidence](evidence/save_bindings.md) |

@@ -6,6 +6,7 @@
 //! decompiled bodies, which `docs/PORT.md` tracks.
 
 pub mod aim;
+pub mod helpers;
 pub mod movement;
 pub mod pathfinding;
 #[cfg(feature = "content")]
