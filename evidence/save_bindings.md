@@ -209,3 +209,18 @@ time; another rule (or name-resolution gaps in this extraction) accounts for the
 attribute alone defines the excluded set: it is necessary-looking for `Incl` (no included name has it)
 but not sufficient to reproduce `Excl`. Reproducing the full set needs the remaining rule, not yet
 recovered. Test: `dump_excluded_names_versus_exclude_component_lists`.
+
+### Other exclusion inputs found in the server (partial)
+
+`PersistenceV2Utility` holds three static fields: `_CustomHandledTypeData`, `_ExcludedAssemblies`
+(`HashSet<string>`) and `_CustomExcludedManagedTypes` (`HashSet<string>`), with
+`IsFromExcludedAssembly` (VA `0x187993ba0`: looks up the type's assembly name in `_ExcludedAssemblies`)
+and `IsCustomExcluded` (`0x187993c90`). Its static constructor (`0x1879923a0`) references the type
+strings `Stunlock.Sequencer.SequenceAssetReferences`, `Stunlock.Sequencer.SequenceDebugCreateData`,
+`Stunlock.Sequencer.SequenceAsset` and `Stunlock.Core.SystemUpdateFrequencySystem+Singleton`, the
+only string literals it resolves. These are managed types, so they do not account for the 53
+unlisted `Excl` names in the debug dump. The contents of `_ExcludedAssemblies` were not recovered
+(no literal resolved), and `GetExcludedComponentTypes` (`0x18798f5e0`), `GetComponentsToRemoveFromArchetype`
+(`0x187990140`) and `GetComponentTypesThatExcludeArchetypes` (`0x1879907c0`) were not read end to end.
+Most of the 53 unexplained names are tags, physics components and Unity types; the likely missing
+inputs are the excluded assemblies and the archetype-excluding set, unverified.
