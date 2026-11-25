@@ -33,5 +33,30 @@ fn saved_components_versus_exclude_options() -> Result<()> {
         "required components {}, matched to exclude lists {matched}, per option {tally:?}",
         snap.header().required_components.len()
     );
+    let names: HashMap<_, _> = snap
+        .header()
+        .required_components
+        .iter()
+        .map(|c| (c.saved_type_index, c.full_name.as_str()))
+        .collect();
+    let mut column_rows: HashMap<&str, usize> = HashMap::new();
+    let mut other_rows = 0usize;
+    for (_, job) in snap.jobs() {
+        for a in &job.archetypes {
+            for chunk in &a.chunks {
+                for col in &chunk.columns {
+                    let rows = chunk.entities().len();
+                    match names
+                        .get(&col.saved_type_index)
+                        .and_then(|n| option_of.get(n))
+                    {
+                        Some(opt) => *column_rows.entry(opt).or_default() += rows,
+                        None => other_rows += rows,
+                    }
+                }
+            }
+        }
+    }
+    println!("saved column rows by option {column_rows:?}, unlisted {other_rows}");
     Ok(())
 }

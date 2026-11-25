@@ -155,3 +155,12 @@ include) and none of the option-1/option-2 types. The shared-identity report giv
 archetypes, of which 109 and 108 carry a shared identity, and 87 and 86 of those have a chunk-size
 signature present in world data. These are the same weak, non-unique signals as before; shared values
 are still not reproduced or compared. Raw saves remain outside Git.
+
+### Saved column rows by exclusion option (server AutoSave_3)
+
+Counting every saved job column row by the option of its component name: 0 rows for the 197
+option-0 (`CopyDataFromPrefab`) types and the 1 option-3 type, 2 rows for `IncludeComponent` types,
+and 2,126,024 rows for unlisted types. So the original does not write data columns for components it
+excludes, which is consistent with the load path copying them from prefabs. It does not show which
+prefab values are copied or reproduce them; the bit-array construction remains a consistent reading,
+not a proven equivalence. Name matching is approximate (see above).
