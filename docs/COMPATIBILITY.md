@@ -28,7 +28,7 @@ x86-64 instructions under Rosetta: 7 earlier captures with 1,024 cases each, 87 
 2,048 cases each, one waypoint capture with 4,096 cases, and shared steering plus its normalizer
 with 4,096 cases each, plus the aim-prediction pair and three small helpers (IsInSun, GetProgress, SoundVolumetric Lerp;
 4,096 cases each). Two overlapping TypeIndex getters leave **100 distinct addresses** and 218,112
-evaluations. Matrix capture links original bodies and stubs sqrt; steering additionally
+evaluations (before the easing capture; see `evidence/original_leaf_oracles.md` for the current 119 / 257,024). Matrix capture links original bodies and stubs sqrt; steering additionally
 isolates five ECS accessors behind supplied-value callbacks and preinitializes metadata.
 This does not run the original scheduler. Goldens are in `evidence/oracles/`; see
 [original_leaf_oracles.md](../evidence/original_leaf_oracles.md). The replay found and fixed

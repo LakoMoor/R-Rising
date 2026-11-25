@@ -157,3 +157,12 @@ Scope: one pure function pair; no game systems, no scheduling.
 After this capture the inventory counts 100 distinct addresses and 218,112 evaluations; still function
 evidence, not game parity. Not covered: `GetDistancePoint` (needs initialized class metadata),
 `GetRequiredPoints` and the other static-table readers.
+
+## Motion2DEasings (client RVAs in `tools/capture_easings.py`)
+
+19 double-precision easing curves (linear, quad/cubic/quart/quint in/out/in-out, back, bounce) replayed
+from the original bytes on 2,048 cases each, including zero duration. `rrising-core/src/easing.rs`
+matches all bit for bit. Replay corrected the back easings: the original squares before multiplying and
+halves `c` and `d` first, which changes rounding. Sine, expo, circ and elastic call IL2CPP math wrappers
+and are not ported. Inventory after this capture: 119 distinct addresses, 257,024 evaluations; function
+evidence only, not game parity.

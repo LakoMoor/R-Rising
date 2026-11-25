@@ -48,7 +48,7 @@ def inventory():
                             if path.name == 'movement_shared.tsv' else
                             ['IL2CPP sqrt wrapper replaced by sqrtss']
                             if path.name == 'aim_prediction.tsv' else
-                            [] if path.name == 'small_helpers.tsv' else [],
+                            [] if path.name in ('small_helpers.tsv', 'easings.tsv') else [],
         })
     return {
         'schema_version': 1,
