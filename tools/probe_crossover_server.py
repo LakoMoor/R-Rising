@@ -8,6 +8,7 @@ deterministic gameplay or Rust parity. No existing bottle or save is reused.
 from __future__ import annotations
 
 import argparse
+import shutil
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -96,6 +97,12 @@ def observe(args: argparse.Namespace) -> dict:
         "Rcon": {"Enabled": False, "BindAddress": "127.0.0.1"},
         "API": {"Enabled": False, "BindAddress": "127.0.0.1"},
     }
+    if args.seed_save:
+        if not re.fullmatch(r"AutoSave_\d+\.save\.gz", args.seed_save.name):
+            raise ValueError("seed save must be named AutoSave_N.save.gz")
+        saves = profile / "Saves/v4/rrising-reference"
+        saves.mkdir(parents=True)
+        shutil.copyfile(args.seed_save, saves / args.seed_save.name)
     (profile / "Settings/ServerHostSettings.json").write_text(
         json.dumps(settings, indent=2) + "\n")
     env = os.environ.copy()
@@ -164,6 +171,10 @@ def observe(args: argparse.Namespace) -> dict:
         "profile_settings": settings, "requested_observation_seconds": args.duration,
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "startup_completed": STARTUP in text, "startup_first_observed_seconds": startup_seconds,
+        "seed_save": args.seed_save.name if args.seed_save else None,
+        "load_log_lines": [l.strip()[:300] for l in text.splitlines()
+                           if "Loaded Save" in l or "LoadSave" in l or "Persistence" in l
+                           and "load" in l.lower()][:40],
         "streamed_scene_log_events": text.count("Streamed scene with"),
         "loaded_chunk_log_events": text.count("[Server] Loaded Chunk "),
         "steam_gameserver_initialization_error": "Unable to Initialize Steam GameServer" in text,
@@ -188,6 +199,9 @@ def main() -> None:
     parser.add_argument("--crossover", type=Path,
                         default=Path.home() / "Applications/CrossOver.app")
     parser.add_argument("--duration", type=int, default=90)
+    parser.add_argument("--seed-save", type=Path,
+                        help="AutoSave_N.save.gz from an earlier probe, copied into the new profile "
+                             "so the original server loads it at startup")
     parser.add_argument("--port", type=int, default=19876)
     args = parser.parse_args()
     if sys.platform != "darwin":

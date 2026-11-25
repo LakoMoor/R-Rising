@@ -102,3 +102,13 @@ values and prefab topology, while shared components and system execution remain.
 No fixed seed/time control, scripted
 player input, original-client screenshot or original-vs-Rust state comparison
 was captured. Original-game parity scenarios therefore remain **zero**.
+
+## Original server reload of a saved world (2026-11-25)
+
+`probe_crossover_server.py --seed-save AutoSave_3.save.gz` (a save produced by the earlier probe run on
+the same pinned build). The original server logged `Loaded Save:AutoSave_3.save.gz`, `GameVersion of
+Loaded Save: 1.1.13.99712`, and `PersistenceV2 - Finished Loading 274655 Entities spread over 136
+Archetypes`, matching the Rust structural result (136 archetypes). World startup completed 84.4 s after
+launch under CrossOver (Wine + Rosetta; includes bottle and scene startup, not isolated load time) and the
+probe exited normally after 222 s, with the server writing AutoSave_4 and 5 itself. This is original-side
+evidence that the saved world reloads; it is not a Rust comparison and not a performance measurement.
