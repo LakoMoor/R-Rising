@@ -120,7 +120,7 @@ its value from the prefab/default path instead of the save.
 `GetComponentTypes_ExcludeAndSetDataToDefault` (`0x18798fdf0`) builds the current set by
 enumerating types through reflection and an attribute lookup; the attribute's type name was not
 resolved in this pass (no matching field in the server dump), so the member list of that set is
-still unknown. The Rust projection does not implement this predicate yet.
+still unknown. The predicate is implemented in `persistence/exclusion.rs` with synthetic tests from this reading only; it is not yet applied in the restore path or compared with an original run.
 
 ### Exclusion attribute semantics (server metadata, static)
 

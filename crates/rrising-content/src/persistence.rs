@@ -17,6 +17,7 @@ use anyhow::{ensure, Context, Result};
 use flate2::bufread::GzDecoder;
 
 mod bindings;
+mod exclusion;
 mod header;
 mod job;
 mod mega_static;
@@ -24,6 +25,9 @@ mod snapshot;
 mod systems;
 mod world;
 pub use bindings::{SavedBindingIssue, SavedEntityBindings};
+pub use exclusion::{
+    should_use_saved_component_data, ExcludePersistenceOption, ExclusionSet, EXCLUSION_INDEX_MASK,
+};
 pub use header::{
     PersistenceHeader, PersistentBlob, PersistentComponent, PrefabReference, RequiredComponent,
 };
