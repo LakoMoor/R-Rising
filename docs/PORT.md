@@ -627,3 +627,9 @@ to current prefab entities before remapping references. The
 prefab groups. The [server scene reader](../evidence/server_prefab_catalog.md)
 recovers all 23,583 catalog registrations and linked group sizes. Installing
 those scenes with live handles, restoring typed state and comparing replays remain.
+
+Shared-value continuation: REA `search_procedures` on the 250 MB server GameAssembly timed out
+(330 s provider limit), and no headless Ghidra is installed locally. The client's
+`LoadPersistenceSystemV2.DeserializeLoadFile` (client RVA 0x7e472a0) is the candidate routine for
+shared-value restoration, but its pseudo-code was not yet resolved to a rule. Shared-value restore
+therefore stays unmeasured; see evidence/save_bindings.md. No parity claim changes.
