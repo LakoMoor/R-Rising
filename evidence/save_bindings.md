@@ -132,3 +132,15 @@ the server dump gives 225 types with option 0 (copy from prefab), 13 with 1, 20 
 their value from the prefab) and identifies the `…ExcludeAndSetDataToDefault` set as the option-3
 types. Mapping the attribute to the bit array was not decompiled end to end, so treat it as a
 consistent reading rather than a proven equivalence. Not yet implemented in Rust.
+
+### Cross-check against a saved header (client AutoSave_0, not a server reference save)
+
+`tests/persistence_exclusion.rs` (ignored; needs `RRISING_SAVE_DIR` and a local
+`RRISING_EXCLUDE_JSON` built from the server dump) matches the 2,237 required component names of
+one local client autosave against the `[ExcludeComponent]`/`[IncludeComponent]` lists: 210 match
+(12 include, 197 option 0 `CopyDataFromPrefab`, 1 option 3 `SetDataToDefault`), and none of the 13
+option-1 or 20 option-2 (`LogErrorIfComponentSaved`) types appear. That agrees with the option names
+(no saved component may carry the log-error option) but is weak: the header lists required types, not
+proof that their data was written, and name extraction from the dump is approximate. The raw server
+reference saves under `/tmp` were removed by cleanup, so this pass could not rerun against them;
+`tools/probe_crossover_server.py` regenerates them.
