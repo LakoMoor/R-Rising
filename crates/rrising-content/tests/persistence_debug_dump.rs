@@ -218,3 +218,58 @@ fn dump_excluded_names_versus_exclude_component_lists() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RRISING_SAVE_DIR/RRISING_SAVE_FILE with the original debug dump beside the save"]
+fn dump_included_names_equal_types_with_saved_data_columns() -> Result<()> {
+    let dir = PathBuf::from(std::env::var_os("RRISING_SAVE_DIR").context("RRISING_SAVE_DIR")?);
+    let file = std::env::var("RRISING_SAVE_FILE").context("RRISING_SAVE_FILE")?;
+    let mut dump = parse_rows(&std::fs::read_to_string(
+        dir.join(format!("{file}_DebugDump.txt")),
+    )?);
+    let save = PersistentSave::open(&dir.join(&file))?;
+    let snap = SavedSnapshot::read(&save)?;
+    let names: BTreeMap<_, _> = snap
+        .header()
+        .required_components
+        .iter()
+        .map(|c| {
+            (
+                c.saved_type_index,
+                c.full_name
+                    .rsplit(['.', '+'])
+                    .next()
+                    .unwrap_or("")
+                    .to_owned(),
+            )
+        })
+        .collect();
+    let (mut equal, mut total) = (0, 0);
+    for (_, job) in snap.jobs() {
+        for a in &job.archetypes {
+            total += 1;
+            let entities: usize = a.chunks.iter().map(|c| c.entities().len()).sum();
+            let mut with_data: Vec<String> = a
+                .chunks
+                .first()
+                .map(|c| {
+                    c.columns
+                        .iter()
+                        .filter_map(|col| names.get(&col.saved_type_index).cloned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            with_data.sort();
+            if let Some(i) = dump.iter().position(|(c, e, incl, _)| {
+                *c == a.chunks.len() && *e == entities && *incl == with_data
+            }) {
+                dump.swap_remove(i);
+                equal += 1;
+            }
+        }
+    }
+    println!(
+        "archetypes {total}: dump Incl names equal the types with saved data columns for {equal}"
+    );
+    Ok(())
+}

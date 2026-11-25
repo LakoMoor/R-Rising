@@ -233,3 +233,15 @@ then (after a managed-type lookup) adds `GetTypesToLogErrorFor` (`0x187990cc0`).
 153 types with `[ComponentExcludesEntity]`; none of the 53 unexplained `Excl` names from the debug dump
 is among them, so that set does not close the gap. Which flag the type-manager enumeration tests, and
 what puts the 53 names (tags, physics components, Unity types) into `Excl`, remains unrecovered.
+
+### More inputs found, and two hypotheses that failed (server AutoSave_2)
+
+The `PersistenceV2Utility` static constructor registers custom entries through typeof references:
+6 custom exclude-component, 29 component-excludes-archetype and 18 exclude-and-log-error calls. Its
+resolved types include Unity physics, scene and entity-command-buffer singletons (for example
+`PhysicsCollider`, `PhysicsWorldIndex`, `StaticPhysicsWorldBodyIndex`, `PostLoadCommandBuffer`,
+`SceneTag`, `Prefab`); 3 of the 53 unexplained `Excl` names (`PhysicsCollider`, `PhysicsWorldIndex`,
+`StaticPhysicsWorldBodyIndex`) appear there. Two tested hypotheses did not close the gap: (1) the
+unexplained names are zero-sized tags: only 9 of 53 resolve as such, though none of the 282 `Incl`
+names is zero-sized; (2) dump `Incl` equals the types with saved data columns: it holds for only 15 of
+136 archetypes. About 50 of 125 excluded names (tags, game components) are therefore still unexplained.
