@@ -164,3 +164,13 @@ and 2,126,024 rows for unlisted types. So the original does not write data colum
 excludes, which is consistent with the load path copying them from prefabs. It does not show which
 prefab values are copied or reproduce them; the bit-array construction remains a consistent reading,
 not a proven equivalence. Name matching is approximate (see above).
+
+### Same check by stable type hash (server AutoSave_3)
+
+Resolving the `[ExcludeComponent]`/`[IncludeComponent]` names to stable type hashes through
+`tools/probe_type_registry.py` (203 of 225 option-0 names, 11 of 13 option-1, 9 of 20 option-2, the
+single option-3 name and all 12 include names resolve; generics and types absent from shipped scenes
+do not) and matching saved job column hashes gives the same result as the name match: no saved
+column rows for resolved option-0, 1, 2 or 3 types, and 2 rows (2 distinct types) for include types.
+Unresolved names mean some excluded types are not covered by this hash check. Test:
+`tests/persistence_exclusion.rs` with `RRISING_EXCLUDE_HASHES_JSON` (local, not distributed).

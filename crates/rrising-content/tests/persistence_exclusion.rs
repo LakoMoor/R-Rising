@@ -58,5 +58,31 @@ fn saved_components_versus_exclude_options() -> Result<()> {
         }
     }
     println!("saved column rows by option {column_rows:?}, unlisted {other_rows}");
+    if let Some(path) = std::env::var_os("RRISING_EXCLUDE_HASHES_JSON") {
+        let by_hash: HashMap<String, Vec<String>> = serde_json::from_slice(&std::fs::read(path)?)?;
+        let hash_option: HashMap<u64, &str> = by_hash
+            .iter()
+            .flat_map(|(k, hs)| {
+                hs.iter()
+                    .filter_map(move |h| u64::from_str_radix(h, 16).ok().map(|h| (h, k.as_str())))
+            })
+            .collect();
+        let mut rows: HashMap<&str, usize> = HashMap::new();
+        let mut types: HashMap<&str, std::collections::BTreeSet<u64>> = HashMap::new();
+        for (_, job) in snap.jobs() {
+            for a in &job.archetypes {
+                for chunk in &a.chunks {
+                    for col in &chunk.columns {
+                        if let Some(opt) = hash_option.get(&col.stable_type_hash) {
+                            *rows.entry(opt).or_default() += chunk.entities().len();
+                            types.entry(opt).or_default().insert(col.stable_type_hash);
+                        }
+                    }
+                }
+            }
+        }
+        let counts: HashMap<_, _> = types.iter().map(|(k, v)| (*k, v.len())).collect();
+        println!("by stable hash: saved column rows {rows:?}, distinct saved types {counts:?}");
+    }
     Ok(())
 }
