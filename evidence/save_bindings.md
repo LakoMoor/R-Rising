@@ -224,3 +224,12 @@ unlisted `Excl` names in the debug dump. The contents of `_ExcludedAssemblies` w
 (`0x187990140`) and `GetComponentTypesThatExcludeArchetypes` (`0x1879907c0`) were not read end to end.
 Most of the 53 unexplained names are tags, physics components and Unity types; the likely missing
 inputs are the excluded assemblies and the archetype-excluding set, unverified.
+
+### Structure of `GetExcludedComponentTypes` (VA `0x18798f5e0`, static reading)
+
+The function starts from `GetComponentTypesThatExcludeArchetypes` (`0x1879907c0`), then marks types
+selected by an enumeration of the type manager's types with a per-type boolean flag (not identified),
+then (after a managed-type lookup) adds `GetTypesToLogErrorFor` (`0x187990cc0`). The server metadata has
+153 types with `[ComponentExcludesEntity]`; none of the 53 unexplained `Excl` names from the debug dump
+is among them, so that set does not close the gap. Which flag the type-manager enumeration tests, and
+what puts the 53 names (tags, physics components, Unity types) into `Excl`, remains unrecovered.
