@@ -174,3 +174,15 @@ do not) and matching saved job column hashes gives the same result as the name m
 column rows for resolved option-0, 1, 2 or 3 types, and 2 rows (2 distinct types) for include types.
 Unresolved names mean some excluded types are not covered by this hash check. Test:
 `tests/persistence_exclusion.rs` with `RRISING_EXCLUDE_HASHES_JSON` (local, not distributed).
+
+### Saved archetype index against the original's own debug dump (server AutoSave_2)
+
+The server writes `AutoSave_N.save.gz_DebugDump.txt` beside each save, listing for each of the 136
+serialized archetypes its chunk and entity counts and an `Incl(...)`/`Excl(...)` name list.
+`tests/persistence_debug_dump.rs` (ignored; needs the save and its dump) matches the Rust job
+reader's archetypes one-to-one against that first dump section: all **136 / 136** archetypes agree
+on chunk count and entity count, the dump's `Incl` names are all in the saved type list, and every
+saved type is in `Incl` or `Excl`. So the saved type list contains excluded component types too,
+which agrees with the loader copying their data from prefabs. The match is on names, entity and chunk
+counts only: it does not compare component bytes or shared values, and no other save had a dump
+(AutoSave_3 has none). One save, one build.

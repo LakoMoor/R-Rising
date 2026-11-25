@@ -1,0 +1,102 @@
+//! Compares the saved job archetype index with the original server's own persistence debug dump
+//! (`AutoSave_N.save.gz_DebugDump.txt`): chunks, entities and included component names per
+//! archetype (the saved type list must lie between Incl and Incl+Excl). Needs RRISING_SAVE_DIR and RRISING_SAVE_FILE (the dump sits next to the save).
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+use rrising_content::persistence::{PersistentSave, SavedSnapshot};
+
+type DumpRow = (usize, usize, Vec<String>, Vec<String>);
+
+fn parse_rows(text: &str) -> Vec<DumpRow> {
+    let mut rows = Vec::new();
+    let mut sections = 0;
+    for line in text.lines() {
+        if line.starts_with('[') {
+            sections += 1;
+        }
+        if sections > 2 {
+            break;
+        }
+        let Some((head, rest)) = line.split_once(": Archetype Incl(") else {
+            continue;
+        };
+        let Some((incl, excl)) = rest.split_once("), Excl(") else {
+            continue;
+        };
+        let nums: Vec<usize> = head
+            .split(',')
+            .filter_map(|p| {
+                p.split_whitespace()
+                    .filter(|t| t.chars().all(|c| c.is_ascii_digit()))
+                    .collect::<String>()
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        if nums.len() != 3 {
+            continue;
+        }
+        let split = |s: &str| -> Vec<String> {
+            let mut v: Vec<String> = s
+                .trim_end()
+                .trim_end_matches(')')
+                .split(',')
+                .filter(|x| !x.is_empty())
+                .map(String::from)
+                .collect();
+            v.sort();
+            v
+        };
+        rows.push((nums[1], nums[2], split(incl), split(excl)));
+    }
+    rows
+}
+
+#[test]
+#[ignore = "requires RRISING_SAVE_DIR/RRISING_SAVE_FILE with the original debug dump beside the save"]
+fn saved_type_lists_lie_between_dump_included_and_included_plus_excluded() -> Result<()> {
+    let dir = PathBuf::from(std::env::var_os("RRISING_SAVE_DIR").context("RRISING_SAVE_DIR")?);
+    let file = std::env::var("RRISING_SAVE_FILE").context("RRISING_SAVE_FILE")?;
+    let mut dump = parse_rows(&std::fs::read_to_string(
+        dir.join(format!("{file}_DebugDump.txt")),
+    )?);
+    let save = PersistentSave::open(&dir.join(&file))?;
+    let snap = SavedSnapshot::read(&save)?;
+    let names: BTreeMap<_, _> = snap
+        .header()
+        .required_components
+        .iter()
+        .map(|c| {
+            (
+                c.saved_type_index,
+                c.full_name
+                    .rsplit(['.', '+'])
+                    .next()
+                    .unwrap_or("")
+                    .to_owned(),
+            )
+        })
+        .collect();
+    let (mut ok, mut total) = (0, 0);
+    for (_, job) in snap.jobs() {
+        for a in &job.archetypes {
+            total += 1;
+            let entities: usize = a.chunks.iter().map(|c| c.entities().len()).sum();
+            let types: Vec<&String> = a.types.iter().filter_map(|t| names.get(t)).collect();
+            let hit = dump.iter().position(|(c, e, incl, excl)| {
+                *c == a.chunks.len()
+                    && *e == entities
+                    && incl.iter().all(|n| types.contains(&n))
+                    && types.iter().all(|n| incl.contains(n) || excl.contains(n))
+            });
+            if let Some(i) = hit {
+                dump.swap_remove(i);
+                ok += 1;
+            }
+        }
+    }
+    println!("archetypes {total}, one-to-one matched with Incl <= saved types <= Incl+Excl: {ok}");
+    Ok(())
+}
