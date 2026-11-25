@@ -644,3 +644,11 @@ shared/prefab value reproduction. Still unmeasured: any behavior, content-value,
 performance parity with the original; original-game scenarios remain 0.
 Next acceptance: one scenario that runs on both the original (server through CrossOver) and the Rust
 runtime from the same restored state and compares observable output.
+
+## Rust-only save decode timing (not a comparison)
+
+`r-rising --inspect-save AutoSave_3.save.gz` (7.6 MB gzip from the pinned original server, release
+build, Apple Silicon host) takes 0.11 s wall time over five runs: decompress, decode header, jobs,
+world data and systems. There is **no matching original-side figure**: the original server loads under
+CrossOver/Rosetta with startup dominated by Wine and scene streaming, and its log does not isolate
+save-load time. This number must not be read as a speed-up over the original.
