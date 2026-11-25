@@ -196,3 +196,16 @@ Rust-only timing (no original comparison): opening and indexing the 7.6 MB gzip 
 entities, takes a median of 149.5 ms over five release runs (`snapshot_read_timing`), measured on
 an Apple M-series host with a load average of about 18-27 from unrelated processes, so the figure is
 noisy. The original's own load time is not comparable and was not measured.
+
+### What the dump's `Excl` names are, against the attribute lists (server AutoSave_2)
+
+The dump names 125 distinct components under `Excl(...)` and 282 under `Incl(...)`; none appear in
+both. Of the 125 excluded names, 65 are `[ExcludeComponent(0)]` types, 3 option 1, 1 option 3 and 3
+`[IncludeComponent]` types; **53 carry no attribute in the server dump** (examples: `Disabled`,
+`Attached`, `BlobAssetOwner`, `DisableWhenNoPlayersInRange`). None of the `Incl` names has an exclude
+option. So the attribute lists explain only about 56% (69 of 125) of what the original excludes at save
+time; another rule (or name-resolution gaps in this extraction) accounts for the rest, and the three
+`IncludeComponent` names under `Excl` are unexplained. This corrects the earlier reading that the
+attribute alone defines the excluded set: it is necessary-looking for `Incl` (no included name has it)
+but not sufficient to reproduce `Excl`. Reproducing the full set needs the remaining rule, not yet
+recovered. Test: `dump_excluded_names_versus_exclude_component_lists`.

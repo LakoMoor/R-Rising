@@ -171,3 +171,50 @@ fn snapshot_read_timing() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RRISING_SAVE_DIR/RRISING_SAVE_FILE and RRISING_EXCLUDE_JSON"]
+fn dump_excluded_names_versus_exclude_component_lists() -> Result<()> {
+    let dir = PathBuf::from(std::env::var_os("RRISING_SAVE_DIR").context("RRISING_SAVE_DIR")?);
+    let file = std::env::var("RRISING_SAVE_FILE").context("RRISING_SAVE_FILE")?;
+    let lists: std::collections::HashMap<String, Vec<String>> = serde_json::from_slice(
+        &std::fs::read(std::env::var_os("RRISING_EXCLUDE_JSON").context("RRISING_EXCLUDE_JSON")?)?,
+    )?;
+    let short = |n: &str| n.rsplit(['.', '+']).next().unwrap_or("").to_owned();
+    let listed: BTreeMap<String, String> = lists
+        .iter()
+        .flat_map(|(k, v)| v.iter().map(move |n| (short(n), k.clone())))
+        .collect();
+    let rows = parse_rows(&std::fs::read_to_string(
+        dir.join(format!("{file}_DebugDump.txt")),
+    )?);
+    let mut excl_names = std::collections::BTreeSet::new();
+    let mut incl_names = std::collections::BTreeSet::new();
+    for (_, _, incl, excl) in &rows {
+        incl_names.extend(incl.iter().cloned());
+        excl_names.extend(excl.iter().cloned());
+    }
+    let mut by_option: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut unlisted = 0;
+    for n in &excl_names {
+        match listed.get(n) {
+            Some(o) => *by_option.entry(o.as_str()).or_default() += 1,
+            None => unlisted += 1,
+        }
+    }
+    let incl_listed_excluding: Vec<_> = incl_names
+        .iter()
+        .filter(|n| {
+            matches!(
+                listed.get(*n).map(String::as_str),
+                Some("0" | "1" | "2" | "3")
+            )
+        })
+        .collect();
+    println!(
+        "distinct dump Excl names {}: by option {by_option:?}, unlisted {unlisted}; dump Incl names that carry an exclude option: {}",
+        excl_names.len(),
+        incl_listed_excluding.len()
+    );
+    Ok(())
+}
