@@ -121,3 +121,14 @@ its value from the prefab/default path instead of the save.
 enumerating types through reflection and an attribute lookup; the attribute's type name was not
 resolved in this pass (no matching field in the server dump), so the member list of that set is
 still unknown. The Rust projection does not implement this predicate yet.
+
+### Exclusion attribute semantics (server metadata, static)
+
+The server metadata defines `PersistenceV2.ExcludeComponentAttribute(ExcludePersistenceOptions)`
+with `CopyDataFromPrefab = 0`, `RemoveComponentFromArchetype = 1`, `LogErrorIfComponentSaved = 2`,
+`SetDataToDefault = 3`, and `IncludeComponentAttribute`. Counting `[ExcludeComponent(n)]` lines in
+the server dump gives 225 types with option 0 (copy from prefab), 13 with 1, 20 with 2 and 1 with 3;
+12 types carry `[IncludeComponent]`. This agrees with the loader path above (excluded components take
+their value from the prefab) and identifies the `…ExcludeAndSetDataToDefault` set as the option-3
+types. Mapping the attribute to the bit array was not decompiled end to end, so treat it as a
+consistent reading rather than a proven equivalence. Not yet implemented in Rust.
