@@ -110,3 +110,14 @@ carrying no shared payload. Which components are excluded (`ShouldUseSavedCompon
 `GetComponentTypes_ExcludeAndSetDataToDefault`) is still unrecovered, so the Rust restore cannot
 yet reproduce shared values. Next check: group saved entities by prefab GUID and compare
 prefab-derived shared values with the debug-dump chunk grouping.
+
+### Exclusion predicate (server, static observation)
+
+`PersistenceV2Utility.ShouldUseSavedComponentData(saved, current, typeIndex)` (VA `0x1879922f0`)
+reads bit `typeIndex & 0x3fff` in two bit arrays and returns true only when it is clear in
+**both** the saved-excluded and the current-excluded sets. A type excluded in either set takes
+its value from the prefab/default path instead of the save.
+`GetComponentTypes_ExcludeAndSetDataToDefault` (`0x18798fdf0`) builds the current set by
+enumerating types through reflection and an attribute lookup; the attribute's type name was not
+resolved in this pass (no matching field in the server dump), so the member list of that set is
+still unknown. The Rust projection does not implement this predicate yet.
