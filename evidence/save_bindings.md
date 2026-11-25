@@ -90,3 +90,23 @@ This is a weak, non-unique match (identical size lists can occur by chance); it 
 recover shared values or prove the grouping. The job member itself stores no shared value
 payload (chunks are consumed exactly without one), so values must come from elsewhere or be
 derived on load; this remains unresolved and unmeasured.
+
+## Where shared values come from (server RVAs, static observation)
+
+The pinned server (`reference.server.lock.json`, GameAssembly SHA-256 `41ba4eb2…0ac7`) was
+dumped with Il2CppDumper 6.7.46 (names and RVAs only; Cpp2IL 2022.1.0-pre-21 could not find the
+registration structs for metadata 31.1). Selected functions were decompiled with Ghidra 12.2 in
+an unanalyzed import (`tools/ghidra/ProbeServerFunctions.java`); decompiler output is kept
+outside Git.
+
+Observation: `LoadPersistenceSystemV2.SetDataOnLoadedEntityComponent` (RVA `0x7f14db0`) calls
+`UnsafeEntityManagerUtility.CopySharedComponentData` (RVA `0x188f8dc40` VA) with the prefab source
+entity and the loaded destination entities; it is reached from `CopyDataFromPrefabEntityToEntity`
+(`0x7f13920`) under `CopyDataFromPrefabs` (`0x7f10e40`).
+
+Inference (not yet verified against a save): shared component values of loaded entities are not
+read from the job members but copied from the entity's prefab, which matches the job format
+carrying no shared payload. Which components are excluded (`ShouldUseSavedComponentData`,
+`GetComponentTypes_ExcludeAndSetDataToDefault`) is still unrecovered, so the Rust restore cannot
+yet reproduce shared values. Next check: group saved entities by prefab GUID and compare
+prefab-derived shared values with the debug-dump chunk grouping.
