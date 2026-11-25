@@ -107,7 +107,7 @@ def observe(args: argparse.Namespace) -> dict:
         subprocess.run([str(base / "bin/cxbottle"), "--bottle", str(prefix),
                         "--create", "--template", "win10_64", "--description",
                         "R-Rising disposable original-server observation"],
-                       env=env, stdout=out, stderr=subprocess.STDOUT, check=True, timeout=120)
+                       env=env, stdout=out, stderr=subprocess.STDOUT, check=True, timeout=900)
     log = work / "server-unity.log"
     command = [str(base / "bin/wine"), "--bottle", str(prefix), "--no-gui",
                "--wait-children", "--workdir", str(clone), "--cx-app",

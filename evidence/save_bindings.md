@@ -144,3 +144,14 @@ option-1 or 20 option-2 (`LogErrorIfComponentSaved`) types appear. That agrees w
 proof that their data was written, and name extraction from the dump is approximate. The raw server
 reference saves under `/tmp` were removed by cleanup, so this pass could not rerun against them;
 `tools/probe_crossover_server.py` regenerates them.
+
+### Rerun on regenerated server autosaves (2026-11-25)
+
+The reference run was regenerated with `tools/probe_crossover_server.py` (bottle-setup timeout raised
+from 120 s to 900 s because the host was heavily loaded; the first attempt timed out). On two new
+server autosaves (AutoSave_2 and AutoSave_3) the exclusion cross-check gives the same result as the
+client save: 2,240 required components, 210 matching the lists (197 option 0, 1 option 3, 12
+include) and none of the option-1/option-2 types. The shared-identity report gives 136 job
+archetypes, of which 109 and 108 carry a shared identity, and 87 and 86 of those have a chunk-size
+signature present in world data. These are the same weak, non-unique signals as before; shared values
+are still not reproduced or compared. Raw saves remain outside Git.
