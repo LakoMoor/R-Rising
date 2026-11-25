@@ -113,7 +113,7 @@ the fix. `change_version.rs` now implements the two functions; `FrameContext` an
 them. Both oracle tests pass, plus a transform-hierarchy integration test checks a post-wrap input
 version of 1 against a pre-wrap last-system version of `0xffffffff`.
 
-Across all recorded groups: 95 distinct native function addresses (7 earlier captures, 87 captures
+Across all recorded groups before the AimPrediction capture below: 95 distinct native function addresses (7 earlier captures, 87 captures
 of 2,048 cases, one waypoint capture of 4,096 cases, and a shared-job/helper capture with
 4,096 evaluations each; 2 TypeIndex getters overlap earlier captures). This is function evidence,
 not gameplay parity. The shared-job capture substitutes five component accessors; the pure-leaf

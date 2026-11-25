@@ -30,9 +30,8 @@ int main(void){
   if(i>=2048){float *a[]={&sp,&px,&py,&vx,&vy};for(int k=0;k<5;k++)if(rnd()%3==0)*a[k]=f(special[rnd()%10]);}
   float t=intercept_time(sp,pair(px,py),pair(vx,vy),0);
   uint64_t r=intercept(pair(sx,sy),pair(svx,svy),sp,pair(tx,ty),pair(tvx,tvy),0);
-  printf("%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\n",
-   u(sp),u(px),u(py),u(vx),u(vy),u(t),u(sx),u(sy),u(svx),u(svy),u(tx),u(ty),u(tvx),u(tvy),0);
-  printf("R\t%08x\t%08x\n",(uint32_t)r,(uint32_t)(r>>32));
+  printf("%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\n",
+   u(sp),u(px),u(py),u(vx),u(vy),u(t),u(sx),u(sy),u(svx),u(svy),u(tx),u(ty),u(tvx),u(tvy),(uint32_t)r,(uint32_t)(r>>32));
  }
  return 0;}
 '''
@@ -42,13 +41,14 @@ def main():
     image, digest = load_image()
     driver = DRIVER.replace('#include <string.h>', '#include <string.h>\n#include <math.h>')
     rows = run(image, ENTRIES, driver, stubs=STUBS)
-    if len(rows) != 8192:
+    if len(rows) != 4096:
         raise SystemExit(f'incomplete capture: {len(rows)} rows')
     header = (f'# Original GameAssembly.dll sha256={digest}\n'
               '# Controlled x86_64/Rosetta replay of AimPrediction (RVAs 7f8f010, 7f8ef70); sqrt wrapper stubbed\n'
-              '# row A: speed relPos.xy relVel.xy time | shooterPos shooterVel targetPos targetVel (f32 hex); row R: intercept xy\n')
+              '# RVAs: AimPredictionTime=7f8f010 AimPredictionIntercept=7f8ef70\n'
+              '# columns (f32 hex): speed relPos.xy relVel.xy time | shooterPos.xy shooterVel.xy targetPos.xy targetVel.xy | intercept.xy\n')
     (ROOT / 'evidence/oracles/aim_prediction.tsv').write_text(header + '\n'.join(rows) + '\n')
-    print(f'aim_prediction.tsv: {len(rows) // 2} cases')
+    print(f'aim_prediction.tsv: {len(rows)} cases')
 
 
 if __name__ == '__main__':

@@ -26,8 +26,8 @@ Behavioral parity and overall game completion are still unmeasured.
 There are no full-game original-runtime golden scenarios. Original-function replays execute
 x86-64 instructions under Rosetta: 7 earlier captures with 1,024 cases each, 87 captures with
 2,048 cases each, one waypoint capture with 4,096 cases, and shared steering plus its normalizer
-with 4,096 cases each. Two overlapping TypeIndex getters leave **95 distinct addresses** and
-197,632 evaluations. Matrix capture links original bodies and stubs sqrt; steering additionally
+with 4,096 cases each, plus the aim-prediction pair (two functions, 4,096 cases each). Two overlapping
+TypeIndex getters leave **97 distinct addresses** and 205,824 evaluations. Matrix capture links original bodies and stubs sqrt; steering additionally
 isolates five ECS accessors behind supplied-value callbacks and preinitializes metadata.
 This does not run the original scheduler. Goldens are in `evidence/oracles/`; see
 [original_leaf_oracles.md](../evidence/original_leaf_oracles.md). The replay found and fixed

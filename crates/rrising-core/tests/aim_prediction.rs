@@ -18,8 +18,7 @@ fn matches_original_replay() {
         .map(|l| l.split('\t').collect())
         .collect();
     let (mut time_ok, mut point_ok, mut cases) = (0, 0, 0);
-    for pair in rows.chunks(2) {
-        let (a, r) = (&pair[0], &pair[1]);
+    for a in &rows {
         let speed = f(a[0]);
         let t = first_order_intercept_time(speed, [f(a[1]), f(a[2])], [f(a[3]), f(a[4])]);
         cases += 1;
@@ -31,7 +30,7 @@ fn matches_original_replay() {
             [f(a[10]), f(a[11])],
             [f(a[12]), f(a[13])],
         );
-        point_ok += usize::from(same(p[0], f(r[1])) && same(p[1], f(r[2])));
+        point_ok += usize::from(same(p[0], f(a[14])) && same(p[1], f(a[15])));
     }
     println!("cases {cases}: time exact {time_ok}, point exact {point_ok}");
     assert_eq!((time_ok, point_ok), (cases, cases));
