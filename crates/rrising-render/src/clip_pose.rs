@@ -6,6 +6,32 @@ use unity_formats::{
     scene::{mul, trs, Matrix, Scene},
 };
 
+/// Resolve the time for a directly sampled clip. This is independent of the
+/// Animator controller, which can impose its own speed and wrap behaviour.
+fn sample_time(time: f32, duration: f32, looping: bool, ping_pong: bool) -> Result<f32> {
+    ensure!(time.is_finite(), "non-finite animation time");
+    ensure!(
+        duration.is_finite() && duration >= 0.0,
+        "invalid clip duration"
+    );
+    if duration == 0.0 {
+        return Ok(0.0);
+    }
+    if ping_pong {
+        let cycle = f64::from(duration) * 2.0;
+        let phase = f64::from(time).rem_euclid(cycle);
+        Ok(if phase > f64::from(duration) {
+            (cycle - phase) as f32
+        } else {
+            phase as f32
+        })
+    } else if looping {
+        Ok(time.rem_euclid(duration))
+    } else {
+        Ok(time.clamp(0.0, duration))
+    }
+}
+
 /// Sample transform tracks on the ancestors of `bones` below the Animator root.
 /// Output is world-space in bone order. Unsupported Euler/property tracks are ignored.
 /// This does not evaluate controller overrides, transitions, root motion or blend shapes.
@@ -16,7 +42,7 @@ pub fn sample_bones(
     clip: &ClipData,
     time: f32,
 ) -> Result<Vec<Matrix>> {
-    ensure!(time.is_finite(), "non-finite animation time");
+    let t = sample_time(time, clip.duration, clip.looping, clip.ping_pong)?;
     let mut nodes = BTreeMap::new();
     let mut hashes = BTreeMap::new();
     for &bone in bones {
@@ -40,11 +66,6 @@ pub fn sample_bones(
             current = parent.context("joint chain does not reach animator")?;
         }
     }
-    let t = if clip.looping && clip.duration > 0.0 {
-        time.rem_euclid(clip.duration)
-    } else {
-        time.clamp(0.0, clip.duration.max(0.0))
-    };
     for track in &clip.tracks {
         if track.binding.type_id != 4 || track.binding.is_pptr {
             continue;
@@ -106,4 +127,21 @@ pub fn sample_bones(
             }))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sample_time;
+
+    #[test]
+    fn direct_clip_wrap_modes_and_invalid_times() {
+        assert_eq!(sample_time(2.5, 2.0, false, false).unwrap(), 2.0);
+        assert_eq!(sample_time(2.5, 2.0, true, false).unwrap(), 0.5);
+        assert_eq!(sample_time(2.5, 2.0, false, true).unwrap(), 1.5);
+        assert_eq!(sample_time(-0.5, 2.0, false, true).unwrap(), 0.5);
+        assert_eq!(sample_time(9.0, 0.0, true, true).unwrap(), 0.0);
+        assert!(sample_time(f32::NAN, 2.0, false, false).is_err());
+        assert!(sample_time(0.0, f32::NAN, false, false).is_err());
+        assert!(sample_time(0.0, -1.0, false, false).is_err());
+    }
 }
