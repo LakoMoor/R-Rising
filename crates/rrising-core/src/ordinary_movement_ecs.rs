@@ -59,6 +59,29 @@ pub fn step_ordinary_entity(
     can_move: bool,
     delta_time: f32,
 ) -> Result<()> {
+    let movement =
+        CharacterMovementFields::read(world.store.component_bytes(entity, types.movement)?)?;
+    step_ordinary_command(
+        world,
+        entity,
+        types,
+        movement.move_input,
+        can_move,
+        delta_time,
+    )
+}
+
+/// Apply the same bounded arithmetic using a direction supplied by a command.
+/// This corresponds only to the data source at DoCommand's DoMovement call;
+/// command creation, eligibility, speed modifiers and the scheduler are not implemented.
+pub fn step_ordinary_command(
+    world: &mut World,
+    entity: Entity,
+    types: OrdinaryMovementTypes,
+    command_direction: [f32; 2],
+    can_move: bool,
+    delta_time: f32,
+) -> Result<()> {
     let movement_bytes = world.store.component_bytes(entity, types.movement)?;
     let movement = CharacterMovementFields::read(movement_bytes)?;
     ensure!(movement_bytes[60] == 0, "force position is active");
@@ -80,7 +103,7 @@ pub fn step_ordinary_entity(
     };
     update_ordinary_movement(
         &mut state,
-        movement.move_input,
+        command_direction,
         movement.speed,
         movement.ability_cast_speed_multiplier,
         delta_time,
@@ -209,6 +232,29 @@ mod tests {
                 .store
                 .component_bytes(entity, types.translation)
                 .unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn command_direction_is_distinct_from_movement_component() {
+        let (mut world, entity, types) = fixture();
+        let before = world
+            .store
+            .component_bytes(entity, types.movement)
+            .unwrap()
+            .to_vec();
+        step_ordinary_command(&mut world, entity, types, [-1.0, 0.25], true, 0.5).unwrap();
+        let position = floats::<3>(
+            world
+                .store
+                .component_bytes(entity, types.translation)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(position, [-2.0, 0.0, 0.5]);
+        assert_eq!(
+            world.store.component_bytes(entity, types.movement).unwrap(),
             before
         );
     }
