@@ -849,8 +849,10 @@ The experimental `--spawn-player` path now attaches the male gameplay-prefab bod
 in their serialized pose to the cloned player's LocalToWorld, and frames a diagnostic camera
 near it. A pinned-data test confirms both parts follow an explicitly changed position. The
 model is chosen explicitly rather than by the original runtime selection; it has no head,
-textures or animation. The window started with two additional render groups, but the captured
-desktop did not show its window, so its actual appearance in the scene is not yet verified.
+textures or animation. `--scene ... --spawn-player --offscreen out.png` renders the same
+diagnostic camera and player without opening a window. The resulting [scene screenshot](screenshots/experimental-player-in-scene.png)
+shows the body partially obscured by world geometry: the prefab's default position is not a
+verified spawn location, and the incomplete scene is missing substantial world geometry.
 An ECS adapter can apply the isolated ordinary movement arithmetic to this prefab when the
 caller provides the branch conditions and movement input; it is not connected to keyboard input
 or the scene loop, and does not implement collision or the original command scheduler.

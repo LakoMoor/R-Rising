@@ -150,8 +150,8 @@ fn parse_args() -> Result<Options> {
         "--control-entity requires --scene-live"
     );
     anyhow::ensure!(
-        !opt.spawn_player || (opt.scene_live && opt.control_entity.is_none()),
-        "--spawn-player requires --scene-live and cannot be combined with --control-entity"
+        !opt.spawn_player || ((opt.scene_live || (opt.scene.is_some() && opt.offscreen.is_some())) && opt.control_entity.is_none()),
+        "--spawn-player requires --scene-live or --scene with --offscreen, and cannot be combined with --control-entity"
     );
     Ok(opt)
 }
@@ -745,6 +745,17 @@ fn open_content(opt: &Options) -> Result<GameContent> {
 type LiveScene = Option<(scene_view::SimWorld, scene_view::SceneData)>;
 type ControlTarget = Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>;
 type WindowedScene = (Loaded, Option<scene_view::FlyCam>, LiveScene, ControlTarget);
+
+fn player_camera(bounds: ([f32; 3], [f32; 3]), instance: Instance) -> scene_view::FlyCam {
+    let mut camera = scene_view::FlyCam::framing(bounds);
+    let position = instance.model[3];
+    camera.eye = [position[0], position[1] + 3.0, position[2] - 5.0];
+    camera.yaw = 0.0;
+    camera.pitch = -0.3;
+    camera.speed = 4.0;
+    camera.near = 0.05;
+    camera
+}
 fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
     let opt = parse_args()?;
     let content = open_content(&opt)?;
@@ -766,14 +777,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
             let instance = sim
                 .instance(entity)
                 .context("spawned player's LocalToWorld unavailable")?;
-            if let Some(camera) = &mut fly {
-                let position = instance.model[3];
-                camera.eye = [position[0], position[1] + 3.0, position[2] - 5.0];
-                camera.yaw = 0.0;
-                camera.pitch = -0.3;
-                camera.speed = 4.0;
-                camera.near = 0.05;
-            }
+            fly = Some(player_camera(data.bounds, instance));
             let parts = scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
             println!("Experimental player visual: {parts} static parts; no textures, head, animation or verified hybrid-model selection.");
             Some(entity)
@@ -1071,10 +1075,21 @@ fn run_offscreen(opt: &Options) -> Result<()> {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
         apply_sim(opt, &layouts, scene_path, &mut data)?;
+        let cam = if opt.spawn_player {
+            let mut sim = scene_view::simulate(&layouts, scene_path, 0)?;
+            let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
+            sim.advance(16_666_667, 1)?;
+            let instance = sim
+                .instance(entity)
+                .context("spawned player's LocalToWorld unavailable")?;
+            scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
+            player_camera(data.bounds, instance)
+        } else {
+            scene_view::FlyCam::framing(data.bounds)
+        };
         let loaded = load_scene_view(&renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
         let mut renderer = renderer;
-        let cam = scene_view::FlyCam::framing(data.bounds);
         let uniforms = cam.uniforms(opt.width as f32 / opt.height as f32);
         let neutral = renderer.neutral_view();
         let draws = loaded.draws(&neutral);
