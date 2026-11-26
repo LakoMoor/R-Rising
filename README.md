@@ -96,8 +96,24 @@ cargo run --locked -p rrising-app -- --data /path/to/VRising_Data \
 
 Run from the repository root. Default content path: `../VRising_Data`; default
 type-tree package: `assets/typetrees.tpk`. Override with `--data`, `--tpk`,
-`VRISING_DATA`, or `RRISING_TPK`. The windowed application currently renders a
-static showcase; there are no game controls yet.
+`VRISING_DATA`, or `RRISING_TPK`. The default window renders a static showcase.
+
+On macOS, owners of the pinned Windows client can launch the experimental player diagnostic:
+
+```sh
+tools/run_player_prototype.sh --check
+tools/run_player_prototype.sh
+```
+
+The script verifies the client build, derives a temporary layout report if needed, and starts
+the scene with experimental WASD motion, a following camera and a looping walk clip. Set
+`VRISING_DATA` and optionally `RRISING_LAYOUT_REPORT` if the files are elsewhere; see
+`tools/run_player_prototype.sh --help`. For the default scene the script uses a diagnostic
+position chosen for visibility; `RRISING_PLAYER_POSITION=x,y,z` overrides it. Neither is a
+recovered spawn or collision-checked position.
+The player has no head, complete materials, collision, gameplay animation or original scheduler.
+Input was tested with synthetic events; OS keyboard delivery and visual interaction in the
+window remain unverified. This is a technical diagnostic, not a playable V Rising port.
 
 Inspect a local dedicated-server autosave without starting the renderer:
 
