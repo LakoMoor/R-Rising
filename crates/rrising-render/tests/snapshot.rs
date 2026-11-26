@@ -80,3 +80,43 @@ fn serialized_transfer_matches_direct_gpu_upload() {
     invalid.version = 2;
     assert!(invalid.upload(&renderer).is_err());
 }
+
+#[test]
+fn updated_vertices_change_the_rendered_frame() {
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(64, 64)).expect("GPU");
+    let scene = fixture();
+    let item = &scene.items[0];
+    let mesh = mesh::upload_vertices(
+        renderer.device(),
+        &item.name,
+        &item.vertices,
+        &item.indices,
+        1,
+        true,
+    )
+    .unwrap();
+    let neutral = renderer.neutral_view();
+    let render = |renderer: &mut Renderer| {
+        renderer
+            .render_to_image(
+                &scene.uniforms,
+                &[DrawCall {
+                    mesh: &mesh,
+                    instances: &[item.transform],
+                    texture: &neutral,
+                    cutout: false,
+                }],
+            )
+            .unwrap()
+            .2
+    };
+    let first = render(&mut renderer);
+    let mut moved = item.vertices.clone();
+    for vertex in &mut moved {
+        vertex.position[0] += 0.7;
+    }
+    mesh::update_vertices(renderer.queue(), &mesh, &moved).unwrap();
+    let second = render(&mut renderer);
+    assert_ne!(first, second);
+    assert!(mesh::update_vertices(renderer.queue(), &mesh, &moved[..2]).is_err());
+}
