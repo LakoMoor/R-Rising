@@ -32,6 +32,24 @@ impl CharacterMovementFields {
     }
 }
 
+/// The bounded player Movement setup body from the pinned server's
+/// `AbilityCast_SetupStartValues_Shared`. The caller must establish the
+/// original query and branch conditions, which are not reconstructed here.
+pub fn setup_ability_movement(movement: &mut [u8], input: &[u8]) -> Result<()> {
+    ensure!(movement.len() == 104, "Movement requires 104 bytes");
+    ensure!(input.len() == 96, "EntityInput requires 96 bytes");
+    movement[100] = 0;
+    movement[96..100].copy_from_slice(&1.0f32.to_le_bytes());
+    movement[76..84].copy_from_slice(&input[..8]);
+    movement[..64].fill(0);
+    let x = f32::from_le_bytes(input[..4].try_into().expect("checked input size"));
+    let y = f32::from_le_bytes(input[4..8].try_into().expect("checked input size"));
+    if x != 0.0 || y != 0.0 {
+        movement[84..92].copy_from_slice(&input[..8]);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod character_movement_tests {
     use super::CharacterMovementFields;

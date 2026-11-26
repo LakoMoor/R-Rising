@@ -33,6 +33,20 @@ write to Movement.MoveInput and therefore do not establish the missing input bri
 This is a bounded static inspection, not proof that the system never modifies it
 through another call or execution path.
 
+`AbilityCast_SetupStartValues_Shared.OnUpdate` (server RVA `0x631abf0`) does contain
+a direct writer: its query tuple includes writable Movement and read-only EntityInput.
+At `0x631b2a5..0x631b2af`, it copies the first two input floats to Movement offsets
+`0x4c` and `0x50`. The same bounded body clears the first 64 Movement bytes, sets
+the ability multiplier to 1 and move-stop flag to 0, then updates the last nonzero
+direction when either input float compares unequal to zero (including NaN). The
+original helper at `0x60780b0` makes that comparison. The system is in AbilityMoveGroup
+and requires matching queries; its complete query filters and branch predicates have
+not been reconstructed, so this is not evidence that it runs unconditionally each tick.
+`capture_ability_movement_setup.py` replays the original instruction slices and helper
+in 36 cases on Rosetta; the Rust body matches their full 104-byte outputs. The replay
+supplies the query result and excludes the preceding debug/assertion calls, scheduler,
+and other gameplay branches. It does not establish end-to-end player behavior.
+
 The pinned server `AiMoveSystem_Client_Update.Move` (RVA `0x7ed0ea0`) was also
 inspected as a candidate. Metadata identifies its fourth argument as `ref Movement`;
 the preserved pointer is accessed for Speed at +0x5c near `0x7ed10d4` and
