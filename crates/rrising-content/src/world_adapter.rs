@@ -21,7 +21,10 @@
 //! - The archetype/type order inside the store is the port's ("entity first, rest by packed
 //!   value"), not necessarily the original's; component bytes are addressed by type, so this does
 //!   not change what a query returns.
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use anyhow::{bail, ensure, Context, Result};
 use rrising_ecs::{
@@ -29,7 +32,7 @@ use rrising_ecs::{
     SpecialTypes, TypeIndex, TypeManager, World, WorldInput,
 };
 
-use crate::entity_scenes::{SceneBlobAssets, SceneFile};
+use crate::entity_scenes::{SceneBlobAsset, SceneBlobAssets, SceneFile};
 use crate::prefab_catalog::PrefabBlobPayload;
 use crate::type_layouts::{EnabledSceneRows, TypeLayouts, ENTITY_HASH};
 
@@ -477,11 +480,24 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
     })
 }
 
+fn index_scene_blobs<'a>(blobs: &SceneBlobAssets<'a>) -> Result<HashMap<i32, SceneBlobAsset<'a>>> {
+    let mut index = HashMap::with_capacity(blobs.blobs.len());
+    for &blob in &blobs.blobs {
+        let offset =
+            i32::try_from(blob.offset).context("scene blob offset exceeds serialized range")?;
+        ensure!(
+            index.insert(offset, blob).is_none(),
+            "duplicate scene blob offset"
+        );
+    }
+    Ok(index)
+}
+
 fn patch_scene_blob_fields(
     bytes: &mut [u8],
     stride: usize,
     offsets: &[i32],
-    blobs: &SceneBlobAssets<'_>,
+    blobs: &HashMap<i32, SceneBlobAsset<'_>>,
     owned: &mut BTreeMap<i32, PrefabBlobPayload>,
 ) -> Result<()> {
     if offsets.is_empty() {
@@ -504,7 +520,7 @@ fn patch_scene_blob_fields(
             } else {
                 if let std::collections::btree_map::Entry::Vacant(entry) = owned.entry(serialized) {
                     let source = blobs
-                        .find_by_offset(serialized)
+                        .get(&serialized)
                         .context("unknown scene blob offset")?;
                     entry.insert(PrefabBlobPayload::new(source.hash, source.data, &[])?);
                 }
@@ -520,6 +536,7 @@ fn patch_scene_blob_fields(
 pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<SceneWorld> {
     let mut a = scene_to_world_input(layouts, scene)?;
     let blobs = scene.blob_assets()?;
+    let blob_index = index_scene_blobs(&blobs)?;
     let mut owned_blobs = BTreeMap::new();
     let by_type: BTreeMap<_, _> = a
         .type_of_hash
@@ -536,7 +553,7 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
             };
             if let Some(offsets) = &layout.blob_offsets {
                 let stride = usize::try_from(layout.spec.size_in_chunk)?;
-                patch_scene_blob_fields(bytes, stride, offsets, &blobs, &mut owned_blobs)?;
+                patch_scene_blob_fields(bytes, stride, offsets, &blob_index, &mut owned_blobs)?;
             }
         }
     }
@@ -549,7 +566,7 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
                 bytes,
                 usize::try_from(layout.spec.element_size)?,
                 offsets,
-                &blobs,
+                &blob_index,
                 &mut owned_blobs,
             )?;
         }
@@ -614,6 +631,44 @@ fn add_counts(a: RefCounts, b: RefCounts) -> RefCounts {
 mod special_type_tests {
     use super::*;
     use rrising_ecs::{EntityQuery, TypeCategory, TypeSpec};
+
+    #[test]
+    fn indexed_blobs_patch_null_and_share_repeated_references() -> Result<()> {
+        use crate::entity_scenes::{BlobAssetBatchHeader, SceneBlobAsset, SceneBlobAssets};
+        let blob = SceneBlobAsset {
+            index: 0,
+            offset: 64,
+            hash: 42,
+            length: 4,
+            data: &[1, 2, 3, 4],
+        };
+        let scene = SceneBlobAssets {
+            header: BlobAssetBatchHeader::default(),
+            blobs: vec![blob],
+        };
+        let index = index_scene_blobs(&scene)?;
+        let mut owned = BTreeMap::new();
+        let mut fields = [
+            64i64.to_le_bytes(),
+            (-1i64).to_le_bytes(),
+            64i64.to_le_bytes(),
+        ]
+        .concat();
+        patch_scene_blob_fields(&mut fields, 8, &[0], &index, &mut owned)?;
+        let read = |at| u64::from_le_bytes(fields[at..at + 8].try_into().unwrap());
+        assert_eq!(read(0), read(16));
+        assert_ne!(read(0), 0);
+        assert_eq!(read(8), 0);
+        assert_eq!(owned.len(), 1);
+        let mut missing = 65i64.to_le_bytes();
+        assert!(patch_scene_blob_fields(&mut missing, 8, &[0], &index, &mut owned).is_err());
+        let duplicate = SceneBlobAssets {
+            header: BlobAssetBatchHeader::default(),
+            blobs: vec![blob, blob],
+        };
+        assert!(index_scene_blobs(&duplicate).is_err());
+        Ok(())
+    }
 
     #[test]
     fn scene_registry_special_identities_control_the_actual_world_query() {
