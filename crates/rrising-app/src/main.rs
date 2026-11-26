@@ -44,6 +44,7 @@ struct Options {
     /// `--scene-sim N`: run fixed steering/transform frames and draw the World's LocalToWorld.
     scene_sim: Option<usize>,
     scene_live: bool,
+    control_entity: Option<rrising_ecs::Entity>,
     /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
     compare: Option<PathBuf>,
     bench: bool,
@@ -75,6 +76,7 @@ fn parse_args() -> Result<Options> {
         type_layouts: None,
         scene_sim: None,
         scene_live: false,
+        control_entity: None,
         compare: None,
         bench: false,
         frames: 60,
@@ -102,6 +104,14 @@ fn parse_args() -> Result<Options> {
                 opt.scene_sim = Some(take()?.parse().context("--scene-sim takes a frame count")?)
             }
             "--scene-live" => opt.scene_live = true,
+            "--control-entity" => {
+                let value = take()?;
+                let (index, version) = value
+                    .split_once(':')
+                    .context("--control-entity needs index:version")?;
+                opt.control_entity =
+                    Some(rrising_ecs::Entity::new(index.parse()?, version.parse()?));
+            }
             "--compare" => opt.compare = Some(PathBuf::from(take()?)),
             "--type-layouts" => opt.type_layouts = Some(PathBuf::from(take()?)),
             "--import-web" => opt.import_web = Some(PathBuf::from(take()?)),
@@ -129,6 +139,10 @@ fn parse_args() -> Result<Options> {
         "--scene-sim needs --scene and a positive frame count"
     );
     anyhow::ensure!(!opt.scene_live || (opt.scene.is_some() && opt.scene_sim.is_none() && opt.offscreen.is_none() && opt.export_web.is_none() && opt.compare.is_none()), "--scene-live needs --scene and a window; it cannot be combined with --scene-sim or export modes");
+    anyhow::ensure!(
+        opt.control_entity.is_none() || opt.scene_live,
+        "--control-entity requires --scene-live"
+    );
     Ok(opt)
 }
 
@@ -474,6 +488,7 @@ struct App {
     last_tick: Option<std::time::Instant>,
     live: Option<(scene_view::SimWorld, scene_view::SceneData)>,
     live_tick: Option<std::time::Instant>,
+    control: Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>,
 }
 
 impl App {
@@ -489,6 +504,20 @@ impl App {
             None => (1280, 720),
         };
         if let (Some((sim, scene)), Some(loaded)) = (&mut self.live, &mut self.loaded) {
+            if let Some((entity, ty)) = self.control {
+                use winit::keyboard::KeyCode as K;
+                let key = |code| f32::from(u8::from(self.keys.contains(&code)));
+                let movement = [key(K::KeyD) - key(K::KeyA), key(K::KeyW) - key(K::KeyS)];
+                if let Err(error) = rrising_core::player_input::write_player_movement(
+                    &mut sim.world,
+                    entity,
+                    ty,
+                    movement,
+                ) {
+                    log::error!("player input: {error:#}");
+                    self.control = None;
+                }
+            }
             let now = std::time::Instant::now();
             let elapsed = self.live_tick.replace(now).map_or(0, |last| {
                 now.duration_since(last)
@@ -524,8 +553,16 @@ impl App {
                     1.0
                 };
                 cam.fly(
-                    (k(K::KeyW) - k(K::KeyS)) * boost,
-                    (k(K::KeyD) - k(K::KeyA)) * boost,
+                    if self.control.is_some() {
+                        0.
+                    } else {
+                        (k(K::KeyW) - k(K::KeyS)) * boost
+                    },
+                    if self.control.is_some() {
+                        0.
+                    } else {
+                        (k(K::KeyD) - k(K::KeyA)) * boost
+                    },
                     (k(K::KeyE) - k(K::KeyQ)) * boost,
                     dt,
                 );
@@ -582,9 +619,10 @@ impl ApplicationHandler for App {
             }
         };
         match run_windowed(&renderer) {
-            Ok((loaded, fly, live)) => {
+            Ok((loaded, fly, live, control)) => {
                 self.fly = fly;
                 self.live = live;
+                self.control = control;
                 self.loaded = Some(loaded);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
@@ -680,7 +718,9 @@ fn open_content(opt: &Options) -> Result<GameContent> {
 }
 
 type LiveScene = Option<(scene_view::SimWorld, scene_view::SceneData)>;
-fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCam>, LiveScene)> {
+type ControlTarget = Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>;
+type WindowedScene = (Loaded, Option<scene_view::FlyCam>, LiveScene, ControlTarget);
+fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
     let opt = parse_args()?;
     let content = open_content(&opt)?;
     if let Some(scene_path) = &opt.scene {
@@ -696,11 +736,35 @@ fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCa
         } else {
             None
         };
-        return Ok((loaded, fly, live));
+        let control = if let Some(entity) = opt.control_entity {
+            let sim = &live.as_ref().context("control needs live world")?.0;
+            let ty = sim
+                .world
+                .types
+                .type_index_of("ProjectM.EntityInput")
+                .context("scene has no EntityInput type")?;
+            let query = rrising_ecs::EntityQuery {
+                all: vec![ty],
+                ..Default::default()
+            };
+            anyhow::ensure!(
+                sim.world.store.query_entities(&query)?.contains(&entity),
+                "control entity is not a live non-prefab entity with EntityInput"
+            );
+            anyhow::ensure!(
+                sim.world.store.component_bytes(entity, ty)?.len() == 96,
+                "invalid EntityInput layout"
+            );
+            println!("Experimental raw WASD input for {entity:?}: X/Z axes, no locomotion or animation system yet.");
+            Some((entity, ty))
+        } else {
+            None
+        };
+        return Ok((loaded, fly, live, control));
     }
     let spec = scene::showcase(&content, opt.items);
     println!("scene: {} items", spec.len());
-    Ok((load_scene(renderer, &content, &spec)?, None, None))
+    Ok((load_scene(renderer, &content, &spec)?, None, None, None))
 }
 
 /// With `--scene-sim N`, replace the stored matrices by the ones the Schedule produced.

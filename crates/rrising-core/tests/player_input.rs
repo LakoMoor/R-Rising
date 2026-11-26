@@ -1,4 +1,4 @@
-use rrising_core::player_input::{write_player_command, PlayerCommand};
+use rrising_core::player_input::{write_player_command, write_player_movement, PlayerCommand};
 use rrising_ecs::{
     ArchetypeInput, ChunkInput, Entity, EntityIds, SpecialTypes, TypeCategory, TypeManager,
     TypeSpec, World, WorldInput,
@@ -47,6 +47,12 @@ fn host_command_updates_real_ecs_input_and_preserves_other_fields() {
         .collect();
     assert_eq!(&bytes[..32], expected);
     assert_eq!(&bytes[32..], &[0x5a; 64]);
+    write_player_movement(&mut world, entity, input_type, [-1., 1.]).unwrap();
+    let updated = world.store.component_bytes(entity, input_type).unwrap();
+    assert_eq!(&updated[..4], &(-1f32).to_le_bytes());
+    assert_eq!(&updated[4..8], &1f32.to_le_bytes());
+    assert_eq!(&updated[8..], &bytes[8..]);
+    let bytes = updated.to_vec();
     assert!(write_player_command(
         &mut world,
         Entity::new(entity.index, entity.version + 1),

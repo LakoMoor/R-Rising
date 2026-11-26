@@ -41,3 +41,22 @@ pub fn write_player_command(
     }
     world.store.set_component_bytes(entity, ty, &bytes)
 }
+
+/// Update only movement axes; aim and action fields remain unchanged.
+pub fn write_player_movement(
+    world: &mut World,
+    entity: Entity,
+    ty: TypeIndex,
+    movement: [f32; 2],
+) -> Result<()> {
+    let original = world.store.component_bytes(entity, ty)?;
+    ensure!(
+        original.len() == ENTITY_INPUT_SIZE,
+        "EntityInput needs 96 bytes"
+    );
+    let mut bytes = original.to_vec();
+    for (out, value) in bytes[..8].as_chunks_mut::<4>().0.iter_mut().zip(movement) {
+        out.copy_from_slice(&value.to_le_bytes());
+    }
+    world.store.set_component_bytes(entity, ty, &bytes)
+}
