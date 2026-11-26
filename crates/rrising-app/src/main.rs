@@ -608,6 +608,11 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::Focused(false) => {
+                self.keys.clear();
+                self.last_tick = None;
+                self.live_tick = None;
+            }
             WindowEvent::Resized(s) => {
                 if let Some(r) = &mut self.renderer {
                     r.resize(s.width.max(1), s.height.max(1));
