@@ -814,3 +814,11 @@ Original scene/world and GUI operation have not yet been verified for this mode.
 entities carrying EntityInput in a reconstructed scene. The list is diagnostic and does not identify
 players. The pinned Silver Mountain scene returned no eligible entities in a local check; finding
 or spawning a live controlled player still requires additional systems and content handling.
+
+Client `GameplayInputSystem.GetMovement` at RVA `0x7d907d0` has an initial isolated instruction
+replay (`tools/capture_player_get_movement.py`). The 36 recorded cases use an identity camera
+quaternion and include zero input, small input, mode and flag variations. The harness supplies
+initialized metadata/zero state and substitutes `sqrtss` for a math wrapper; it is not the live
+client input pipeline. The original applies thresholds, camera rotation and mode-dependent scaling,
+so the experimental raw WASD input must not be interpreted as a port of this function. Arbitrary
+camera rotation, boundary values and the full gameplay pipeline still need verification.
