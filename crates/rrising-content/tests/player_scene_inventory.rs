@@ -39,6 +39,17 @@ fn inventory_player_input_and_movement_components() {
                         .get(*hash)
                         .is_some_and(|ty| ty.name == "Unity.Entities.Prefab")
                 });
+                for row in 0..chunk.header.count as usize {
+                    let bytes = resolved
+                        .component_bytes(chunk.index, row, 0xb181_3197_8820_0ae1)
+                        .unwrap()
+                        .expect("player prefab guid");
+                    println!(
+                        "player scene={} guid={}",
+                        path.display(),
+                        i32::from_le_bytes(bytes.try_into().unwrap())
+                    );
+                }
                 assert!(
                     prefab,
                     "player template without Prefab flag: {}",

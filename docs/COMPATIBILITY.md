@@ -827,3 +827,9 @@ On the pinned client's 1,183 baked entity scenes, the player-input inventory fou
 with EntityInput only, 784 with Movement only, 1,036 with both, and two with EntityInput, Movement
 and PlayerCharacter. Both player candidates carry Prefab, so neither is a live controllable player.
 These counts describe baked scene data, not spawned entities or runtime gameplay.
+
+The pinned player prefab GUID `38526109` can be instantiated as a partial server-side ECS
+projection: three linked entities and 120 candidate component values, including PlayerCharacter,
+EntityInput, Movement, Translation and LocalToWorld on one entity. This projection deliberately
+omits nonportable, managed, network and unresolved externally referenced components. It is not a
+spawned or rendered player, nor a test of player movement or gameplay parity.
