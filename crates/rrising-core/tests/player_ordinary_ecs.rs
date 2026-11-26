@@ -123,8 +123,13 @@ fn bounded_ordinary_step_on_client_player_projection() {
     let mut command = [0x5au8; rrising_core::command_movement::INPUT_COMMAND_SIZE];
     // With Movement present, original command selection takes its MoveInput,
     // not the distinct raw EntityInput direction.
-    rrising_core::command_movement::write_command_input(&mut command, &raw, Some([0.6, 0.8]), None)
-        .unwrap();
+    rrising_core::command_movement::write_command_input_from_world(
+        &world,
+        player,
+        &mut command,
+        input_type,
+    )
+    .unwrap();
     command[144..148].copy_from_slice(&0.25f32.to_le_bytes());
     let previous = world
         .store

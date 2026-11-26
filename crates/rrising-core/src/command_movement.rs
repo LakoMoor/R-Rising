@@ -83,3 +83,35 @@ pub fn write_command_input(
     command[20..116].copy_from_slice(raw_input);
     Ok(())
 }
+
+/// Resolve the observed component lookups for an already validated controlled entity.
+/// This does not implement Controller validation, timing, buffering or scheduling.
+pub fn write_command_input_from_world(
+    world: &rrising_ecs::World,
+    entity: rrising_ecs::Entity,
+    command: &mut [u8],
+    input_type: rrising_ecs::TypeIndex,
+) -> Result<()> {
+    let raw = world.store.component_bytes(entity, input_type)?;
+    let movement = world
+        .types
+        .type_index_of("ProjectM.Movement")
+        .map(|ty| world.store.try_component_bytes(entity, ty))
+        .transpose()?
+        .flatten()
+        .map(crate::movement::CharacterMovementFields::read)
+        .transpose()?
+        .map(|fields| fields.move_input);
+    let spell = world
+        .types
+        .type_index_of("ProjectM.IsSpellControlled")
+        .map(|ty| world.store.try_component_bytes(entity, ty))
+        .transpose()?
+        .flatten()
+        .map(|bytes| {
+            ensure!(bytes.len() == 2, "IsSpellControlled needs 2 bytes");
+            Ok((bytes[0] != 0, bytes[1] != 0))
+        })
+        .transpose()?;
+    write_command_input(command, raw, movement, spell)
+}
