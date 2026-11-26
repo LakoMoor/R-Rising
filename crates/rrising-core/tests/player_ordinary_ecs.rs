@@ -3,7 +3,9 @@ use rrising_content::{
     entity_scenes::SceneFile, prefab_catalog::ScenePrefabCatalog, type_layouts::TypeLayouts,
     world_adapter::build_scene_world,
 };
-use rrising_core::ordinary_movement_ecs::{step_ordinary_entity, OrdinaryMovementTypes};
+use rrising_core::ordinary_movement_ecs::{
+    step_ordinary_command_bytes, step_ordinary_entity, OrdinaryMovementTypes,
+};
 use rrising_ecs::EntityQuery;
 use std::{collections::BTreeSet, path::PathBuf};
 
@@ -90,6 +92,18 @@ fn bounded_ordinary_step_on_client_player_projection() {
             .unwrap()[4..],
         &old_move_velocity[4..]
     );
+    let first_position = translation.to_vec();
+    let mut command = [0u8; rrising_core::command_movement::INPUT_COMMAND_SIZE];
+    command[0..4].copy_from_slice(&(-0.5f32).to_le_bytes());
+    command[4..8].copy_from_slice(&0.25f32.to_le_bytes());
+    command[144..148].copy_from_slice(&0.5f32.to_le_bytes());
+    step_ordinary_command_bytes(&mut world, player, types, &command, true).unwrap();
+    let position = world
+        .store
+        .component_bytes(player, types.translation)
+        .unwrap();
+    assert_eq!(read(&position[0..4]), read(&first_position[0..4]) - 1.0);
+    assert_eq!(read(&position[8..12]), read(&first_position[8..12]) + 0.5);
     movement[60] = 1;
     world
         .store

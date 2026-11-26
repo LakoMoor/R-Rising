@@ -48,6 +48,7 @@ struct Options {
     control_entity: Option<rrising_ecs::Entity>,
     spawn_player: bool,
     animate_player: bool,
+    animation_frame: Option<usize>,
     /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
     compare: Option<PathBuf>,
     bench: bool,
@@ -83,6 +84,7 @@ fn parse_args() -> Result<Options> {
         control_entity: None,
         spawn_player: false,
         animate_player: false,
+        animation_frame: None,
         compare: None,
         bench: false,
         frames: 60,
@@ -113,6 +115,13 @@ fn parse_args() -> Result<Options> {
             "--scene-live" => opt.scene_live = true,
             "--spawn-player" => opt.spawn_player = true,
             "--animate-player" => opt.animate_player = true,
+            "--animation-frame" => {
+                opt.animation_frame = Some(
+                    take()?
+                        .parse()
+                        .context("--animation-frame takes an index")?,
+                )
+            }
             "--control-entity" => {
                 let value = take()?;
                 let (index, version) = value
@@ -159,6 +168,13 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         !opt.animate_player || (opt.spawn_player && opt.scene_live),
         "--animate-player requires --scene-live --spawn-player"
+    );
+    anyhow::ensure!(
+        opt.animation_frame.is_none()
+            || (opt.spawn_player
+                && opt.offscreen.is_some()
+                && opt.animation_frame.is_some_and(|n| n < 24)),
+        "--animation-frame needs --spawn-player --offscreen and an index from 0 to 23"
     );
     Ok(opt)
 }
@@ -1155,7 +1171,23 @@ fn run_offscreen(opt: &Options) -> Result<()> {
             let instance = sim
                 .instance(entity)
                 .context("spawned player's LocalToWorld unavailable")?;
-            scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
+            let first_group = data.groups.len();
+            let parts = scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
+            if let Some(frame) = opt.animation_frame {
+                let (_, samples) = scene_view::player_walk_samples(&content, 24)?;
+                anyhow::ensure!(
+                    samples.len() == parts,
+                    "animation parts differ from visual parts"
+                );
+                for (group, frames) in data.groups[first_group..].iter_mut().zip(samples) {
+                    group.verts = std::sync::Arc::new(
+                        frames
+                            .into_iter()
+                            .nth(frame)
+                            .context("missing animation frame")?,
+                    );
+                }
+            }
             player_camera(data.bounds, instance)
         } else {
             scene_view::FlyCam::framing(data.bounds)

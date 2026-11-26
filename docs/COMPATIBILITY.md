@@ -857,6 +857,12 @@ An ECS adapter can apply the isolated ordinary movement arithmetic to this prefa
 caller provides the branch conditions and movement input; it is not connected to keyboard input
 or the scene loop, and does not implement collision or the original command scheduler.
 
+For repeatable diagnostics, `--scene ... --spawn-player --offscreen out.png --animation-frame N`
+renders one of the same 24 precomputed walk samples used by the live experimental loop (N=0..23).
+Frames 0 and 6 were rendered from the pinned client with identical camera and produced different
+PNG hashes. The player remains partly occluded at the unverified prefab position, and this does
+not establish gameplay animation or parity with the original.
+
 The [animation inventory](../evidence/player_animation_inventory.md) identifies the candidate
 model's avatar, controller and walking/running clips and matches tracks to bone paths. Original
 Animator evaluation and runtime selection are still unimplemented.

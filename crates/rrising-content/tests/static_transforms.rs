@@ -20,6 +20,44 @@ fn env_path(name: &str) -> Result<PathBuf> {
 }
 
 #[test]
+#[ignore = "requires pinned client/server scenes and server layout report"]
+fn server_terrain_sources_have_client_scene_files() -> Result<()> {
+    let layouts =
+        TypeLayouts::from_server_json(&std::fs::read(env_path("RRISING_SERVER_LAYOUT_REPORT")?)?)?;
+    let catalog = StaticTransformCatalog::read_server(&env_path("VRISING_SERVER_DATA")?, &layouts)?;
+    let mut client = BTreeSet::new();
+    for entry in std::fs::read_dir(env_path("VRISING_DATA")?.join("StreamingAssets/EntityScenes"))?
+    {
+        let path = entry?.path();
+        if path.extension().is_none_or(|ext| ext != "entities") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|v| v.to_str())
+            .context("invalid scene name")?;
+        let guid = Hash128::from_guid(name.split('.').next().context("scene GUID")?);
+        if guid.is_valid() {
+            client.insert(guid);
+        }
+    }
+    let mut sources = BTreeSet::new();
+    let mut count = 0;
+    for coordinate in 0..=u16::MAX {
+        if let Some(source) = catalog.source(coordinate) {
+            assert!(
+                client.contains(&source.scene),
+                "missing client scene for chunk {coordinate:#06x}"
+            );
+            sources.insert(source.scene);
+            count += 1;
+        }
+    }
+    assert_eq!((count, sources.len()), (248, 189));
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires pinned server scenes, server layout report and captured autosaves"]
 fn original_static_transform_rows() -> Result<()> {
     let layouts =

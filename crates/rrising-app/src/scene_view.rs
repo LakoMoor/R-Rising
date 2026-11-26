@@ -1516,4 +1516,86 @@ mod managed_array_tests {
             assert_eq!(&group.instances[0].model[3][..3], &[12., 3., -7.]);
         }
     }
+
+    #[test]
+    #[ignore = "requires pinned client data and a GPU"]
+    fn original_walk_samples_update_the_gpu_render() {
+        use super::{attach_player_visual, player_walk_samples, SceneData, SceneStats};
+        use rrising_content::{list_archives, GameContent};
+        use rrising_ecs::Entity;
+        use rrising_math::{float3, float4x4};
+        use rrising_render::{mesh, DrawCall, FrameUniforms, Instance, Renderer};
+        use std::path::{Path, PathBuf};
+        let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
+        let archives = list_archives(&data.join("StreamingAssets/ContentArchives")).unwrap();
+        let content =
+            GameContent::open(&data, &archives, Path::new("../../assets/typetrees.tpk")).unwrap();
+        let identity = Instance::from_matrix(&float4x4::identity);
+        let mut visual = SceneData {
+            groups: vec![],
+            markers: vec![],
+            marker_entities: vec![],
+            stats: SceneStats::default(),
+            bounds: ([0.; 3], [0.; 3]),
+        };
+        attach_player_visual(&content, &mut visual, Entity::new(1, 1), identity).unwrap();
+        let (_, samples) = player_walk_samples(&content, 4).unwrap();
+        assert_eq!(samples.len(), visual.groups.len());
+        let mut renderer = pollster::block_on(Renderer::new_offscreen(256, 256)).expect("GPU");
+        let meshes: Vec<_> = visual
+            .groups
+            .iter()
+            .zip(&samples)
+            .map(|(group, frames)| {
+                mesh::upload_vertices(
+                    renderer.device(),
+                    &group.name,
+                    &frames[0],
+                    &group.inds,
+                    1,
+                    true,
+                )
+                .unwrap()
+            })
+            .collect();
+        let eye = float3::new(0., 0.85, 4.4);
+        let center = float3::new(0., 0.85, 0.);
+        let view = float4x4::scale(float3::new(1., 1., -1.))
+            * float4x4::look_at(eye, center, float3::new(0., 1., 0.)).inverse();
+        let proj = float4x4::perspective_fov(std::f32::consts::FRAC_PI_3, 1., 0.02, 40.);
+        let uniforms = FrameUniforms {
+            view_proj: Instance::from_matrix(&(rrising_render::clip_fix() * proj * view)).model,
+            camera_pos: [eye.x, eye.y, eye.z, 0.],
+            light_dir: [0.35, 0.85, 0.4, 0.85],
+            ambient: [0.32, 0.36, 0.44, 0.],
+        };
+        let neutral = renderer.neutral_view();
+        let instance = [identity];
+        let draws: Vec<_> = meshes
+            .iter()
+            .map(|mesh| DrawCall {
+                mesh,
+                instances: &instance,
+                texture: &neutral,
+                cutout: false,
+            })
+            .collect();
+        let first = renderer.render_to_image(&uniforms, &draws).unwrap().2;
+        for (mesh, frames) in meshes.iter().zip(&samples) {
+            mesh::update_vertices(renderer.queue(), mesh, &frames[1]).unwrap();
+        }
+        let second = renderer.render_to_image(&uniforms, &draws).unwrap().2;
+        let differing = first
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(second.as_chunks::<4>().0.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert!(
+            differing > 100,
+            "only {differing} pixels changed between original walk samples"
+        );
+        println!("original walk samples: {differing} differing pixels from GPU vertex updates");
+    }
 }

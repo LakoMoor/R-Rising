@@ -9,9 +9,31 @@ use anyhow::{ensure, Context, Result};
 use rrising_ecs::{Entity, TypeIndex, World};
 
 use crate::{
+    command_movement::CommandMovement,
     movement::CharacterMovementFields,
     ordinary_movement::{update_ordinary_movement, OrdinaryMovement},
 };
+
+/// Apply the isolated ordinary branch from an existing command buffer element.
+/// The caller must establish eligibility, command ordering, original speed and
+/// collision conditions; this is not an implementation of `DoCommand`.
+pub fn step_ordinary_command_bytes(
+    world: &mut World,
+    entity: Entity,
+    types: OrdinaryMovementTypes,
+    command: &[u8],
+    can_move: bool,
+) -> Result<()> {
+    let command = CommandMovement::read(command)?;
+    step_ordinary_command(
+        world,
+        entity,
+        types,
+        command.direction,
+        can_move,
+        command.delta_time,
+    )
+}
 
 /// Component identities recovered for the pinned build.
 #[derive(Clone, Copy, Debug)]
@@ -256,6 +278,31 @@ mod tests {
         assert_eq!(
             world.store.component_bytes(entity, types.movement).unwrap(),
             before
+        );
+    }
+
+    #[test]
+    fn command_buffer_drives_bounded_movement_and_rejects_truncation() {
+        let (mut world, entity, types) = fixture();
+        let mut command = [0u8; crate::command_movement::INPUT_COMMAND_SIZE];
+        command[..4].copy_from_slice(&(-1.0f32).to_le_bytes());
+        command[4..8].copy_from_slice(&0.25f32.to_le_bytes());
+        command[136..144].copy_from_slice(&123.0f64.to_le_bytes());
+        command[144..148].copy_from_slice(&0.5f32.to_le_bytes());
+        assert_eq!(CommandMovement::read(&command).unwrap().start_time(), 122.5);
+        assert!(
+            step_ordinary_command_bytes(&mut world, entity, types, &command[..151], true).is_err()
+        );
+        step_ordinary_command_bytes(&mut world, entity, types, &command, true).unwrap();
+        assert_eq!(
+            floats::<3>(
+                world
+                    .store
+                    .component_bytes(entity, types.translation)
+                    .unwrap()
+            )
+            .unwrap(),
+            [-2.0, 0.0, 0.5]
         );
     }
 }
