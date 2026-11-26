@@ -263,3 +263,21 @@ fn diagnostic_hash_normalizes_blob_addresses_and_hashes_external_buffers() {
         .unwrap();
     assert_ne!(a.state_hash(), b.state_hash());
 }
+
+#[test]
+fn conflicting_blob_fingerprint_batch_does_not_change_existing_identity() {
+    let t = types();
+    let special = special(&t);
+    let mut w = World::build(t.tm, special, 4, &WorldInput::default()).unwrap();
+    w.register_blob_fingerprint_addresses(&[(100, 1)]).unwrap();
+    assert!(w
+        .register_blob_fingerprint_addresses(&[(200, 2), (100, 3)])
+        .is_err());
+    assert!(w
+        .register_blob_fingerprint_addresses(&[(100, 1), (200, 4)])
+        .is_ok());
+    assert!(w
+        .register_blob_fingerprint_addresses(&[(300, 1), (300, 2)])
+        .is_err());
+    assert!(w.register_blob_fingerprint_addresses(&[(300, 3)]).is_ok());
+}

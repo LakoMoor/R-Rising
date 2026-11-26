@@ -583,6 +583,7 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
         .iter()
         .map(|(&offset, blob)| (blob.payload_address(), offset as u64 + 1))
         .collect();
+    world.register_blob_fingerprint_addresses(&blob_ids)?;
     for (&hash, &ty) in &a.type_of_hash {
         if let Some(offsets) = layouts
             .get(hash)
@@ -595,7 +596,7 @@ pub fn build_scene_world(layouts: &TypeLayouts, scene: &SceneFile) -> Result<Sce
                         .iter()
                         .map(|&offset| usize::try_from(offset))
                         .collect::<std::result::Result<Vec<_>, _>>()?,
-                    &blob_ids,
+                    &[],
                 )?;
             }
         }

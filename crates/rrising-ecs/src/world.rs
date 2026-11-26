@@ -267,22 +267,36 @@ impl World {
             info.size_in_chunk
         })?;
         ensure!(
-            offsets.windows(2).all(|w| w[0] + 8 <= w[1])
+            offsets
+                .windows(2)
+                .all(|w| w[0].checked_add(8).is_some_and(|end| end <= w[1]))
                 && offsets
                     .iter()
                     .all(|&o| o.checked_add(8).is_some_and(|end| end <= size)),
             "invalid blob field offsets"
         );
+        self.register_blob_fingerprint_addresses(addresses)?;
+        self.blob_field_offsets.insert(ty, offsets);
+        Ok(())
+    }
+
+    /// Register stable identities once, independently of the number of component types.
+    /// Validation is atomic: an invalid batch leaves the existing identities unchanged.
+    pub fn register_blob_fingerprint_addresses(&mut self, addresses: &[(u64, u64)]) -> Result<()> {
+        let mut pending = HashMap::with_capacity(addresses.len());
         for &(address, id) in addresses {
             ensure!(
                 address != 0 && id != 0,
                 "invalid blob address or identifier"
             );
-            if let Some(previous) = self.blob_address_ids.insert(address, id) {
+            if let Some(&previous) = self.blob_address_ids.get(&address) {
+                ensure!(previous == id, "conflicting blob identifier");
+            }
+            if let Some(previous) = pending.insert(address, id) {
                 ensure!(previous == id, "conflicting blob identifier");
             }
         }
-        self.blob_field_offsets.insert(ty, offsets);
+        self.blob_address_ids.extend(pending);
         Ok(())
     }
 
