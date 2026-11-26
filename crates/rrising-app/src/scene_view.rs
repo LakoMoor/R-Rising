@@ -1103,6 +1103,93 @@ mod managed_array_tests {
     use rrising_ecs::MaterialMeshInfo;
 
     #[test]
+    fn live_scene_retains_schedule_and_applies_updated_transforms() {
+        use super::{SceneData, SceneStats, SimWorld};
+        use rrising_ecs::transform::{TransformSystem, TransformTypes};
+        use rrising_ecs::{
+            ArchetypeInput, ChunkInput, EntityIds, Schedule, SpecialTypes, TypeCategory,
+            TypeManager, TypeSpec, World, WorldInput,
+        };
+        let mut types = TypeManager::default();
+        types.register(TypeSpec::tag("<reserved>")).unwrap();
+        let mut entity_spec = TypeSpec::component_data("Entity", 8, 8);
+        entity_spec.category = TypeCategory::EntityData;
+        let entity_type = types.register(entity_spec).unwrap();
+        let position = types
+            .register(TypeSpec::component_data("Translation", 12, 4))
+            .unwrap();
+        let ltw = types
+            .register(TypeSpec::component_data("LocalToWorld", 64, 4))
+            .unwrap();
+        let floats = |v: [f32; 3]| v.into_iter().flat_map(f32::to_le_bytes).collect::<Vec<_>>();
+        let input = WorldInput {
+            archetypes: vec![ArchetypeInput {
+                types: vec![position, ltw],
+            }],
+            chunks: vec![ChunkInput {
+                archetype: 0,
+                entities: EntityIds::Fresh(1),
+                components: vec![(position, floats([1., 2., 3.]))],
+                shared_components: vec![],
+            }],
+        };
+        let world = World::build(types, SpecialTypes::new(entity_type), 4, &input).unwrap();
+        let entity = world.entities[0];
+        let mut schedule = Schedule::new(10).unwrap();
+        schedule.add_group("simulation").unwrap();
+        schedule
+            .add_system(
+                "simulation",
+                Box::new(TransformSystem::new(TransformTypes {
+                    local_to_world: ltw,
+                    local_transform: None,
+                    translation: Some(position),
+                    rotation: None,
+                    scale: None,
+                    post_transform: None,
+                    parent: None,
+                })),
+            )
+            .unwrap();
+        let mut sim = SimWorld {
+            world,
+            schedule,
+            ltw,
+            build_ms: 0.,
+            frame_ms: vec![],
+            written_first: 0,
+            written_last: 0,
+            steering_types_present: false,
+            steering_live_candidates: 0,
+            steering_input_updates: 0,
+        };
+        let marker = super::matrix_instance([
+            1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+        ])
+        .unwrap();
+        let mut scene = SceneData {
+            groups: vec![],
+            markers: vec![marker],
+            marker_entities: vec![entity],
+            stats: SceneStats::default(),
+            bounds: ([0.; 3], [1.; 3]),
+        };
+        assert_eq!(sim.advance(9, 4).unwrap(), 0);
+        assert_eq!(sim.advance(1, 4).unwrap(), 1);
+        assert_eq!(sim.apply(&mut scene), (1, 0));
+        assert_eq!(scene.markers[0].model[3][..3], [1., 2., 3.]);
+        sim.world
+            .store
+            .set_component_bytes(entity, position, &floats([4., 5., 6.]))
+            .unwrap();
+        assert_eq!(sim.advance(10, 4).unwrap(), 1);
+        sim.apply(&mut scene);
+        assert_eq!(scene.markers[0].model[3][..3], [4., 5., 6.]);
+        assert_eq!(sim.advance(1000, 4).unwrap(), 4);
+        assert_eq!(sim.advance(0, 4).unwrap(), 0);
+    }
+
+    #[test]
     fn requires_both_mesh_and_material_to_be_static() {
         assert!(!needs_runtime_or_range_resolution(
             MaterialMeshInfo::from_render_mesh_array_indices(0, 0, 0)
