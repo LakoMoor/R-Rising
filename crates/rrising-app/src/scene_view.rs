@@ -1129,6 +1129,7 @@ pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result
         sched.add_group("SetInput")?;
         sched.add_system("SetInput", Box::new(SharedSteeringSystem::new(types)))?;
     }
+    sched.add_group("ExperimentalPlayer")?;
     sched.add_group("Simulation")?;
     sched.add_system("Simulation", Box::new(TransformSystem::new(tt)))?;
     let mut frame_ms = Vec::with_capacity(frames);
@@ -1166,6 +1167,34 @@ pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result
 }
 
 impl SimWorld {
+    /// Install an explicitly approximate, single-player movement driver.
+    pub fn enable_experimental_player_motion(&mut self, entity: Entity) -> Result<()> {
+        let types =
+            rrising_core::ordinary_movement_ecs::OrdinaryMovementTypes::from_world(&self.world)?;
+        let input = self
+            .world
+            .types
+            .type_index_of("ProjectM.EntityInput")
+            .context("player input missing")?;
+        // Validate all accessed fields before modifying the schedule.
+        self.world.store.component_bytes(entity, input)?;
+        self.world.store.component_bytes(entity, types.movement)?;
+        self.world.store.component_bytes(entity, types.velocity)?;
+        self.world
+            .store
+            .component_bytes(entity, types.move_velocity)?;
+        self.world
+            .store
+            .component_bytes(entity, types.translation)?;
+        self.schedule.add_system(
+            "ExperimentalPlayer",
+            Box::new(ExperimentalPlayerMotion {
+                entity,
+                input,
+                types,
+            }),
+        )
+    }
     /// Advance a retained world on fixed steps; the step cap limits catch-up after a pause.
     pub fn advance(&mut self, elapsed_ns: u64, max_steps: u32) -> Result<u32> {
         self.schedule
@@ -1201,6 +1230,56 @@ impl SimWorld {
             fix(inst, e);
         }
         (ok, missing)
+    }
+}
+
+/// Deliberate approximation: invokes recovered leaf bodies in a host-defined order.
+/// It is not the original command scheduler, and excludes abilities and collisions.
+struct ExperimentalPlayerMotion {
+    entity: Entity,
+    input: rrising_ecs::TypeIndex,
+    types: rrising_core::ordinary_movement_ecs::OrdinaryMovementTypes,
+}
+
+impl rrising_ecs::System for ExperimentalPlayerMotion {
+    fn name(&self) -> &str {
+        "ExperimentalPlayerMotion"
+    }
+    fn update(
+        &mut self,
+        world: &mut rrising_ecs::World,
+        ctx: &rrising_ecs::FrameContext,
+    ) -> Result<()> {
+        let input = world
+            .store
+            .component_bytes(self.entity, self.input)?
+            .to_vec();
+        let mut movement = world
+            .store
+            .component_bytes(self.entity, self.types.movement)?
+            .to_vec();
+        rrising_core::movement::setup_ability_movement(&mut movement, &input)?;
+        world
+            .store
+            .set_component_bytes(self.entity, self.types.movement, &movement)?;
+        let mut command = [0u8; rrising_core::command_movement::INPUT_COMMAND_SIZE];
+        rrising_core::command_movement::write_command_input_from_world(
+            world,
+            self.entity,
+            &mut command,
+            self.input,
+        )?;
+        command[144..148].copy_from_slice(&(ctx.delta_ns as f32 * 1e-9).to_le_bytes());
+        rrising_core::ordinary_movement_ecs::step_ordinary_command_bytes(
+            world,
+            self.entity,
+            self.types,
+            &command,
+            true,
+        )
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -1557,6 +1636,50 @@ mod managed_array_tests {
         assert_eq!(&bytes[4..8], &(-0.5f32).to_le_bytes());
         let matrix = sim.world.store.component_bytes(entity, sim.ltw).unwrap();
         assert_eq!(&matrix[48..60], &position);
+    }
+
+    #[test]
+    #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
+    fn experimental_motion_advances_player_on_fixed_steps() {
+        use super::{simulate, spawn_player, STEP_NS};
+        use std::path::PathBuf;
+        let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
+        let layouts = PathBuf::from(
+            std::env::var_os("RRISING_LAYOUT_REPORT").expect("RRISING_LAYOUT_REPORT"),
+        );
+        let scene =
+            data.join("StreamingAssets/EntityScenes/c6d34432693f24046ae5916650cc70ef.0.entities");
+        let mut sim = simulate(&layouts, &scene, 0).unwrap();
+        let player = spawn_player(&mut sim.world, &data, &layouts).unwrap();
+        sim.enable_experimental_player_motion(player).unwrap();
+        let input = sim
+            .world
+            .types
+            .type_index_of("ProjectM.EntityInput")
+            .unwrap();
+        rrising_core::player_input::write_player_movement(&mut sim.world, player, input, [1., 0.])
+            .unwrap();
+        let translation = sim
+            .world
+            .types
+            .type_index_of("Unity.Transforms.Translation")
+            .unwrap();
+        let read_x = |world: &rrising_ecs::World| {
+            f32::from_le_bytes(
+                world.store.component_bytes(player, translation).unwrap()[..4]
+                    .try_into()
+                    .unwrap(),
+            )
+        };
+        let start = read_x(&sim.world);
+        assert_eq!(sim.advance(STEP_NS * 3, 4).unwrap(), 3);
+        let moved = read_x(&sim.world);
+        assert!((moved - start - 4.0 * 3.0 * STEP_NS as f32 * 1e-9).abs() < 0.001);
+        rrising_core::player_input::write_player_movement(&mut sim.world, player, input, [0., 0.])
+            .unwrap();
+        sim.advance(STEP_NS * 2, 4).unwrap();
+        assert_eq!(read_x(&sim.world), moved);
+        assert!((sim.instance(player).unwrap().model[3][0] - moved).abs() < 0.0001);
     }
 
     #[test]

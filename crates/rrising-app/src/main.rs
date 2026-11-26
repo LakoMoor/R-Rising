@@ -48,6 +48,7 @@ struct Options {
     control_entity: Option<rrising_ecs::Entity>,
     spawn_player: bool,
     animate_player: bool,
+    experimental_motion: bool,
     terrain_chunk: Option<u16>,
     terrain_neighbors: Vec<u16>,
     server_data: Option<PathBuf>,
@@ -88,6 +89,7 @@ fn parse_args() -> Result<Options> {
         control_entity: None,
         spawn_player: false,
         animate_player: false,
+        experimental_motion: false,
         terrain_chunk: None,
         terrain_neighbors: Vec::new(),
         server_data: None,
@@ -123,6 +125,7 @@ fn parse_args() -> Result<Options> {
             "--scene-live" => opt.scene_live = true,
             "--spawn-player" => opt.spawn_player = true,
             "--animate-player" => opt.animate_player = true,
+            "--experimental-motion" => opt.experimental_motion = true,
             "--terrain-chunk" => {
                 let value = take()?;
                 let (x, z) = value.split_once(',').context("--terrain-chunk needs x,z")?;
@@ -195,6 +198,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         !opt.animate_player || (opt.spawn_player && opt.scene_live),
         "--animate-player requires --scene-live --spawn-player"
+    );
+    anyhow::ensure!(
+        !opt.experimental_motion || (opt.spawn_player && opt.scene_live),
+        "--experimental-motion requires --scene-live --spawn-player"
     );
     anyhow::ensure!(opt.terrain_chunk.is_none() || (opt.scene.is_some() && opt.server_data.is_some() && opt.server_layouts.is_some() && !opt.scene_live && opt.scene_sim.is_none() && !opt.spawn_player && opt.export_web.is_none() && opt.compare.is_none()), "--terrain-chunk requires --scene, --server-data and --server-layouts and supports static native viewing only");
     anyhow::ensure!(
@@ -951,6 +958,10 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let selected_entity = if opt.spawn_player {
             let sim = sim.as_mut().context("spawn needs live world")?;
             let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
+            if opt.experimental_motion {
+                sim.enable_experimental_player_motion(entity)?;
+                println!("Experimental motion enabled: approximate ordering, no collision, abilities, networking, or original scheduling.");
+            }
             sim.advance(16_666_667, 1)?;
             let instance = sim
                 .instance(entity)

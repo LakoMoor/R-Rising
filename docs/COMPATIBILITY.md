@@ -874,6 +874,16 @@ or establish Unity parity; it runs even while the player stands still. A pinned-
 both model parts' topology and changed vertices between sampled poses. A bounded native run
 reached the render loop without logged GPU errors, but the window was not visually inspected.
 
+`--scene-live --spawn-player --experimental-motion` opts into an approximate fixed-step
+movement prototype. It deliberately executes the recovered ability-setup body, command-field
+selection and ordinary movement arithmetic in a host-defined order for the selected player;
+WASD feeds its EntityInput using the viewer's camera yaw. A pinned-data integration test checks
+three steps of movement, two stopped steps and LocalToWorld propagation. This mode assumes
+movement is permitted and reruns ability setup on every step; it does not implement the original
+system's other writes, collision, network, ability state, camera follow or game scheduler. The
+prefab's starting position is unverified and may be obstructed. It is a movement prototype,
+not evidence of gameplay parity or a playable game.
+
 The owner's client archive `ade72d3099b8ad7fbfcba0827fe43cd7` also contains male and female
 customization-screen character prefabs. The `character_inventory` example resolves their skinned
 renderers, joints, blend indices and bind poses: body meshes have 2,640/3,428 vertices and 80/83
