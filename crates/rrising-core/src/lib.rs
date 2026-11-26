@@ -11,6 +11,7 @@ pub mod helpers;
 pub mod movement;
 pub mod pathfinding;
 pub mod player_input;
+pub mod player_movement;
 #[cfg(feature = "content")]
 pub mod scene;
 

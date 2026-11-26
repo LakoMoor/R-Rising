@@ -816,9 +816,9 @@ players. The pinned Silver Mountain scene returned no eligible entities in a loc
 or spawning a live controlled player still requires additional systems and content handling.
 
 Client `GameplayInputSystem.GetMovement` at RVA `0x7d907d0` has an initial isolated instruction
-replay (`tools/capture_player_get_movement.py`). The 36 recorded cases use an identity camera
-quaternion and include zero input, small input, mode and flag variations. The harness supplies
+replay (`tools/capture_player_get_movement.py`). The 560 recorded cases cover five camera
+quaternions, zero and threshold-adjacent inputs, four modes and flag variations. The harness supplies
 initialized metadata/zero state and substitutes `sqrtss` for a math wrapper; it is not the live
 client input pipeline. The original applies thresholds, camera rotation and mode-dependent scaling,
-so the experimental raw WASD input must not be interpreted as a port of this function. Arbitrary
-camera rotation, boundary values and the full gameplay pipeline still need verification.
+so the experimental raw WASD input must not be interpreted as a port of this function. The Rust calculation matches all 560 recorded cases bit for bit. Arbitrary rotations, non-finite
+values and the full gameplay pipeline still need verification.
