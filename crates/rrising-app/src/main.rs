@@ -49,6 +49,7 @@ struct Options {
     spawn_player: bool,
     animate_player: bool,
     terrain_chunk: Option<u16>,
+    terrain_neighbors: Vec<u16>,
     server_data: Option<PathBuf>,
     server_layouts: Option<PathBuf>,
     animation_frame: Option<usize>,
@@ -88,6 +89,7 @@ fn parse_args() -> Result<Options> {
         spawn_player: false,
         animate_player: false,
         terrain_chunk: None,
+        terrain_neighbors: Vec::new(),
         server_data: None,
         server_layouts: None,
         animation_frame: None,
@@ -127,6 +129,16 @@ fn parse_args() -> Result<Options> {
                 let x: i8 = x.parse()?;
                 let z: i8 = z.parse()?;
                 opt.terrain_chunk = Some(u16::from_le_bytes([x as u8, z as u8]));
+            }
+            "--terrain-neighbor" => {
+                let value = take()?;
+                let (x, z) = value
+                    .split_once(',')
+                    .context("--terrain-neighbor needs x,z")?;
+                opt.terrain_neighbors.push(u16::from_le_bytes([
+                    x.parse::<i8>()? as u8,
+                    z.parse::<i8>()? as u8,
+                ]));
             }
             "--server-data" => opt.server_data = Some(PathBuf::from(take()?)),
             "--server-layouts" => opt.server_layouts = Some(PathBuf::from(take()?)),
@@ -185,6 +197,10 @@ fn parse_args() -> Result<Options> {
         "--animate-player requires --scene-live --spawn-player"
     );
     anyhow::ensure!(opt.terrain_chunk.is_none() || (opt.scene.is_some() && opt.server_data.is_some() && opt.server_layouts.is_some() && !opt.scene_live && opt.scene_sim.is_none() && !opt.spawn_player && opt.export_web.is_none() && opt.compare.is_none()), "--terrain-chunk requires --scene, --server-data and --server-layouts and supports static native viewing only");
+    anyhow::ensure!(
+        opt.terrain_neighbors.is_empty() || opt.terrain_chunk.is_some(),
+        "--terrain-neighbor requires --terrain-chunk"
+    );
     anyhow::ensure!(
         opt.animation_frame.is_none()
             || (opt.spawn_player
@@ -819,7 +835,13 @@ fn open_content(opt: &Options) -> Result<GameContent> {
 type LiveScene = Option<(scene_view::SimWorld, scene_view::SceneData)>;
 type ControlTarget = Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>;
 
-fn place_terrain(opt: &Options, scene_path: &Path, data: &mut scene_view::SceneData) -> Result<()> {
+fn place_terrain(
+    opt: &Options,
+    content: &GameContent,
+    layouts_path: &Path,
+    scene_path: &Path,
+    data: &mut scene_view::SceneData,
+) -> Result<()> {
     let Some(chunk) = opt.terrain_chunk else {
         return Ok(());
     };
@@ -844,6 +866,46 @@ fn place_terrain(opt: &Options, scene_path: &Path, data: &mut scene_view::SceneD
         .placement_matrix(chunk)
         .context("terrain placement")?;
     scene_view::place_terrain_section(data, matrix);
+    let mut seen = std::collections::BTreeSet::from([chunk]);
+    let directory = opt.data.join("StreamingAssets/EntityScenes");
+    for &neighbor in &opt.terrain_neighbors {
+        anyhow::ensure!(
+            seen.insert(neighbor),
+            "duplicate terrain chunk {neighbor:#06x}"
+        );
+        let source = catalog
+            .source(neighbor)
+            .context("neighbor terrain chunk not found")?;
+        let mut matches = Vec::new();
+        for entry in std::fs::read_dir(&directory)? {
+            let path = entry?.path();
+            let Some(name) = path.file_name().and_then(|v| v.to_str()) else {
+                continue;
+            };
+            if name.ends_with(".0.entities")
+                && rrising_ecs::Hash128::from_guid(name.split('.').next().unwrap_or(""))
+                    == source.scene
+            {
+                matches.push(path);
+            }
+        }
+        anyhow::ensure!(
+            matches.len() == 1,
+            "neighbor scene missing or ambiguous for {neighbor:#06x}"
+        );
+        let mut next = scene_view::collect(content, &opt.data, layouts_path, &matches[0])?;
+        scene_view::place_terrain_section(
+            &mut next,
+            catalog
+                .placement_matrix(neighbor)
+                .context("neighbor placement")?,
+        );
+        scene_view::append_static_section(data, next);
+        println!(
+            "Placed neighbor {neighbor:#06x}, yaw {} degrees",
+            source.rotation_degrees
+        );
+    }
     println!(
         "Placed terrain chunk {chunk:#06x}, yaw {} degrees; experimental static placement.",
         source.rotation_degrees
@@ -875,7 +937,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
         apply_sim(&opt, &layouts, scene_path, &mut data)?;
-        place_terrain(&opt, scene_path, &mut data)?;
+        place_terrain(&opt, &content, &layouts, scene_path, &mut data)?;
         let mut fly = Some(scene_view::FlyCam::framing(data.bounds));
         let mut sim = if opt.scene_live {
             println!(
@@ -1213,7 +1275,7 @@ fn run_offscreen(opt: &Options) -> Result<()> {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
         apply_sim(opt, &layouts, scene_path, &mut data)?;
-        place_terrain(opt, scene_path, &mut data)?;
+        place_terrain(opt, &content, &layouts, scene_path, &mut data)?;
         let cam = if opt.spawn_player {
             let mut sim = scene_view::simulate(&layouts, scene_path, 0)?;
             let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;

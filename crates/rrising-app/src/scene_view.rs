@@ -111,6 +111,27 @@ pub struct SceneData {
     pub bounds: ([f32; 3], [f32; 3]),
 }
 
+/// Merge placed static sections; mesh ids are local to each section and must be remapped.
+pub fn append_static_section(data: &mut SceneData, mut other: SceneData) {
+    let offset = data
+        .groups
+        .iter()
+        .map(|g| g.mesh_id)
+        .max()
+        .map_or(0, |n| n + 1);
+    for group in &mut other.groups {
+        group.mesh_id += offset;
+    }
+    for axis in 0..3 {
+        data.bounds.0[axis] = data.bounds.0[axis].min(other.bounds.0[axis]);
+        data.bounds.1[axis] = data.bounds.1[axis].max(other.bounds.1[axis]);
+    }
+    data.groups.append(&mut other.groups);
+    data.markers.append(&mut other.markers);
+    data.marker_entities.append(&mut other.marker_entities);
+    data.stats.note = "Statistics describe the first section only".into();
+}
+
 /// Apply the recovered section placement to the baked draw matrices. This does
 /// not reproduce terrain streaming or prove correspondence to a live world.
 pub fn place_terrain_section(data: &mut SceneData, placement: float4x4) {
@@ -1321,6 +1342,35 @@ pub fn player_walk_samples(
 mod managed_array_tests {
     use super::{needs_runtime_or_range_resolution, parse_index_arrays};
     use rrising_ecs::MaterialMeshInfo;
+
+    #[test]
+    fn merged_static_sections_preserve_distinct_meshes_and_bounds() {
+        use super::{append_static_section, ReadyGroup, SceneData, SceneStats};
+        use std::sync::Arc;
+        let section = |x: f32| SceneData {
+            groups: vec![ReadyGroup {
+                name: "mesh".into(),
+                mesh_id: 0,
+                verts: Arc::new(vec![]),
+                inds: Arc::new(vec![]),
+                texture: None,
+                cutout: false,
+                instances: vec![],
+                entities: vec![],
+            }],
+            markers: vec![],
+            marker_entities: vec![],
+            stats: SceneStats::default(),
+            bounds: ([x, 0., 0.], [x + 1., 1., 1.]),
+        };
+        let mut first = section(0.);
+        append_static_section(&mut first, section(10.));
+        assert_eq!(
+            first.groups.iter().map(|g| g.mesh_id).collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert_eq!(first.bounds, ([0., 0., 0.], [11., 1., 1.]));
+    }
 
     #[test]
     fn terrain_placement_transforms_instances_and_camera_bounds() {

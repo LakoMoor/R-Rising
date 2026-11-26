@@ -34,3 +34,10 @@ The static native viewer now accepts `--terrain-chunk x,z --server-data <server 
 the recovered placement matrix to instance transforms and camera bounds. Chunk (2,0) rendered
 successfully using the pinned client/server files. This establishes the implementation path,
 not its agreement with the running original, neighboring chunks, or live streaming.
+
+The static viewer also accepts repeatable `--terrain-neighbor x,z` options alongside
+`--terrain-chunk`. An offscreen run placed entries (2,0) and (3,0) together; their
+[diagnostic screenshot](../docs/screenshots/experimental-two-chunks.png) shows two identical
+sections because both entries use the same source GUID. This is a placement experiment, not
+proof of the original world's runtime composition or streaming. Scene statistics principally
+describe the primary section; merged geometry is not a complete world inventory.

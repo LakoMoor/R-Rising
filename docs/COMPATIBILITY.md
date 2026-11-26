@@ -799,15 +799,15 @@ by the saved shared-steering replays; it is not a replay of the original client 
 
 The native viewer has an opt-in `--scene-live` mode which retains a scene World and Schedule and
 advances existing steering/transform systems on fixed steps while the window is open. This is an
-experimental ECS loop: WASD still controls the camera, and player selection, input-to-locomotion,
-collision, animation, HUD and original system ordering remain unimplemented. The mode requires the
-owner's scene and layout report; it has not been visually verified in the present environment.
+experimental ECS loop: without a selected entity WASD controls the camera. Input-to-locomotion,
+collision, gameplay animation, HUD and original system ordering remain unimplemented. The mode
+requires the owner's scene and layout report; interactive behavior has not been verified.
 
 The native experimental scene viewer accepts `--scene-live --control-entity INDEX:VERSION`.
 It validates the specified entity is live, not Prefab/Disabled and has a 96-byte EntityInput;
 WASD uses the isolated GetMovement calculation with the viewer camera yaw and experimental mode 0, then writes X/Z into that component while preserving aim and action bytes. This is
 a diagnostic input path, not a confirmed original keyboard mapping, automatic player identification or movement:
-no player locomotion/collision/animation is implemented and a steering system can overwrite input.
+no player locomotion or collision is implemented and a steering system can overwrite input.
 Original scene/world and GUI operation have not yet been verified for this mode.
 
 `--list-input-entities <scene> --type-layouts <report>` lists live non-Prefab/non-Disabled
@@ -832,9 +832,9 @@ For a local diagnostic, `--scene-live --spawn-player` now partially clones the c
 with GUID 38526109 into the loaded scene world and selects its live PlayerCharacter/EntityInput
 entity for the experimental WASD input path. A pinned-data integration test confirms that this
 creates three linked entities, including one live player input, in the Silver Mountain scene.
-Unresolved external references and managed components are not cloned; the player has no visual
-binding, animation, locomotion or collision in this path. This is not a playable demo or an
-original gameplay scenario.
+Unresolved external references and managed components are not cloned; an explicitly selected
+diagnostic visual and optional looping clip are described below. Locomotion and collision are
+not implemented in this path. This is not a playable demo or an original gameplay scenario.
 
 On 2026-11-26 the native window was launched with this option and the pinned client Silver
 Mountain scene, then stopped after a bounded 35-second run. It loaded all 4,409 catalog archives,
