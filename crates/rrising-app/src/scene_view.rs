@@ -1296,9 +1296,24 @@ mod managed_array_tests {
             [0.25, -0.5],
         )
         .unwrap();
+        let translation = sim
+            .world
+            .types
+            .type_index_of("Unity.Transforms.Translation")
+            .unwrap();
+        let position: Vec<u8> = [12.0f32, 3.0, -7.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        sim.world
+            .store
+            .set_component_bytes(entity, translation, &position)
+            .unwrap();
         sim.advance(STEP_NS, 1).unwrap();
         let bytes = sim.world.store.component_bytes(entity, input).unwrap();
         assert_eq!(&bytes[..4], &0.25f32.to_le_bytes());
         assert_eq!(&bytes[4..8], &(-0.5f32).to_le_bytes());
+        let matrix = sim.world.store.component_bytes(entity, sim.ltw).unwrap();
+        assert_eq!(&matrix[48..60], &position);
     }
 }

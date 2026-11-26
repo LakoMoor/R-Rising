@@ -836,6 +836,15 @@ Unresolved external references and managed components are not cloned; the player
 binding, animation, locomotion or collision in this path. This is not a playable demo or an
 original gameplay scenario.
 
+On 2026-11-26 the native window was launched with this option and the pinned client Silver
+Mountain scene, then stopped after a bounded 35-second run. It loaded all 4,409 catalog archives,
+created a three-member player prefab and rendered more than 1,800 frames without a reported
+render error. This verifies startup and continued rendering only; no keyboard interaction,
+player visibility, gameplay parity or comparison to the original was checked in that run.
+The pinned-data integration test additionally changes the spawned player's Translation and
+confirms that a fixed transform step propagates it to LocalToWorld. This checks a rendering
+prerequisite, not locomotion or the player's visual binding.
+
 The owner's client archive `ade72d3099b8ad7fbfcba0827fe43cd7` also contains male and female
 customization-screen character prefabs. The `character_inventory` example resolves their skinned
 renderers, joints, blend indices and bind poses: body meshes have 2,640/3,428 vertices and 80/83
