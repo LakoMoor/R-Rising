@@ -849,7 +849,21 @@ The owner's client archive `ade72d3099b8ad7fbfcba0827fe43cd7` also contains male
 customization-screen character prefabs. The `character_inventory` example resolves their skinned
 renderers, joints, blend indices and bind poses: body meshes have 2,640/3,428 vertices and 80/83
 bones respectively. These are customization assets; their relationship to a spawned gameplay
-character has not been established, and skinning and animation are not yet implemented.
+character has not been established, and animation is not yet implemented.
+
+An experimental CPU skinning path now draws the male customization prefab's body and cape in
+their serialized pose, using bone transforms, bind poses and blend weights. The local diagnostic
+`cargo run -p rrising-app --example character_pose -- /tmp/character.png` needs `VRISING_DATA`
+and an available GPU. The [diagnostic screenshot](screenshots/experimental-character-pose.png)
+shows this result with a neutral material: it has no head, textures, blend shapes or animation,
+and is not a gameplay screenshot. Normal transformation currently assumes rigid bones; neither
+visual parity nor animation accuracy has been measured.
+
+The same diagnostic can target the candidate gameplay asset using
+`character_pose /tmp/player.png ae19a255904fd765632aa97a2d7c670c HYB_VampireMale_Prefab/`.
+On the pinned installation this rendered a 2,640-vertex body and 291-vertex cape and produced
+the same PNG bytes as the customization pose above. This confirms the diagnostic output for
+these two asset paths, not which HybridModel GUID selects them or how the game animates them.
 
 The server `MoveEntitySystem.OnUpdate` calls `CommandUtility.DoMovement` (server GameAssembly
 RVA `0x83acd50`). Its ordinary branch has a Rust implementation checked bit-for-bit against
@@ -858,6 +872,13 @@ calls and substitutes `sqrtss`; its cases exclude force-position, move-stop, cas
 input/speed values. This branch is not connected to the scene loop: determining its real ECS
 inputs and handling the excluded paths, collision and original scheduling remain necessary.
 The server RVA must not be applied to the client binary.
+
+The server's command builder has a separate selection step: for a valid controlled entity,
+it takes `EntityInput` when `Movement` is absent, or `Movement.MoveInput` when present unless
+spell control suppresses movement. The bounded selection matches 36 isolated instruction-replay
+cases, including non-finite bit patterns. Controller validation and actual ECS lookups were
+supplied by the harness; this does not establish the full input pipeline or connect it to play.
+See [input-to-movement evidence](../evidence/player_command_movement_path.md).
 
 The pinned player prefab GUID `38526109` can be instantiated as a partial server-side ECS
 projection: three linked entities and 120 candidate component values, including PlayerCharacter,

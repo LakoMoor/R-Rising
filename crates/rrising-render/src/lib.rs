@@ -8,6 +8,8 @@
 mod bc;
 pub mod mesh;
 pub mod renderer;
+#[cfg(feature = "unity")]
+pub mod skin;
 pub mod snapshot;
 pub mod texture;
 #[cfg(feature = "unity")]

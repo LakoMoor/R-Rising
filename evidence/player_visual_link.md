@@ -1,0 +1,31 @@
+# Client player hybrid-model references (pinned v1.1.13)
+
+`VRISING_DATA=... RRISING_LAYOUT_REPORT=... cargo run -p rrising-content --example player_visual_trace`
+locates prefab GUID 38526109 in client scene `295c92b7a799a3443b40e9ef192b5727.0.entities`.
+The three linked members include a root carrying `ProjectM.PlayerCharacter`, `ProjectM.CurrentGender`,
+`ProjectM.CustomizationFeatures`, `ProjectM.Hybrid.UseHybridModel`, `HybridModelSeed`, and
+`AnimationStateBuffer`. `UseHybridModel` is skipped by the partial clone because it contains a
+blob reference. Its serialized first field resolves to a 48-byte blob. The BlobArray header is
+relative offset 8, length 2; the 20-byte entries contain these 16-byte AssetGuid values (raw byte
+order), followed by model type `1` and padding:
+
+```
+60398cf90a047ec4c8ce962b8b8b89ca  1
+cd323caa3f6421f4dbcb0827b8aaa4c4  1
+```
+
+The exact-build IL2CPP metadata identifies `UseHybridModel.Models` as
+`BlobAssetReference<UseHybridModelPrefabsBlob>`, whose entries are AssetGuid and HybridModelType;
+type 1 is GameObject. The metadata identifies `HybridModelSystem` as a presentation system with
+model streaming and an entity-to-GameObject map; actual selection/animation has not been replayed.
+An exact-byte search of original `.entities` files finds the first GUID in streaming subscene
+`ddfc6a4db4009e2448b8f8b6f0965b8f.406.entities` and the second in section `.407.entities`, as well
+as both in that subscene's `.0.entities`. This is a byte-location observation; the semantic section
+binding still requires decoding the section metadata.
+
+`VRISING_DATA=... cargo run -p rrising-content --example visual_assets_trace` resolves candidate
+ReferencedUnityObjects for the streaming scene and finds `HYB_VampireMale_Prefab` at object
+`ae19a255904fd765632aa97a2d7c670c:3580734981422474692` and `HYB_VampireFemale_Prefab` at
+`b6c00f47467ce13af74ddea1cd781444:1755848559842945088`. These names and scene membership are
+observations, not proof which GUID selects which object. The matching table-to-section association,
+gender mapping, runtime binding, animator state and rig evaluation remain unverified.
