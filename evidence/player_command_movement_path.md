@@ -24,6 +24,18 @@ at `+0x14`. `DoCommand` loads the first 16 command bytes at `0x83a918d` and
 passes the address of the copied movement input at `0x83a9725`.
 The separate raw input and command direction fields cannot be conflated.
 
+Direct relative calls to `DoCommand` in the server image occur in
+`PlayCommandsSystem_Server.OnUpdate` at RVA `0x839f598` and
+`PlayCommandsSystem_Client.OnUpdate` at `0x83a622e`. The latter has metadata
+`UpdateAfter(CreateInputCommandsSystem)` in `PlayCommandSystemGroup` and
+queries `InputCommandDataProxy`, `InputCommandBufferElement` and `Controller`.
+`Controller.Controlled` and `InputCommandDataProxy.CommandDataEntity` are
+networked references; the buffer contains direction, raw input, frame numbers,
+end time and delta time. This static path identifies a subsequent command
+consumer, not a running client trace. Its lookup, buffering, replay, collision,
+and full call prerequisites remain to be reconstructed. Server-image RVAs are
+not client-image addresses.
+
 The compiled `CreateInputCommandsSystem.OnUpdate` (RVA `0x7e4e050`) queries a
 command buffer, `EntityInput`, and `Controller`. It copies all 96 bytes of the
 input into the `RawInput` portion of a temporary command at `0x7e4e71b` through
