@@ -842,6 +842,14 @@ renderers, joints, blend indices and bind poses: body meshes have 2,640/3,428 ve
 bones respectively. These are customization assets; their relationship to a spawned gameplay
 character has not been established, and skinning and animation are not yet implemented.
 
+The server `MoveEntitySystem.OnUpdate` calls `CommandUtility.DoMovement` (server GameAssembly
+RVA `0x83acd50`). Its ordinary branch has a Rust implementation checked bit-for-bit against
+2,240 isolated x86-64 instruction replays under Rosetta. The harness stubs world-type and debug
+calls and substitutes `sqrtss`; its cases exclude force-position, move-stop, casting and unusual
+input/speed values. This branch is not connected to the scene loop: determining its real ECS
+inputs and handling the excluded paths, collision and original scheduling remain necessary.
+The server RVA must not be applied to the client binary.
+
 The pinned player prefab GUID `38526109` can be instantiated as a partial server-side ECS
 projection: three linked entities and 120 candidate component values, including PlayerCharacter,
 EntityInput, Movement, Translation and LocalToWorld on one entity. This projection deliberately

@@ -9,6 +9,7 @@ pub mod aim;
 pub mod easing;
 pub mod helpers;
 pub mod movement;
+pub mod ordinary_movement;
 pub mod pathfinding;
 pub mod player_input;
 pub mod player_movement;
