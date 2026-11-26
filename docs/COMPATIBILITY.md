@@ -833,3 +833,8 @@ projection: three linked entities and 120 candidate component values, including 
 EntityInput, Movement, Translation and LocalToWorld on one entity. This projection deliberately
 omits nonportable, managed, network and unresolved externally referenced components. It is not a
 spawned or rendered player, nor a test of player movement or gameplay parity.
+
+A local integration test now instantiates the partial server player prefab and writes a command to
+its EntityInput through the same Rust host boundary. It verifies the movement fields and preservation
+of the remaining bytes. No movement system is executed by this test; it is not an original runtime
+comparison or an interactive player demo.

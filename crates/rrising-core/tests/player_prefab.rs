@@ -3,7 +3,8 @@ use rrising_content::{
     prefab_catalog::ScenePrefabCatalog,
     type_layouts::{TypeLayouts, ENTITY_HASH},
 };
-use rrising_ecs::{EntityComponentStore, EntityQuery, SpecialTypes, TypeManager, TypeSpec};
+use rrising_core::player_input::{write_player_command, PlayerCommand};
+use rrising_ecs::{EntityQuery, SpecialTypes, TypeManager, TypeSpec, World, WorldInput};
 use std::path::PathBuf;
 
 #[test]
@@ -24,9 +25,15 @@ fn player_template_projection_contains_input_and_movement() {
     let entity_type = types
         .register(layouts.get(ENTITY_HASH).unwrap().spec.clone())
         .unwrap();
-    let mut store = EntityComponentStore::new(8, SpecialTypes::new(entity_type)).unwrap();
+    let mut world = World::build(
+        types,
+        SpecialTypes::new(entity_type),
+        8,
+        &WorldInput::default(),
+    )
+    .unwrap();
     let entities = template
-        .instantiate(&mut store, &mut types, &layouts)
+        .instantiate(&mut world.store, &mut world.types, &layouts)
         .unwrap();
     let mut present = Vec::new();
     for name in [
@@ -36,8 +43,9 @@ fn player_template_projection_contains_input_and_movement() {
         "Unity.Transforms.Translation",
         "Unity.Transforms.LocalToWorld",
     ] {
-        let count = types.type_index_of(name).map_or(0, |ty| {
-            store
+        let count = world.types.type_index_of(name).map_or(0, |ty| {
+            world
+                .store
                 .query_entities(&EntityQuery {
                     all: vec![ty],
                     ..Default::default()
@@ -53,5 +61,24 @@ fn player_template_projection_contains_input_and_movement() {
     );
     assert_eq!(entities.len(), 3);
     assert!(present.iter().all(|(_, count)| *count == 1));
-    assert!(entities.iter().all(|&e| store.exists(e).unwrap()));
+    let input = world.types.type_index_of("ProjectM.EntityInput").unwrap();
+    let player = world
+        .store
+        .query_entities(&EntityQuery {
+            all: vec![input],
+            ..Default::default()
+        })
+        .unwrap()[0];
+    let before = world.store.component_bytes(player, input).unwrap().to_vec();
+    let command = PlayerCommand {
+        movement: [0.25, -0.5],
+        aim_position: [1., 2., 3.],
+        aim_position_plane: [4., 5., 6.],
+    };
+    write_player_command(&mut world, player, input, command).unwrap();
+    let after = world.store.component_bytes(player, input).unwrap();
+    assert_eq!(&after[..4], &0.25f32.to_le_bytes());
+    assert_eq!(&after[4..8], &(-0.5f32).to_le_bytes());
+    assert_eq!(&after[32..], &before[32..]);
+    assert!(entities.iter().all(|&e| world.store.exists(e).unwrap()));
 }
