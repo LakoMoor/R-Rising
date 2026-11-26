@@ -492,6 +492,7 @@ struct App {
     live: Option<(scene_view::SimWorld, scene_view::SceneData)>,
     live_tick: Option<std::time::Instant>,
     control: Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>,
+    input_direction: [f32; 3],
 }
 
 impl App {
@@ -510,12 +511,26 @@ impl App {
             if let Some((entity, ty)) = self.control {
                 use winit::keyboard::KeyCode as K;
                 let key = |code| f32::from(u8::from(self.keys.contains(&code)));
-                let movement = [key(K::KeyD) - key(K::KeyA), key(K::KeyW) - key(K::KeyS)];
+                let axis = [key(K::KeyD) - key(K::KeyA), key(K::KeyW) - key(K::KeyS)];
+                // The viewer has a free camera, not the game's camera state. Use its yaw as
+                // an explicit experimental camera projection and the captured mode 0.
+                let yaw = self.fly.as_ref().map_or(0.0, |camera| camera.yaw);
+                let mut input = rrising_core::player_movement::MovementInput {
+                    axis,
+                    mode: 0,
+                    slow: false,
+                    last_direction: self.input_direction,
+                };
+                let movement = rrising_core::player_movement::get_movement(
+                    &mut input,
+                    [0.0, (yaw * 0.5).sin(), 0.0, (yaw * 0.5).cos()],
+                );
+                self.input_direction = input.last_direction;
                 if let Err(error) = rrising_core::player_input::write_player_movement(
                     &mut sim.world,
                     entity,
                     ty,
-                    movement,
+                    [movement[0], movement[2]],
                 ) {
                     log::error!("player input: {error:#}");
                     self.control = None;
@@ -758,7 +773,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                 sim.world.store.component_bytes(entity, ty)?.len() == 96,
                 "invalid EntityInput layout"
             );
-            println!("Experimental raw WASD input for {entity:?}: X/Z axes, no locomotion or animation system yet.");
+            println!("Experimental camera-relative WASD input for {entity:?}: no locomotion or animation system yet.");
             Some((entity, ty))
         } else {
             None

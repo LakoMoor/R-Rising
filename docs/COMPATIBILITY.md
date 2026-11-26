@@ -805,8 +805,8 @@ owner's scene and layout report; it has not been visually verified in the presen
 
 The native experimental scene viewer accepts `--scene-live --control-entity INDEX:VERSION`.
 It validates the specified entity is live, not Prefab/Disabled and has a 96-byte EntityInput;
-WASD writes raw world X/Z axes into that component while preserving aim and action bytes. This is
-a diagnostic input path, not original keyboard mapping, automatic player identification or movement:
+WASD uses the isolated GetMovement calculation with the viewer camera yaw and experimental mode 0, then writes X/Z into that component while preserving aim and action bytes. This is
+a diagnostic input path, not a confirmed original keyboard mapping, automatic player identification or movement:
 no player locomotion/collision/animation is implemented and a steering system can overwrite input.
 Original scene/world and GUI operation have not yet been verified for this mode.
 
