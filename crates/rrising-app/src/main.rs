@@ -1064,7 +1064,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                 sim.world.store.component_bytes(entity, ty)?.len() == 96,
                 "invalid EntityInput layout"
             );
-            println!("Experimental camera-relative WASD input for {entity:?}: no locomotion or gameplay animation system yet.");
+            println!("Experimental camera-relative WASD input for {entity:?}; original locomotion and gameplay animation systems are not implemented.");
             Some((entity, ty))
         } else {
             None

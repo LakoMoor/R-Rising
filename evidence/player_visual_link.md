@@ -44,3 +44,9 @@ the single occurrence of the corresponding `UseHybridModel` GUID bytes in each s
 The section content has not been semantically decoded to prove the role of its GUID occurrence;
 this is a strong static association, not an observed runtime selection. Gender-dependent selection,
 runtime entity binding, animator state and rig evaluation remain unverified.
+
+The pinned client contains a candidate `VampireMale_Face_Standard_Prefab` in serialized
+file `ae526d3c19a62d5cad7d4b511d1752c3`. Its `LOD00_GRP` contains `Head_GEO` and
+`Eyebrows01_GEO` renderers, readable by `Scene::renderers`; these meshes are not skinned.
+Their attachment to the gameplay skeleton, offset, customization selection and animation
+have not been established. This is an asset inventory, not a reconstructed head binding.
