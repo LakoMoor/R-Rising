@@ -11,6 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod input_control;
 mod scene_view;
 
 use anyhow::{Context, Result};
@@ -47,6 +48,7 @@ struct Options {
     scene_live: bool,
     control_entity: Option<rrising_ecs::Entity>,
     spawn_player: bool,
+    player_position: Option<[f32; 3]>,
     animate_player: bool,
     experimental_motion: bool,
     follow_player: bool,
@@ -59,6 +61,22 @@ struct Options {
     compare: Option<PathBuf>,
     bench: bool,
     frames: usize,
+}
+
+fn parse_player_position(value: &str) -> Result<[f32; 3]> {
+    let values: Vec<f32> = value
+        .split(',')
+        .map(str::parse)
+        .collect::<std::result::Result<_, _>>()
+        .context("--player-position needs x,y,z")?;
+    let position: [f32; 3] = values
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("--player-position needs exactly three coordinates"))?;
+    anyhow::ensure!(
+        position.iter().all(|v| v.is_finite()),
+        "--player-position coordinates must be finite"
+    );
+    Ok(position)
 }
 
 fn parse_args() -> Result<Options> {
@@ -89,6 +107,7 @@ fn parse_args() -> Result<Options> {
         scene_live: false,
         control_entity: None,
         spawn_player: false,
+        player_position: None,
         animate_player: false,
         experimental_motion: false,
         follow_player: false,
@@ -126,6 +145,7 @@ fn parse_args() -> Result<Options> {
             }
             "--scene-live" => opt.scene_live = true,
             "--spawn-player" => opt.spawn_player = true,
+            "--player-position" => opt.player_position = Some(parse_player_position(&take()?)?),
             "--animate-player" => opt.animate_player = true,
             "--experimental-motion" => opt.experimental_motion = true,
             "--follow-player" => opt.follow_player = true,
@@ -197,6 +217,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         !opt.spawn_player || ((opt.scene_live || (opt.scene.is_some() && opt.offscreen.is_some())) && opt.control_entity.is_none()),
         "--spawn-player requires --scene-live or --scene with --offscreen, and cannot be combined with --control-entity"
+    );
+    anyhow::ensure!(
+        opt.player_position.is_none() || opt.spawn_player,
+        "--player-position requires --spawn-player"
     );
     anyhow::ensure!(
         !opt.animate_player || (opt.spawn_player && opt.scene_live),
@@ -596,28 +620,16 @@ impl App {
         };
         if let (Some((sim, scene)), Some(loaded)) = (&mut self.live, &mut self.loaded) {
             if let Some((entity, ty)) = self.control {
-                use winit::keyboard::KeyCode as K;
-                let key = |code| f32::from(u8::from(self.keys.contains(&code)));
-                let axis = [key(K::KeyD) - key(K::KeyA), key(K::KeyW) - key(K::KeyS)];
                 // The viewer has a free camera, not the game's camera state. Use its yaw as
                 // an explicit experimental camera projection and the captured mode 0.
                 let yaw = self.fly.as_ref().map_or(0.0, |camera| camera.yaw);
-                let mut input = rrising_core::player_movement::MovementInput {
-                    axis,
-                    mode: 0,
-                    slow: false,
-                    last_direction: self.input_direction,
-                };
-                let movement = rrising_core::player_movement::get_movement(
-                    &mut input,
-                    [0.0, (yaw * 0.5).sin(), 0.0, (yaw * 0.5).cos()],
-                );
-                self.input_direction = input.last_direction;
-                if let Err(error) = rrising_core::player_input::write_player_movement(
+                if let Err(error) = input_control::write_input(
                     &mut sim.world,
                     entity,
                     ty,
-                    [movement[0], movement[2]],
+                    &self.keys,
+                    yaw,
+                    &mut self.input_direction,
                 ) {
                     log::error!("player input: {error:#}");
                     self.control = None;
@@ -786,11 +798,7 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => el.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
-                    if event.state.is_pressed() {
-                        self.keys.insert(code);
-                    } else {
-                        self.keys.remove(&code);
-                    }
+                    input_control::record_key(&mut self.keys, code, event.state);
                 }
             }
             WindowEvent::Focused(false) => {
@@ -1002,6 +1010,10 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let selected_entity = if opt.spawn_player {
             let sim = sim.as_mut().context("spawn needs live world")?;
             let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
+            if let Some(position) = opt.player_position {
+                scene_view::set_diagnostic_player_position(&mut sim.world, entity, position)?;
+                println!("Diagnostic player position {position:?}: not an original spawn, collision unchecked.");
+            }
             if opt.experimental_motion {
                 sim.enable_experimental_player_motion(entity)?;
                 println!("Experimental motion enabled: approximate ordering, no collision, abilities, networking, or original scheduling.");
@@ -1335,6 +1347,10 @@ fn run_offscreen(opt: &Options) -> Result<()> {
         let cam = if opt.spawn_player {
             let mut sim = scene_view::simulate(&layouts, scene_path, 0)?;
             let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
+            if let Some(position) = opt.player_position {
+                scene_view::set_diagnostic_player_position(&mut sim.world, entity, position)?;
+                println!("Diagnostic player position {position:?}: not an original spawn, collision unchecked.");
+            }
             sim.advance(16_666_667, 1)?;
             let instance = sim
                 .instance(entity)
@@ -2041,6 +2057,17 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{diff_images, follow_camera};
+
+    #[test]
+    fn diagnostic_position_requires_three_finite_values() {
+        assert_eq!(
+            super::parse_player_position("1,-2.5,3").unwrap(),
+            [1.0, -2.5, 3.0]
+        );
+        for invalid in ["1,2", "1,2,3,4", "nan,0,0", "inf,1,2", "bad,0,0"] {
+            assert!(super::parse_player_position(invalid).is_err());
+        }
+    }
 
     #[test]
     fn camera_follows_displacement_without_jumping_on_first_observation() {

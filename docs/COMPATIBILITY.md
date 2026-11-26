@@ -879,6 +879,11 @@ preserving its offset. This is not the original game's camera. A bounded native 
 `--experimental-motion` reached the render loop without a logged error, but keyboard interaction
 and the window image were not inspected during that run.
 
+`--player-position x,y,z` optionally places the partial player at explicit diagnostic coordinates;
+these are not an original spawn point and are not checked for collisions. A pinned-data integration
+test sends synthetic W press/release events through the same input handlers used by the window and
+checks movement and stopping over fixed steps. It does not test OS event delivery or game parity.
+
 `--scene-live --spawn-player --experimental-motion` opts into an approximate fixed-step
 movement prototype. It deliberately executes the recovered ability-setup body, command-field
 selection and ordinary movement arithmetic in a host-defined order for the selected player;

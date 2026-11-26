@@ -1096,7 +1096,6 @@ pub fn spawn_player(
 /// Place a cloned player at caller-supplied world coordinates for diagnostics.
 /// This does not select an original spawn point or perform collision checks.
 /// Run the transform schedule after calling it to update LocalToWorld.
-#[cfg(test)]
 pub fn set_diagnostic_player_position(
     world: &mut rrising_ecs::World,
     player: Entity,
@@ -1714,6 +1713,53 @@ mod managed_array_tests {
         sim.advance(STEP_NS * 2, 4).unwrap();
         assert_eq!(read_x(&sim.world), moved);
         assert!((sim.instance(player).unwrap().model[3][0] - moved).abs() < 0.0001);
+    }
+
+    #[test]
+    #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
+    fn diagnostic_key_press_and_release_drive_player() {
+        use super::{simulate, spawn_player, STEP_NS};
+        use crate::input_control::{record_key, write_input};
+        use std::{collections::HashSet, path::PathBuf};
+        use winit::{event::ElementState, keyboard::KeyCode};
+        let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
+        let layouts = PathBuf::from(
+            std::env::var_os("RRISING_LAYOUT_REPORT").expect("RRISING_LAYOUT_REPORT"),
+        );
+        let scene =
+            data.join("StreamingAssets/EntityScenes/c6d34432693f24046ae5916650cc70ef.0.entities");
+        let mut sim = simulate(&layouts, &scene, 0).unwrap();
+        let player = spawn_player(&mut sim.world, &data, &layouts).unwrap();
+        sim.enable_experimental_player_motion(player).unwrap();
+        let input = sim
+            .world
+            .types
+            .type_index_of("ProjectM.EntityInput")
+            .unwrap();
+        let translation = sim
+            .world
+            .types
+            .type_index_of("Unity.Transforms.Translation")
+            .unwrap();
+        let read_z = |world: &rrising_ecs::World| {
+            f32::from_le_bytes(
+                world.store.component_bytes(player, translation).unwrap()[8..12]
+                    .try_into()
+                    .unwrap(),
+            )
+        };
+        let mut keys = HashSet::new();
+        let mut last = [0.; 3];
+        let before = read_z(&sim.world);
+        record_key(&mut keys, KeyCode::KeyW, ElementState::Pressed);
+        write_input(&mut sim.world, player, input, &keys, 0., &mut last).unwrap();
+        sim.advance(STEP_NS * 3, 4).unwrap();
+        let moved = read_z(&sim.world);
+        assert!(moved > before);
+        record_key(&mut keys, KeyCode::KeyW, ElementState::Released);
+        write_input(&mut sim.world, player, input, &keys, 0., &mut last).unwrap();
+        sim.advance(STEP_NS * 2, 4).unwrap();
+        assert_eq!(read_z(&sim.world), moved);
     }
 
     #[test]
