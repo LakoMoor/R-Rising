@@ -9,6 +9,7 @@ pub mod aim;
 pub mod command_movement;
 pub mod easing;
 pub mod helpers;
+pub mod move_facing;
 pub mod movement;
 pub mod ordinary_movement;
 pub mod ordinary_movement_ecs;

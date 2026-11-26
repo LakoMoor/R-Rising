@@ -48,6 +48,15 @@ rotation speed, and other branches use aim or forced direction. This is static
 analysis on the server image, not a complete implementation or runtime trace;
 normalization edge cases and all remaining branches still need original replay.
 
+`tools/capture_move_facing.py` replays the ordinary nonzero movement-input slice
+(server RVAs `0x83aa956..0x83aa959`, `0x83aa95d..0x83aa989`, and
+`0x83aa997..0x83aa9ba`) in isolation under Rosetta. It supplies the 1.0 constant,
+substitutes `sqrtss` for the original math wrapper and assumes that the earlier
+positive-length and mouse-facing predicates passed. The Rust `movement_facing`
+matches 80 finite input pairs bit-for-bit. The function explicitly refuses zero,
+non-finite and overflowed input, and mouse-facing mode; it does not implement the
+other branches, the actual rotation, or rotation speed. This is not gameplay parity.
+
 The compiled `CreateInputCommandsSystem.OnUpdate` (RVA `0x7e4e050`) queries a
 command buffer, `EntityInput`, and `Controller`. It copies all 96 bytes of the
 input into the `RawInput` portion of a temporary command at `0x7e4e71b` through
