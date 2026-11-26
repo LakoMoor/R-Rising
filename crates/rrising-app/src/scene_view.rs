@@ -986,6 +986,53 @@ const SCALE_HASH: u64 = 0xadc0_56c7_729e_d01e;
 const POST_HASH: u64 = 0x0233_3773_b807_e90d;
 const STEP_NS: u64 = 16_666_667;
 
+/// Instantiate a partial clone of the pinned client player prefab in a scene world.
+/// Rendering, animation, locomotion and external prefab references are not supplied.
+pub fn spawn_player(
+    world: &mut rrising_ecs::World,
+    data: &Path,
+    layouts_path: &Path,
+) -> Result<Entity> {
+    use rrising_content::prefab_catalog::ScenePrefabCatalog;
+    use std::collections::BTreeSet;
+
+    let layouts = TypeLayouts::from_json(&std::fs::read(layouts_path)?)?;
+    let scene = SceneFile::open(
+        &data.join("StreamingAssets/EntityScenes/295c92b7a799a3443b40e9ef192b5727.0.entities"),
+    )?;
+    let mut catalog =
+        ScenePrefabCatalog::read_linked_templates(&scene, &layouts, &BTreeSet::from([38526109]))?;
+    let template = catalog
+        .linked_templates
+        .remove(&38526109)
+        .context("client player prefab not found")?;
+    let entities = template.instantiate(&mut world.store, &mut world.types, &layouts)?;
+    let player = world
+        .types
+        .type_index_of("ProjectM.PlayerCharacter")
+        .context("player type missing")?;
+    let input = world
+        .types
+        .type_index_of("ProjectM.EntityInput")
+        .context("player input type missing")?;
+    let candidates: Vec<_> = world
+        .store
+        .query_entities(&rrising_ecs::EntityQuery {
+            all: vec![player, input],
+            ..Default::default()
+        })?
+        .into_iter()
+        .filter(|entity| entities.contains(entity))
+        .collect();
+    anyhow::ensure!(
+        candidates.len() == 1,
+        "expected one live player input in cloned prefab, found {}",
+        candidates.len()
+    );
+    println!("Spawned partial client player prefab: {} linked entities, input target {:?}; rendering and locomotion are not implemented.", entities.len(), candidates[0]);
+    Ok(candidates[0])
+}
+
 /// Build a scene World and run fixed frames. Shared steering, if live candidates
 /// exist, updates EntityInput before transforms update LocalToWorld. No locomotion,
 /// navigation service or original game-loop ordering is supplied by this driver.
@@ -1222,5 +1269,36 @@ mod managed_array_tests {
         assert!(parse_index_arrays(&blob, 2).is_err());
         blob[6..10].copy_from_slice(&2i32.to_le_bytes());
         assert!(parse_index_arrays(&blob, 2).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
+    fn spawn_player_into_live_scene() {
+        use super::{simulate, spawn_player, STEP_NS};
+        use std::path::PathBuf;
+        let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
+        let layouts = PathBuf::from(
+            std::env::var_os("RRISING_LAYOUT_REPORT").expect("RRISING_LAYOUT_REPORT"),
+        );
+        let scene =
+            data.join("StreamingAssets/EntityScenes/c6d34432693f24046ae5916650cc70ef.0.entities");
+        let mut sim = simulate(&layouts, &scene, 0).unwrap();
+        let entity = spawn_player(&mut sim.world, &data, &layouts).unwrap();
+        let input = sim
+            .world
+            .types
+            .type_index_of("ProjectM.EntityInput")
+            .unwrap();
+        rrising_core::player_input::write_player_movement(
+            &mut sim.world,
+            entity,
+            input,
+            [0.25, -0.5],
+        )
+        .unwrap();
+        sim.advance(STEP_NS, 1).unwrap();
+        let bytes = sim.world.store.component_bytes(entity, input).unwrap();
+        assert_eq!(&bytes[..4], &0.25f32.to_le_bytes());
+        assert_eq!(&bytes[4..8], &(-0.5f32).to_le_bytes());
     }
 }

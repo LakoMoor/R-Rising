@@ -11,6 +11,66 @@ use rrising_ecs::{EntityQuery, SpecialTypes, TypeManager, TypeSpec, World, World
 use std::path::PathBuf;
 
 #[test]
+#[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
+fn client_player_template_can_be_instantiated_in_scene_world() {
+    use rrising_content::{entity_scenes::SceneFile, world_adapter::build_scene_world};
+    use std::collections::BTreeSet;
+
+    let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
+    let layouts = TypeLayouts::from_json(
+        &std::fs::read(std::env::var_os("RRISING_LAYOUT_REPORT").expect("RRISING_LAYOUT_REPORT"))
+            .unwrap(),
+    )
+    .unwrap();
+    let directory = data.join("StreamingAssets/EntityScenes");
+    let prefabs =
+        SceneFile::open(&directory.join("295c92b7a799a3443b40e9ef192b5727.0.entities")).unwrap();
+    let mut catalog =
+        ScenePrefabCatalog::read_linked_templates(&prefabs, &layouts, &BTreeSet::from([38526109]))
+            .unwrap();
+    let template = catalog
+        .linked_templates
+        .remove(&38526109)
+        .expect("player prefab");
+    let scene =
+        SceneFile::open(&directory.join("c6d34432693f24046ae5916650cc70ef.0.entities")).unwrap();
+    let mut scene_world = build_scene_world(&layouts, &scene).unwrap();
+    let world = &mut scene_world.world;
+    let entities = template
+        .instantiate(&mut world.store, &mut world.types, &layouts)
+        .unwrap();
+    let player_type = world
+        .types
+        .type_index_of("ProjectM.PlayerCharacter")
+        .unwrap();
+    let input_type = world.types.type_index_of("ProjectM.EntityInput").unwrap();
+    let players: Vec<_> = world
+        .store
+        .query_entities(&EntityQuery {
+            all: vec![player_type, input_type],
+            ..Default::default()
+        })
+        .unwrap()
+        .into_iter()
+        .filter(|e| entities.contains(e))
+        .collect();
+    println!(
+        "client prefab: {} linked entities, {} live player inputs",
+        entities.len(),
+        players.len()
+    );
+    assert_eq!(players.len(), 1);
+    assert_eq!(
+        world
+            .store
+            .component_bytes(players[0], input_type)
+            .unwrap()
+            .len(),
+        96
+    );
+}
+
+#[test]
 #[ignore = "requires pinned server data and RRISING_SERVER_LAYOUT_REPORT"]
 fn player_template_projection_contains_input_and_movement() {
     let data = PathBuf::from(std::env::var_os("VRISING_SERVER_DATA").expect("VRISING_SERVER_DATA"));

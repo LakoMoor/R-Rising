@@ -46,6 +46,7 @@ struct Options {
     scene_sim: Option<usize>,
     scene_live: bool,
     control_entity: Option<rrising_ecs::Entity>,
+    spawn_player: bool,
     /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
     compare: Option<PathBuf>,
     bench: bool,
@@ -79,6 +80,7 @@ fn parse_args() -> Result<Options> {
         scene_sim: None,
         scene_live: false,
         control_entity: None,
+        spawn_player: false,
         compare: None,
         bench: false,
         frames: 60,
@@ -107,6 +109,7 @@ fn parse_args() -> Result<Options> {
                 opt.scene_sim = Some(take()?.parse().context("--scene-sim takes a frame count")?)
             }
             "--scene-live" => opt.scene_live = true,
+            "--spawn-player" => opt.spawn_player = true,
             "--control-entity" => {
                 let value = take()?;
                 let (index, version) = value
@@ -145,6 +148,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         opt.control_entity.is_none() || opt.scene_live,
         "--control-entity requires --scene-live"
+    );
+    anyhow::ensure!(
+        !opt.spawn_player || (opt.scene_live && opt.control_entity.is_none()),
+        "--spawn-player requires --scene-live and cannot be combined with --control-entity"
     );
     Ok(opt)
 }
@@ -748,13 +755,23 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let loaded = load_scene_view(renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
         let fly = Some(scene_view::FlyCam::framing(data.bounds));
-        let live = if opt.scene_live {
+        let mut live = if opt.scene_live {
             println!("Experimental live ECS scene: camera controls only; no player locomotion or animation.");
             Some((scene_view::simulate(&layouts, scene_path, 0)?, data))
         } else {
             None
         };
-        let control = if let Some(entity) = opt.control_entity {
+        let selected_entity = if opt.spawn_player {
+            let sim = &mut live.as_mut().context("spawn needs live world")?.0;
+            Some(scene_view::spawn_player(
+                &mut sim.world,
+                &opt.data,
+                &layouts,
+            )?)
+        } else {
+            opt.control_entity
+        };
+        let control = if let Some(entity) = selected_entity {
             let sim = &live.as_ref().context("control needs live world")?.0;
             let ty = sim
                 .world

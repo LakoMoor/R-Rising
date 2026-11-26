@@ -828,6 +828,20 @@ with EntityInput only, 784 with Movement only, 1,036 with both, and two with Ent
 and PlayerCharacter. Both player candidates carry Prefab, so neither is a live controllable player.
 These counts describe baked scene data, not spawned entities or runtime gameplay.
 
+For a local diagnostic, `--scene-live --spawn-player` now partially clones the client prefab
+with GUID 38526109 into the loaded scene world and selects its live PlayerCharacter/EntityInput
+entity for the experimental WASD input path. A pinned-data integration test confirms that this
+creates three linked entities, including one live player input, in the Silver Mountain scene.
+Unresolved external references and managed components are not cloned; the player has no visual
+binding, animation, locomotion or collision in this path. This is not a playable demo or an
+original gameplay scenario.
+
+The owner's client archive `ade72d3099b8ad7fbfcba0827fe43cd7` also contains male and female
+customization-screen character prefabs. The `character_inventory` example resolves their skinned
+renderers, joints, blend indices and bind poses: body meshes have 2,640/3,428 vertices and 80/83
+bones respectively. These are customization assets; their relationship to a spawned gameplay
+character has not been established, and skinning and animation are not yet implemented.
+
 The pinned player prefab GUID `38526109` can be instantiated as a partial server-side ECS
 projection: three linked entities and 120 candidate component values, including PlayerCharacter,
 EntityInput, Movement, Translation and LocalToWorld on one entity. This projection deliberately
