@@ -1093,6 +1093,45 @@ pub fn spawn_player(
     Ok(candidates[0])
 }
 
+/// Place a cloned player at caller-supplied world coordinates for diagnostics.
+/// This does not select an original spawn point or perform collision checks.
+/// Run the transform schedule after calling it to update LocalToWorld.
+#[cfg(test)]
+pub fn set_diagnostic_player_position(
+    world: &mut rrising_ecs::World,
+    player: Entity,
+    position: [f32; 3],
+) -> Result<()> {
+    ensure!(
+        position.iter().all(|v| v.is_finite()),
+        "player position must be finite"
+    );
+    let player_type = world
+        .types
+        .type_index_of("ProjectM.PlayerCharacter")
+        .context("player type missing")?;
+    ensure!(
+        world
+            .store
+            .try_component_bytes(player, player_type)?
+            .is_some(),
+        "entity is not a player"
+    );
+    let translation = world
+        .types
+        .type_index_of("Unity.Transforms.Translation")
+        .context("translation type missing")?;
+    ensure!(
+        world.store.component_bytes(player, translation)?.len() == 12,
+        "invalid Translation layout"
+    );
+    let bytes: Vec<_> = position.into_iter().flat_map(f32::to_le_bytes).collect();
+    world
+        .store
+        .set_component_bytes(player, translation, &bytes)?;
+    Ok(())
+}
+
 /// Build a scene World and run fixed frames. Shared steering, if live candidates
 /// exist, updates EntityInput before transforms update LocalToWorld. No locomotion,
 /// navigation service or original game-loop ordering is supplied by this driver.
@@ -1595,7 +1634,7 @@ mod managed_array_tests {
     #[test]
     #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
     fn spawn_player_into_live_scene() {
-        use super::{simulate, spawn_player, STEP_NS};
+        use super::{set_diagnostic_player_position, simulate, spawn_player, STEP_NS};
         use std::path::PathBuf;
         let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
         let layouts = PathBuf::from(
@@ -1617,19 +1656,14 @@ mod managed_array_tests {
             [0.25, -0.5],
         )
         .unwrap();
-        let translation = sim
-            .world
-            .types
-            .type_index_of("Unity.Transforms.Translation")
-            .unwrap();
         let position: Vec<u8> = [12.0f32, 3.0, -7.0]
             .into_iter()
             .flat_map(f32::to_le_bytes)
             .collect();
-        sim.world
-            .store
-            .set_component_bytes(entity, translation, &position)
-            .unwrap();
+        assert!(
+            set_diagnostic_player_position(&mut sim.world, entity, [f32::NAN, 3., -7.]).is_err()
+        );
+        set_diagnostic_player_position(&mut sim.world, entity, [12., 3., -7.]).unwrap();
         sim.advance(STEP_NS, 1).unwrap();
         let bytes = sim.world.store.component_bytes(entity, input).unwrap();
         assert_eq!(&bytes[..4], &0.25f32.to_le_bytes());

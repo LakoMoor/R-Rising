@@ -874,6 +874,11 @@ or establish Unity parity; it runs even while the player stands still. A pinned-
 both model parts' topology and changed vertices between sampled poses. A bounded native run
 reached the render loop without logged GPU errors, but the window was not visually inspected.
 
+`--follow-player` optionally translates the diagnostic camera with the player's displacement,
+preserving its offset. This is not the original game's camera. A bounded native run with
+`--experimental-motion` reached the render loop without a logged error, but keyboard interaction
+and the window image were not inspected during that run.
+
 `--scene-live --spawn-player --experimental-motion` opts into an approximate fixed-step
 movement prototype. It deliberately executes the recovered ability-setup body, command-field
 selection and ordinary movement arithmetic in a host-defined order for the selected player;

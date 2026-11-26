@@ -49,6 +49,7 @@ struct Options {
     spawn_player: bool,
     animate_player: bool,
     experimental_motion: bool,
+    follow_player: bool,
     terrain_chunk: Option<u16>,
     terrain_neighbors: Vec<u16>,
     server_data: Option<PathBuf>,
@@ -90,6 +91,7 @@ fn parse_args() -> Result<Options> {
         spawn_player: false,
         animate_player: false,
         experimental_motion: false,
+        follow_player: false,
         terrain_chunk: None,
         terrain_neighbors: Vec::new(),
         server_data: None,
@@ -126,6 +128,7 @@ fn parse_args() -> Result<Options> {
             "--spawn-player" => opt.spawn_player = true,
             "--animate-player" => opt.animate_player = true,
             "--experimental-motion" => opt.experimental_motion = true,
+            "--follow-player" => opt.follow_player = true,
             "--terrain-chunk" => {
                 let value = take()?;
                 let (x, z) = value.split_once(',').context("--terrain-chunk needs x,z")?;
@@ -202,6 +205,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         !opt.experimental_motion || (opt.spawn_player && opt.scene_live),
         "--experimental-motion requires --scene-live --spawn-player"
+    );
+    anyhow::ensure!(
+        !opt.follow_player || (opt.spawn_player && opt.scene_live),
+        "--follow-player requires --scene-live --spawn-player"
     );
     anyhow::ensure!(opt.terrain_chunk.is_none() || (opt.scene.is_some() && opt.server_data.is_some() && opt.server_layouts.is_some() && !opt.scene_live && opt.scene_sim.is_none() && !opt.spawn_player && opt.export_web.is_none() && opt.compare.is_none()), "--terrain-chunk requires --scene, --server-data and --server-layouts and supports static native viewing only");
     anyhow::ensure!(
@@ -563,6 +570,8 @@ struct App {
     control: Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>,
     input_direction: [f32; 3],
     player_animation: Option<PlayerAnimation>,
+    follow_player: bool,
+    follow_previous: Option<[f32; 3]>,
 }
 
 struct PlayerAnimation {
@@ -624,6 +633,18 @@ impl App {
                 Ok(steps) if steps > 0 => {
                     sim.apply(scene);
                     loaded.sync(scene);
+                    if self.follow_player {
+                        if let (Some((entity, _)), Some(camera)) = (self.control, &mut self.fly) {
+                            if let Some(instance) = sim.instance(entity) {
+                                let p = instance.model[3];
+                                follow_camera(
+                                    camera,
+                                    &mut self.follow_previous,
+                                    [p[0], p[1], p[2]],
+                                );
+                            }
+                        }
+                    }
                 }
                 Ok(_) => {}
                 Err(error) => {
@@ -740,7 +761,11 @@ impl ApplicationHandler for App {
             }
         };
         match run_windowed(&renderer) {
-            Ok((loaded, fly, live, control, animation)) => {
+            Ok((loaded, fly, live, control, animation, follow)) => {
+                self.follow_previous = control
+                    .and_then(|(entity, _)| live.as_ref()?.0.instance(entity))
+                    .map(|i| [i.model[3][0], i.model[3][1], i.model[3][2]]);
+                self.follow_player = follow;
                 self.fly = fly;
                 self.live = live;
                 self.control = control;
@@ -925,7 +950,26 @@ type WindowedScene = (
     LiveScene,
     ControlTarget,
     Option<PlayerAnimation>,
+    bool,
 );
+
+/// Translate the diagnostic camera by the player's world displacement, preserving
+/// its current offset. This does not reproduce V Rising camera behavior.
+fn follow_camera(
+    camera: &mut scene_view::FlyCam,
+    previous: &mut Option<[f32; 3]>,
+    position: [f32; 3],
+) {
+    if !position.iter().all(|v| v.is_finite()) {
+        return;
+    }
+    if let Some(old) = *previous {
+        for axis in 0..3 {
+            camera.eye[axis] += position[axis] - old[axis];
+        }
+    }
+    *previous = Some(position);
+}
 
 fn player_camera(bounds: ([f32; 3], [f32; 3]), instance: Instance) -> scene_view::FlyCam {
     let mut camera = scene_view::FlyCam::framing(bounds);
@@ -1016,7 +1060,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let loaded = load_scene_view(renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
         let live = sim.map(|sim| (sim, data));
-        return Ok((loaded, fly, live, control, animation));
+        return Ok((loaded, fly, live, control, animation, opt.follow_player));
     }
     let spec = scene::showcase(&content, opt.items);
     println!("scene: {} items", spec.len());
@@ -1026,6 +1070,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         None,
         None,
         None,
+        false,
     ))
 }
 
@@ -1995,7 +2040,20 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::diff_images;
+    use super::{diff_images, follow_camera};
+
+    #[test]
+    fn camera_follows_displacement_without_jumping_on_first_observation() {
+        let mut camera = super::scene_view::FlyCam::framing(([0.; 3], [1.; 3]));
+        camera.eye = [1., 3., -5.];
+        let mut previous = None;
+        follow_camera(&mut camera, &mut previous, [10., 2., 3.]);
+        assert_eq!(camera.eye, [1., 3., -5.]);
+        follow_camera(&mut camera, &mut previous, [12., 3., 2.]);
+        assert_eq!(camera.eye, [3., 4., -6.]);
+        follow_camera(&mut camera, &mut previous, [f32::NAN, 0., 0.]);
+        assert_eq!(previous, Some([12., 3., 2.]));
+    }
 
     #[test]
     fn diff_counts_pixels_and_channel_deltas() {
