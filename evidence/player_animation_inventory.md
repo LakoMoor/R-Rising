@@ -19,3 +19,10 @@ the sampled rest hierarchy (with tracks removed) matches scene matrices within 1
 80 body bones differ between 0 and 0.3 seconds of the first walk clip. This is a self-consistency
 check, not a comparison against Unity. Controller overrides, blending, transitions, Euler tracks,
 root motion and gameplay state selection remain unimplemented.
+
+The `character_pose` diagnostic accepts a fourth argument with a sample time. On the pinned
+male gameplay asset the first base-controller clip (`VampireMale_Unarmed_Walk_Forward`) was
+sampled at 0 and 0.3 seconds and skinned to the body and cape using a fixed camera. The
+[first frame](../docs/screenshots/experimental-walk-0.png) and
+[second frame](../docs/screenshots/experimental-walk-03.png) visibly differ. These frames
+have neutral materials, no head and no gameplay state; they have not been compared to Unity.

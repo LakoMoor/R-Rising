@@ -1,26 +1,31 @@
-//! Offline diagnostic: render a selected prefab in its serialized pose.
-//! Requires the owner's game data; this is not gameplay or an animation.
+//! Offline diagnostic: render a prefab's serialized pose or a directly sampled clip.
+//! Requires the owner's game data; this is not gameplay or Animator evaluation.
 use anyhow::{Context, Result};
 use rrising_content::{list_archives, GameContent};
 use rrising_math::{float3, float4x4};
 use rrising_render::{
-    mesh::upload_vertices, skin::skin_static_pose, DrawCall, FrameUniforms, Instance, Renderer,
+    clip_pose::sample_bones, mesh::upload_vertices, skin::skin_static_pose, DrawCall,
+    FrameUniforms, Instance, Renderer,
 };
 use std::path::Path;
-use unity_formats::scene::Scene;
+use unity_formats::{
+    clip::{controller_clips, ClipData},
+    scene::Scene,
+};
 
 fn main() -> Result<()> {
     let data = std::env::var("VRISING_DATA")?;
     let mut args = std::env::args().skip(1);
-    let output = args
-        .next()
-        .context("usage: character_pose output.png [serialized_file [prefab_prefix]]")?;
+    let output = args.next().context(
+        "usage: character_pose output.png [serialized_file [prefab_prefix [clip_time]]]",
+    )?;
     let file = args
         .next()
         .unwrap_or_else(|| "ade72d3099b8ad7fbfcba0827fe43cd7".into());
     let prefix = args
         .next()
         .unwrap_or_else(|| "HYB_VampireMale_CustomizationScreen_Prefab/".into());
+    let clip_time = args.next().map(|v| v.parse::<f32>()).transpose()?;
     let archives = list_archives(&Path::new(&data).join("StreamingAssets/ContentArchives"))?;
     let content = GameContent::open(
         Path::new(&data),
@@ -28,6 +33,34 @@ fn main() -> Result<()> {
         Path::new("assets/typetrees.tpk"),
     )?;
     let scene = Scene::read(content.player(), &file)?;
+    let animation = if let Some(time) = clip_time {
+        let animator = scene
+            .animators(content.player())?
+            .into_iter()
+            .find(|a| a.path.starts_with(&prefix))
+            .context("prefab animator")?;
+        let root = scene
+            .transform_of(animator.game_object)
+            .context("animator root")?;
+        let controller = animator.controller.context("animator controller")?;
+        let value = content.player().decode(&controller)?;
+        let base = match value.get("m_Controller") {
+            Some(pointer) => content
+                .player()
+                .resolve(&controller.file, pointer)?
+                .context("base controller")?,
+            None => controller,
+        };
+        let clips = controller_clips(content.player(), &base)?;
+        let clip = ClipData::read(content.player(), clips.first().context("no clip")?)?;
+        println!(
+            "sampling {:?} at {time}s; controller overrides and state machine are not evaluated",
+            clip.name
+        );
+        Some((root, clip, time))
+    } else {
+        None
+    };
     let (renderers, _) = scene.renderers(content.player())?;
     let mut renderer = pollster::block_on(Renderer::new_offscreen(768, 768))?;
     let mut meshes = Vec::new();
@@ -38,11 +71,19 @@ fn main() -> Result<()> {
         .filter(|r| r.path.starts_with(&prefix) && r.skin.is_some())
     {
         let skin = source.skin.context("skin")?;
-        let joint_world = skin
+        let bones = skin
             .bones
             .iter()
-            .map(|id| Ok(scene.world_of(id.context("missing bone")?)?))
+            .map(|id| id.context("missing bone"))
             .collect::<Result<Vec<_>>>()?;
+        let joint_world = if let Some((root, clip, time)) = &animation {
+            sample_bones(&scene, *root, &bones, clip, *time)?
+        } else {
+            bones
+                .iter()
+                .map(|&id| Ok(scene.world_of(id)?))
+                .collect::<Result<Vec<_>>>()?
+        };
         let mesh = content.read_mesh(&source.mesh)?;
         let (vertices, indices) = skin_static_pose(&mesh, &joint_world)?;
         for v in &vertices {
@@ -68,12 +109,20 @@ fn main() -> Result<()> {
         )?);
     }
     anyhow::ensure!(!meshes.is_empty(), "no candidate character meshes");
-    let center = float3::new(
-        (min[0] + max[0]) * 0.5,
-        (min[1] + max[1]) * 0.5,
-        (min[2] + max[2]) * 0.5,
-    );
-    let size = (max[1] - min[1]).max(max[0] - min[0]).max(0.1);
+    let center = if animation.is_some() {
+        float3::new(0.0, 0.85, 0.0)
+    } else {
+        float3::new(
+            (min[0] + max[0]) * 0.5,
+            (min[1] + max[1]) * 0.5,
+            (min[2] + max[2]) * 0.5,
+        )
+    };
+    let size = if animation.is_some() {
+        2.0
+    } else {
+        (max[1] - min[1]).max(max[0] - min[0]).max(0.1)
+    };
     let eye = center + float3::new(0.0, 0.0, size * 2.2);
     let camera = float4x4::look_at(eye, center, float3::new(0.0, 1.0, 0.0));
     let view = float4x4::scale(float3::new(1.0, 1.0, -1.0)) * camera.inverse();
