@@ -32,7 +32,7 @@ use rrising_ecs::{
     SpecialTypes, TypeIndex, TypeManager, World, WorldInput,
 };
 
-use crate::entity_scenes::{SceneBlobAsset, SceneBlobAssets, SceneFile};
+use crate::entity_scenes::{BufferPatch, SceneBlobAsset, SceneBlobAssets, SceneFile};
 use crate::prefab_catalog::PrefabBlobPayload;
 use crate::type_layouts::{EnabledSceneRows, TypeLayouts, ENTITY_HASH};
 
@@ -318,6 +318,7 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         let arch = resolved.archetypes[ai].as_ref().context("archetype")?;
         let count = usize::try_from(chunk.header.count)?;
         let layout = &arch.data.layout;
+        let patches = index_buffer_patches(&buffers.per_chunk[chunk.index].patches);
         let slice = |slot: usize| -> Result<&[u8]> {
             let off = usize::try_from(layout.offsets[slot])?;
             let stride = usize::from(layout.sizeofs[slot]);
@@ -382,7 +383,6 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
             if t.is_buffer() {
                 let elem = usize::try_from(rec.spec.element_size)?;
                 ensure!(elem > 0, "buffer element size is zero");
-                let patches = &buffers.per_chunk[chunk.index].patches;
                 let base = usize::try_from(layout.offsets[slot])?;
                 let mut c = RefCounts::default();
                 for (i, &entity) in ids.iter().enumerate() {
@@ -394,11 +394,8 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
                     let len = usize::try_from(i32::from_le_bytes(h[8..12].try_into()?))?;
                     let capacity = usize::try_from(i32::from_le_bytes(h[12..16].try_into()?))?;
                     ensure!(len <= capacity, "buffer length exceeds capacity");
-                    let data = match patches
-                        .iter()
-                        .find(|p| usize::try_from(p.chunk_offset).ok() == Some(at))
-                    {
-                        Some(p) => p.data,
+                    let data = match patches.get(&at) {
+                        Some(data) => *data,
                         None => chunk
                             .buffer
                             .get(at + 16..at + stride)
@@ -478,6 +475,18 @@ pub fn scene_to_world_input(layouts: &TypeLayouts, scene: &SceneFile) -> Result<
         disabled_components,
         buffer_payloads,
     })
+}
+
+/// The serialized stream normally has unique offsets. If malformed input repeats an offset,
+/// retain the first record, matching the previous sequential lookup.
+fn index_buffer_patches<'a>(patches: &[BufferPatch<'a>]) -> HashMap<usize, &'a [u8]> {
+    let mut index = HashMap::with_capacity(patches.len());
+    for patch in patches {
+        if let Ok(offset) = usize::try_from(patch.chunk_offset) {
+            index.entry(offset).or_insert(patch.data);
+        }
+    }
+    index
 }
 
 fn index_scene_blobs<'a>(blobs: &SceneBlobAssets<'a>) -> Result<HashMap<i32, SceneBlobAsset<'a>>> {
@@ -632,6 +641,31 @@ fn add_counts(a: RefCounts, b: RefCounts) -> RefCounts {
 mod special_type_tests {
     use super::*;
     use rrising_ecs::{EntityQuery, TypeCategory, TypeSpec};
+
+    #[test]
+    fn buffer_patch_index_preserves_first_entry_and_offsets() {
+        let patches = [
+            BufferPatch {
+                chunk_offset: 24,
+                alloc_size_bytes: 1,
+                data: &[1],
+            },
+            BufferPatch {
+                chunk_offset: 8,
+                alloc_size_bytes: 1,
+                data: &[2],
+            },
+            BufferPatch {
+                chunk_offset: 24,
+                alloc_size_bytes: 1,
+                data: &[3],
+            },
+        ];
+        let index = index_buffer_patches(&patches);
+        assert_eq!(index.get(&24).copied(), Some(&[1][..]));
+        assert_eq!(index.get(&8).copied(), Some(&[2][..]));
+        assert_eq!(index.get(&9), None);
+    }
 
     #[test]
     fn indexed_blobs_patch_null_and_share_repeated_references() -> Result<()> {
