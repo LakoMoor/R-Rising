@@ -791,3 +791,8 @@ ParentSystem and original game-loop scheduling remain incomplete; these results 
 runtime parity. The viewer retains its earlier simulation path until the new path handles prefab
 filtering: an independent inspection of one scene found all 52 changed matrices belonged to prefab
 entities, including 51 previously identical to baked values.
+
+A host-side input boundary can write the recovered movement and aim fields of `EntityInput` into a
+selected ECS entity while preserving the remaining input bytes. It does not yet connect keyboard or
+mouse, identify a live player, run locomotion, or animate a character. Its field layout is supported
+by the saved shared-steering replays; it is not a replay of the original client input pipeline.
