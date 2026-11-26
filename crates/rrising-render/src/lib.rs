@@ -6,6 +6,8 @@
 //! put real content on screen and to read frames back for comparison.
 
 mod bc;
+#[cfg(feature = "unity")]
+pub mod clip_pose;
 pub mod mesh;
 pub mod renderer;
 #[cfg(feature = "unity")]

@@ -13,4 +13,9 @@ Transform tracks hash to those bone paths. The `VampireMale_Unarmed_Run_Forward`
 likewise has 394 tracks and 255 matching Transform tracks. These counts are track matches,
 not distinct bones or proof of animation parity. Path-hash collisions have not been excluded.
 Evaluating curves, applying the hierarchy and binding an animation state to actual gameplay
-remain unimplemented and unverified against the original.
+were not covered by that inventory. The experimental `player_clip_sample` example now samples
+translation, quaternion and scale tracks and composes the bone hierarchy. On the pinned client,
+the sampled rest hierarchy (with tracks removed) matches scene matrices within 1e-8, and all
+80 body bones differ between 0 and 0.3 seconds of the first walk clip. This is a self-consistency
+check, not a comparison against Unity. Controller overrides, blending, transitions, Euler tracks,
+root motion and gameplay state selection remain unimplemented.
