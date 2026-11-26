@@ -24,6 +24,15 @@ at `+0x14`. `DoCommand` loads the first 16 command bytes at `0x83a918d` and
 passes the address of the copied movement input at `0x83a9725`.
 The separate raw input and command direction fields cannot be conflated.
 
+One candidate writer was excluded by inspecting the pinned server image:
+`LegDirectionSystem_Update.OnUpdate` (RVA `0x6392f70`) queries writable Movement and
+LegDirection and read-only EntityInput and Rotation. Its stores near `0x63935b7`
+target the LegDirection tuple item, while the Movement pointer is used near
+`0x6393768` to access Speed at offset `0x5c`. These observations do not identify a
+write to Movement.MoveInput and therefore do not establish the missing input bridge.
+This is a bounded static inspection, not proof that the system never modifies it
+through another call or execution path.
+
 Direct relative calls to `DoCommand` in the server image occur in
 `PlayCommandsSystem_Server.OnUpdate` at RVA `0x839f598` and
 `PlayCommandsSystem_Client.OnUpdate` at `0x83a622e`. The latter has metadata
