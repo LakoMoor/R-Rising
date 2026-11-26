@@ -133,6 +133,28 @@ impl StaticTransformCatalog {
         self.templates.len()
     }
 
+    /// Transform a terrain section's local coordinates into world coordinates.
+    /// Uses the same placement as the recovered static-object restore path.
+    pub fn placement_matrix(&self, terrain_chunk: u16) -> Option<float4x4> {
+        let source = self.source(terrain_chunk)?;
+        let [x, z] = terrain_chunk
+            .to_le_bytes()
+            .map(|axis| f32::from(axis as i8));
+        let origin = float3::new(x * 160.0 - 3200.0, 0.0, z * 160.0 - 3200.0);
+        let center = float3::new(80.0, 0.0, 80.0);
+        let yaw = (source.rotation_degrees as f32 / 180.0) * std::f32::consts::PI;
+        Some(float4x4::mul_matrix(
+            float4x4::translate(origin),
+            float4x4::mul_matrix(
+                float4x4::translate(center),
+                float4x4::mul_matrix(
+                    float4x4::rotate(quaternion::rotate_y(yaw)),
+                    float4x4::translate(-center),
+                ),
+            ),
+        ))
+    }
+
     /// Reads the baked section-local value. Terrain placement is a separate operation.
     pub fn get(&self, terrain_chunk: u16, transform_index: u16) -> Option<&BakedStaticTransform> {
         let index = usize::try_from(transform_index as i16).ok()?;
@@ -143,26 +165,10 @@ impl StaticTransformCatalog {
 
     /// Applies the terrain load transform before selecting the runtime position and rotation.
     pub fn placed(&self, terrain_chunk: u16, transform_index: u16) -> Option<BakedStaticTransform> {
-        let source = self.source(terrain_chunk)?;
         let baked = self.get(terrain_chunk, transform_index)?;
-        let [x, z] = terrain_chunk
-            .to_le_bytes()
-            .map(|axis| f32::from(axis as i8));
-        let origin = float3::new(x * 160.0 - 3200.0, 0.0, z * 160.0 - 3200.0);
-        let center = float3::new(80.0, 0.0, 80.0);
         let [px, py, pz] = baked.position;
         let [qx, qy, qz, qw] = baked.rotation;
-        let yaw = (source.rotation_degrees as f32 / 180.0) * std::f32::consts::PI;
-        let terrain = float4x4::mul_matrix(
-            float4x4::translate(origin),
-            float4x4::mul_matrix(
-                float4x4::translate(center),
-                float4x4::mul_matrix(
-                    float4x4::rotate(quaternion::rotate_y(yaw)),
-                    float4x4::translate(-center),
-                ),
-            ),
-        );
+        let terrain = self.placement_matrix(terrain_chunk)?;
         let world = float4x4::mul_matrix(
             terrain,
             float4x4::trs(

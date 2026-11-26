@@ -55,3 +55,31 @@ pub fn select_movement_direction(
         Some(input) => input,
     }
 }
+
+/// Update the bounded input fields of an existing command after the caller has
+/// validated its controller and performed the original component lookups.
+/// Timing, sequence, aim and action command fields remain the caller's concern.
+pub fn write_command_input(
+    command: &mut [u8],
+    raw_input: &[u8],
+    movement_input: Option<[f32; 2]>,
+    spell_controlled: Option<(bool, bool)>,
+) -> Result<()> {
+    ensure!(
+        command.len() == INPUT_COMMAND_SIZE,
+        "InputCommandBufferElement needs 152 bytes"
+    );
+    ensure!(raw_input.len() == 96, "EntityInput needs 96 bytes");
+    let read = |offset| {
+        f32::from_le_bytes(
+            raw_input[offset..offset + 4]
+                .try_into()
+                .expect("checked size"),
+        )
+    };
+    let direction = select_movement_direction([read(0), read(4)], movement_input, spell_controlled);
+    command[..4].copy_from_slice(&direction[0].to_le_bytes());
+    command[4..8].copy_from_slice(&direction[1].to_le_bytes());
+    command[20..116].copy_from_slice(raw_input);
+    Ok(())
+}

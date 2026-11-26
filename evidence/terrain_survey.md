@@ -22,3 +22,9 @@ integration test checks all 248 matches. The client's anchor scene independently
 4,095 entities in 78 chunks with MaterialMeshInfo and LocalToWorld values; these are baked
 section-local values, not yet placed into the runtime world. Matching GUIDs confirms file
 availability, not the full streaming, neighboring-chunk placement, terrain surface, or spawn.
+
+The anchor client scene was rendered locally with 3,786 mesh instances; the
+[diagnostic image](../docs/screenshots/experimental-terrain-chunk.png) shows its baked,
+section-local contents. It is not placed with neighbors and does not match original lighting,
+materials or the original game screenshot. The extracted placement matrix is shared with the
+existing static-object restore path, but its application to client rendering remains unverified.
