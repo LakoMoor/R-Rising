@@ -845,6 +845,20 @@ The pinned-data integration test additionally changes the spawned player's Trans
 confirms that a fixed transform step propagates it to LocalToWorld. This checks a rendering
 prerequisite, not locomotion or the player's visual binding.
 
+The experimental `--spawn-player` path now attaches the male gameplay-prefab body and cape
+in their serialized pose to the cloned player's LocalToWorld, and frames a diagnostic camera
+near it. A pinned-data test confirms both parts follow an explicitly changed position. The
+model is chosen explicitly rather than by the original runtime selection; it has no head,
+textures or animation. The window started with two additional render groups, but the captured
+desktop did not show its window, so its actual appearance in the scene is not yet verified.
+An ECS adapter can apply the isolated ordinary movement arithmetic to this prefab when the
+caller provides the branch conditions and movement input; it is not connected to keyboard input
+or the scene loop, and does not implement collision or the original command scheduler.
+
+The [animation inventory](../evidence/player_animation_inventory.md) identifies the candidate
+model's avatar, controller and walking/running clips and matches tracks to bone paths. Animation
+evaluation and runtime selection are still unimplemented.
+
 The owner's client archive `ade72d3099b8ad7fbfcba0827fe43cd7` also contains male and female
 customization-screen character prefabs. The `character_inventory` example resolves their skinned
 renderers, joints, blend indices and bind poses: body meshes have 2,640/3,428 vertices and 80/83

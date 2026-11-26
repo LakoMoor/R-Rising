@@ -26,6 +26,21 @@ binding still requires decoding the section metadata.
 `VRISING_DATA=... cargo run -p rrising-content --example visual_assets_trace` resolves candidate
 ReferencedUnityObjects for the streaming scene and finds `HYB_VampireMale_Prefab` at object
 `ae19a255904fd765632aa97a2d7c670c:3580734981422474692` and `HYB_VampireFemale_Prefab` at
-`b6c00f47467ce13af74ddea1cd781444:1755848559842945088`. These names and scene membership are
-observations, not proof which GUID selects which object. The matching table-to-section association,
-gender mapping, runtime binding, animator state and rig evaluation remain unverified.
+`b6c00f47467ce13af74ddea1cd781444:1755848559842945088`.
+
+The referenced-object catalog records' serialized `RuntimeGlobalObjectId.SceneObjectIdentifier0`
+are 406 for male and 407 for female, with the same streaming scene GUID and generation type 6.
+On the pinned server image, `SceneHeaderUtility.CreateSceneSectionHash` at RVA `0x998acb0`
+sign-extends the section-index argument and stores it in the first 64-bit word of the returned ID;
+it stores the scene GUID at +0x10 and generation type 6 at +0x28. Thus these records correspond
+to sections 406 and 407 respectively. The focused example verifies both catalog identities and
+the single occurrence of the corresponding `UseHybridModel` GUID bytes in each section:
+
+| UseHybridModel GUID (raw bytes) | section | referenced GameObject |
+| --- | ---: | --- |
+| `60398cf90a047ec4c8ce962b8b8b89ca` | 406 | `HYB_VampireMale_Prefab` |
+| `cd323caa3f6421f4dbcb0827b8aaa4c4` | 407 | `HYB_VampireFemale_Prefab` |
+
+The section content has not been semantically decoded to prove the role of its GUID occurrence;
+this is a strong static association, not an observed runtime selection. Gender-dependent selection,
+runtime entity binding, animator state and rig evaluation remain unverified.

@@ -11,6 +11,7 @@ pub mod easing;
 pub mod helpers;
 pub mod movement;
 pub mod ordinary_movement;
+pub mod ordinary_movement_ecs;
 pub mod pathfinding;
 pub mod player_input;
 pub mod player_movement;

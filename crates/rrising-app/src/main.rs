@@ -752,27 +752,36 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
         apply_sim(&opt, &layouts, scene_path, &mut data)?;
-        let loaded = load_scene_view(renderer, &content, &mut data)?;
-        println!("{}", data.stats.report());
-        let fly = Some(scene_view::FlyCam::framing(data.bounds));
-        let mut live = if opt.scene_live {
-            println!("Experimental live ECS scene: camera controls only; no player locomotion or animation.");
-            Some((scene_view::simulate(&layouts, scene_path, 0)?, data))
+        let mut fly = Some(scene_view::FlyCam::framing(data.bounds));
+        let mut sim = if opt.scene_live {
+            println!("Experimental live ECS scene: no player locomotion or animation.");
+            Some(scene_view::simulate(&layouts, scene_path, 0)?)
         } else {
             None
         };
         let selected_entity = if opt.spawn_player {
-            let sim = &mut live.as_mut().context("spawn needs live world")?.0;
-            Some(scene_view::spawn_player(
-                &mut sim.world,
-                &opt.data,
-                &layouts,
-            )?)
+            let sim = sim.as_mut().context("spawn needs live world")?;
+            let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
+            sim.advance(16_666_667, 1)?;
+            let instance = sim
+                .instance(entity)
+                .context("spawned player's LocalToWorld unavailable")?;
+            if let Some(camera) = &mut fly {
+                let position = instance.model[3];
+                camera.eye = [position[0], position[1] + 3.0, position[2] - 5.0];
+                camera.yaw = 0.0;
+                camera.pitch = -0.3;
+                camera.speed = 4.0;
+                camera.near = 0.05;
+            }
+            let parts = scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
+            println!("Experimental player visual: {parts} static parts; no textures, head, animation or verified hybrid-model selection.");
+            Some(entity)
         } else {
             opt.control_entity
         };
         let control = if let Some(entity) = selected_entity {
-            let sim = &live.as_ref().context("control needs live world")?.0;
+            let sim = sim.as_ref().context("control needs live world")?;
             let ty = sim
                 .world
                 .types
@@ -795,6 +804,9 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         } else {
             None
         };
+        let loaded = load_scene_view(renderer, &content, &mut data)?;
+        println!("{}", data.stats.report());
+        let live = sim.map(|sim| (sim, data));
         return Ok((loaded, fly, live, control));
     }
     let spec = scene::showcase(&content, opt.items);

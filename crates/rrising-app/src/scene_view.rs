@@ -1029,7 +1029,7 @@ pub fn spawn_player(
         "expected one live player input in cloned prefab, found {}",
         candidates.len()
     );
-    println!("Spawned partial client player prefab: {} linked entities, input target {:?}; rendering and locomotion are not implemented.", entities.len(), candidates[0]);
+    println!("Spawned partial client player prefab: {} linked entities, input target {:?}; original visual binding and locomotion are not implemented.", entities.len(), candidates[0]);
     Ok(candidates[0])
 }
 
@@ -1112,7 +1112,7 @@ impl SimWorld {
             .advance(&mut self.world, elapsed_ns, max_steps)
     }
 
-    fn instance(&self, e: Entity) -> Option<Instance> {
+    pub fn instance(&self, e: Entity) -> Option<Instance> {
         let b = self.world.store.try_component_bytes(e, self.ltw).ok()??;
         let mut m = [0f32; 16];
         for (v, c) in m.iter_mut().zip(b.as_chunks::<4>().0) {
@@ -1142,6 +1142,74 @@ impl SimWorld {
         }
         (ok, missing)
     }
+}
+
+/// Attach a diagnostic, static-pose candidate model to the selected entity.
+/// Its geometry is in prefab-root space and its group instances follow the
+/// entity's LocalToWorld. Hybrid model selection and animation remain unknown.
+pub fn attach_player_visual(
+    content: &GameContent,
+    data: &mut SceneData,
+    entity: Entity,
+    instance: Instance,
+) -> Result<usize> {
+    use rrising_render::skin::skin_static_pose;
+    use unity_formats::scene::Scene;
+
+    let scene = Scene::read(content.player(), "ae19a255904fd765632aa97a2d7c670c")?;
+    let roots: Vec<_> = scene
+        .game_objects
+        .iter()
+        .filter(|(_, object)| object.name == "HYB_VampireMale_Prefab")
+        .map(|(id, _)| *id)
+        .collect();
+    ensure!(roots.len() == 1, "candidate model root is ambiguous");
+    let root = scene
+        .transform_of(roots[0])
+        .context("candidate model root transform")?;
+    let root_world = scene.world_of(root)?;
+    for (row, values) in root_world.iter().enumerate() {
+        for (col, value) in values.iter().enumerate() {
+            ensure!(
+                (*value - f64::from(u8::from(row == col))).abs() < 1e-6,
+                "candidate model root is not identity; prefab-space conversion required"
+            );
+        }
+    }
+    let (renderers, _) = scene.renderers(content.player())?;
+    let first_mesh = data
+        .groups
+        .iter()
+        .map(|g| g.mesh_id)
+        .max()
+        .map_or(0, |id| id + 1);
+    let mut count = 0;
+    for source in renderers
+        .into_iter()
+        .filter(|r| r.path.starts_with("HYB_VampireMale_Prefab/") && r.skin.is_some())
+    {
+        let skin = source.skin.context("skin")?;
+        let joints = skin
+            .bones
+            .iter()
+            .map(|id| Ok(scene.world_of(id.context("missing bone")?)?))
+            .collect::<Result<Vec<_>>>()?;
+        let mesh = content.read_mesh(&source.mesh)?;
+        let (vertices, indices) = skin_static_pose(&mesh, &joints)?;
+        data.groups.push(ReadyGroup {
+            name: format!("experimental player {}", mesh.name),
+            mesh_id: first_mesh + count,
+            verts: Arc::new(vertices),
+            inds: Arc::new(indices),
+            texture: None,
+            cutout: false,
+            instances: vec![instance],
+            entities: vec![entity],
+        });
+        count += 1;
+    }
+    ensure!(count > 0, "candidate player model has no skinned renderers");
+    Ok(count)
 }
 
 #[cfg(test)]
@@ -1315,5 +1383,55 @@ mod managed_array_tests {
         assert_eq!(&bytes[4..8], &(-0.5f32).to_le_bytes());
         let matrix = sim.world.store.component_bytes(entity, sim.ltw).unwrap();
         assert_eq!(&matrix[48..60], &position);
+    }
+
+    #[test]
+    #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
+    fn experimental_player_visual_follows_entity_transform() {
+        use super::{attach_player_visual, simulate, spawn_player, SceneData, SceneStats, STEP_NS};
+        use rrising_content::{list_archives, GameContent};
+        use std::path::{Path, PathBuf};
+        let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
+        let layouts = PathBuf::from(
+            std::env::var_os("RRISING_LAYOUT_REPORT").expect("RRISING_LAYOUT_REPORT"),
+        );
+        let scene =
+            data.join("StreamingAssets/EntityScenes/c6d34432693f24046ae5916650cc70ef.0.entities");
+        let archives = list_archives(&data.join("StreamingAssets/ContentArchives")).unwrap();
+        let content =
+            GameContent::open(&data, &archives, Path::new("../../assets/typetrees.tpk")).unwrap();
+        let mut sim = simulate(&layouts, &scene, 0).unwrap();
+        let entity = spawn_player(&mut sim.world, &data, &layouts).unwrap();
+        sim.advance(STEP_NS, 1).unwrap();
+        let mut visual = SceneData {
+            groups: vec![],
+            markers: vec![],
+            marker_entities: vec![],
+            stats: SceneStats::default(),
+            bounds: ([0.; 3], [0.; 3]),
+        };
+        let count =
+            attach_player_visual(&content, &mut visual, entity, sim.instance(entity).unwrap())
+                .unwrap();
+        assert_eq!(count, 2);
+        let translation = sim
+            .world
+            .types
+            .type_index_of("Unity.Transforms.Translation")
+            .unwrap();
+        let position: Vec<u8> = [12.0f32, 3.0, -7.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        sim.world
+            .store
+            .set_component_bytes(entity, translation, &position)
+            .unwrap();
+        sim.advance(STEP_NS, 1).unwrap();
+        assert_eq!(sim.apply(&mut visual), (2, 0));
+        for group in &visual.groups {
+            assert_eq!(group.entities, vec![entity]);
+            assert_eq!(&group.instances[0].model[3][..3], &[12., 3., -7.]);
+        }
     }
 }
