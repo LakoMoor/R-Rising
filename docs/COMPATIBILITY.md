@@ -822,3 +822,8 @@ initialized metadata/zero state and substitutes `sqrtss` for a math wrapper; it 
 client input pipeline. The original applies thresholds, camera rotation and mode-dependent scaling,
 so the experimental raw WASD input must not be interpreted as a port of this function. The Rust calculation matches all 560 recorded cases bit for bit. Arbitrary rotations, non-finite
 values and the full gameplay pipeline still need verification.
+
+On the pinned client's 1,183 baked entity scenes, the player-input inventory found 34 entities
+with EntityInput only, 784 with Movement only, 1,036 with both, and two with EntityInput, Movement
+and PlayerCharacter. Both player candidates carry Prefab, so neither is a live controllable player.
+These counts describe baked scene data, not spawned entities or runtime gameplay.
