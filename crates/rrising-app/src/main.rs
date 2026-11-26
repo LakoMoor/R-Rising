@@ -48,6 +48,9 @@ struct Options {
     control_entity: Option<rrising_ecs::Entity>,
     spawn_player: bool,
     animate_player: bool,
+    terrain_chunk: Option<u16>,
+    server_data: Option<PathBuf>,
+    server_layouts: Option<PathBuf>,
     animation_frame: Option<usize>,
     /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
     compare: Option<PathBuf>,
@@ -84,6 +87,9 @@ fn parse_args() -> Result<Options> {
         control_entity: None,
         spawn_player: false,
         animate_player: false,
+        terrain_chunk: None,
+        server_data: None,
+        server_layouts: None,
         animation_frame: None,
         compare: None,
         bench: false,
@@ -115,6 +121,15 @@ fn parse_args() -> Result<Options> {
             "--scene-live" => opt.scene_live = true,
             "--spawn-player" => opt.spawn_player = true,
             "--animate-player" => opt.animate_player = true,
+            "--terrain-chunk" => {
+                let value = take()?;
+                let (x, z) = value.split_once(',').context("--terrain-chunk needs x,z")?;
+                let x: i8 = x.parse()?;
+                let z: i8 = z.parse()?;
+                opt.terrain_chunk = Some(u16::from_le_bytes([x as u8, z as u8]));
+            }
+            "--server-data" => opt.server_data = Some(PathBuf::from(take()?)),
+            "--server-layouts" => opt.server_layouts = Some(PathBuf::from(take()?)),
             "--animation-frame" => {
                 opt.animation_frame = Some(
                     take()?
@@ -169,6 +184,7 @@ fn parse_args() -> Result<Options> {
         !opt.animate_player || (opt.spawn_player && opt.scene_live),
         "--animate-player requires --scene-live --spawn-player"
     );
+    anyhow::ensure!(opt.terrain_chunk.is_none() || (opt.scene.is_some() && opt.server_data.is_some() && opt.server_layouts.is_some() && !opt.scene_live && opt.scene_sim.is_none() && !opt.spawn_player && opt.export_web.is_none() && opt.compare.is_none()), "--terrain-chunk requires --scene, --server-data and --server-layouts and supports static native viewing only");
     anyhow::ensure!(
         opt.animation_frame.is_none()
             || (opt.spawn_player
@@ -802,6 +818,38 @@ fn open_content(opt: &Options) -> Result<GameContent> {
 
 type LiveScene = Option<(scene_view::SimWorld, scene_view::SceneData)>;
 type ControlTarget = Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>;
+
+fn place_terrain(opt: &Options, scene_path: &Path, data: &mut scene_view::SceneData) -> Result<()> {
+    let Some(chunk) = opt.terrain_chunk else {
+        return Ok(());
+    };
+    let layouts = rrising_content::type_layouts::TypeLayouts::from_server_json(&std::fs::read(
+        opt.server_layouts.as_ref().context("server layouts")?,
+    )?)?;
+    let catalog = rrising_content::static_transforms::StaticTransformCatalog::read_server(
+        opt.server_data.as_ref().context("server data")?,
+        &layouts,
+    )?;
+    let source = catalog.source(chunk).context("terrain chunk not found")?;
+    let name = scene_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .context("scene filename")?;
+    let guid = rrising_ecs::Hash128::from_guid(name.split('.').next().context("scene GUID")?);
+    anyhow::ensure!(
+        guid == source.scene,
+        "scene GUID does not match terrain chunk source"
+    );
+    let matrix = catalog
+        .placement_matrix(chunk)
+        .context("terrain placement")?;
+    scene_view::place_terrain_section(data, matrix);
+    println!(
+        "Placed terrain chunk {chunk:#06x}, yaw {} degrees; experimental static placement.",
+        source.rotation_degrees
+    );
+    Ok(())
+}
 type WindowedScene = (
     Loaded,
     Option<scene_view::FlyCam>,
@@ -827,6 +875,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
         apply_sim(&opt, &layouts, scene_path, &mut data)?;
+        place_terrain(&opt, scene_path, &mut data)?;
         let mut fly = Some(scene_view::FlyCam::framing(data.bounds));
         let mut sim = if opt.scene_live {
             println!(
@@ -1164,6 +1213,7 @@ fn run_offscreen(opt: &Options) -> Result<()> {
         let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
         let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
         apply_sim(opt, &layouts, scene_path, &mut data)?;
+        place_terrain(opt, scene_path, &mut data)?;
         let cam = if opt.spawn_player {
             let mut sim = scene_view::simulate(&layouts, scene_path, 0)?;
             let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;

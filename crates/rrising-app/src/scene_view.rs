@@ -111,6 +111,45 @@ pub struct SceneData {
     pub bounds: ([f32; 3], [f32; 3]),
 }
 
+/// Apply the recovered section placement to the baked draw matrices. This does
+/// not reproduce terrain streaming or prove correspondence to a live world.
+pub fn place_terrain_section(data: &mut SceneData, placement: float4x4) {
+    use rrising_math::float4;
+    let place = |instance: &mut Instance| {
+        let c = instance.model.map(|v| float4::new(v[0], v[1], v[2], v[3]));
+        let local = float4x4::new(c[0], c[1], c[2], c[3]);
+        *instance = Instance::from_matrix(&float4x4::mul_matrix(placement, local));
+    };
+    for instance in data
+        .groups
+        .iter_mut()
+        .flat_map(|g| &mut g.instances)
+        .chain(&mut data.markers)
+    {
+        place(instance);
+    }
+    let mut axes: [Vec<f32>; 3] = Default::default();
+    for instance in data
+        .groups
+        .iter()
+        .flat_map(|g| &g.instances)
+        .chain(&data.markers)
+    {
+        for (axis, values) in axes.iter_mut().enumerate() {
+            values.push(instance.model[3][axis]);
+        }
+    }
+    let (mut lo, mut hi) = ([0.; 3], [0.; 3]);
+    for (axis, values) in axes.iter_mut().enumerate() {
+        if !values.is_empty() {
+            values.sort_by(f32::total_cmp);
+            lo[axis] = values[values.len() / 100];
+            hi[axis] = values[values.len() - 1 - values.len() / 100];
+        }
+    }
+    data.bounds = (lo, hi);
+}
+
 struct RawGroup {
     cutout: bool,
     texture: Option<ObjRef>,
@@ -1282,6 +1321,25 @@ pub fn player_walk_samples(
 mod managed_array_tests {
     use super::{needs_runtime_or_range_resolution, parse_index_arrays};
     use rrising_ecs::MaterialMeshInfo;
+
+    #[test]
+    fn terrain_placement_transforms_instances_and_camera_bounds() {
+        use super::{place_terrain_section, SceneData, SceneStats};
+        use rrising_math::{float3, float4x4};
+        use rrising_render::Instance;
+        let mut data = SceneData {
+            groups: vec![],
+            markers: vec![Instance::from_matrix(&float4x4::translate(float3::new(
+                1., 2., 3.,
+            )))],
+            marker_entities: vec![],
+            stats: SceneStats::default(),
+            bounds: ([0.; 3], [0.; 3]),
+        };
+        place_terrain_section(&mut data, float4x4::translate(float3::new(-20., 0., 40.)));
+        assert_eq!(&data.markers[0].model[3][..3], &[-19., 2., 43.]);
+        assert_eq!(data.bounds, ([-19., 2., 43.], [-19., 2., 43.]));
+    }
 
     #[test]
     fn live_scene_retains_schedule_and_applies_updated_transforms() {

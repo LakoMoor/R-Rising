@@ -104,6 +104,44 @@ fn bounded_ordinary_step_on_client_player_projection() {
         .unwrap();
     assert_eq!(read(&position[0..4]), read(&first_position[0..4]) - 1.0);
     assert_eq!(read(&position[8..12]), read(&first_position[8..12]) + 0.5);
+    // Exercise the bounded input -> command -> movement connection on the original
+    // prefab. The lookup result is supplied explicitly; no controller or scheduler
+    // is simulated and this is not an end-to-end original gameplay comparison.
+    let input_type = world.types.type_index_of("ProjectM.EntityInput").unwrap();
+    rrising_core::player_input::write_player_movement(
+        &mut world,
+        player,
+        input_type,
+        [0.75, -0.25],
+    )
+    .unwrap();
+    let raw = world
+        .store
+        .component_bytes(player, input_type)
+        .unwrap()
+        .to_vec();
+    let mut command = [0x5au8; rrising_core::command_movement::INPUT_COMMAND_SIZE];
+    // With Movement present, original command selection takes its MoveInput,
+    // not the distinct raw EntityInput direction.
+    rrising_core::command_movement::write_command_input(&mut command, &raw, Some([0.6, 0.8]), None)
+        .unwrap();
+    command[144..148].copy_from_slice(&0.25f32.to_le_bytes());
+    let previous = world
+        .store
+        .component_bytes(player, types.translation)
+        .unwrap()
+        .to_vec();
+    step_ordinary_command_bytes(&mut world, player, types, &command, true).unwrap();
+    let after = world
+        .store
+        .component_bytes(player, types.translation)
+        .unwrap();
+    assert_eq!(read(&after[0..4]), read(&previous[0..4]) + 0.6 * 4.0 * 0.25);
+    assert_eq!(
+        read(&after[8..12]),
+        read(&previous[8..12]) + 0.8 * 4.0 * 0.25
+    );
+    assert_eq!(&command[20..116], raw.as_slice());
     movement[60] = 1;
     world
         .store

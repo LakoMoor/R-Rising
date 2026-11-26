@@ -28,3 +28,9 @@ The anchor client scene was rendered locally with 3,786 mesh instances; the
 section-local contents. It is not placed with neighbors and does not match original lighting,
 materials or the original game screenshot. The extracted placement matrix is shared with the
 existing static-object restore path, but its application to client rendering remains unverified.
+
+The static native viewer now accepts `--terrain-chunk x,z --server-data <server data>
+--server-layouts <server report>` with a matching `--scene`. It checks the scene GUID and applies
+the recovered placement matrix to instance transforms and camera bounds. Chunk (2,0) rendered
+successfully using the pinned client/server files. This establishes the implementation path,
+not its agreement with the running original, neighboring chunks, or live streaming.
