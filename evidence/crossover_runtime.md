@@ -112,3 +112,13 @@ Archetypes`, matching the Rust structural result (136 archetypes). World startup
 launch under CrossOver (Wine + Rosetta; includes bottle and scene startup, not isolated load time) and the
 probe exited normally after 222 s, with the server writing AutoSave_4 and 5 itself. This is original-side
 evidence that the saved world reloads; it is not a Rust comparison and not a performance measurement.
+
+## Player-input coverage of a retained server save
+
+A read-only inspection of the retained `AutoSave_13.save.gz` from the 2026-11-25 reload found
+274,658 saved entities. Exactly one has a saved `ProjectM.EntityInput` column. Its archetype also
+contains `AiMove_Server`, `BehaviourTreeInstance`, `VBloodUnit`, `DisabledDueToNoPlayersInRange`
+and `Unity.Entities.Disabled`; its movement input is zero. No saved job archetype was identified
+as a player character or user. This is an offline observation of this particular server save,
+not proof about other saves or every possible player type. In particular, the input-bearing entity
+must not be treated as a controlled player or as a player-input behavioral oracle.
