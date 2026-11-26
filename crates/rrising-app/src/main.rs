@@ -43,6 +43,7 @@ struct Options {
     type_layouts: Option<PathBuf>,
     /// `--scene-sim N`: run fixed steering/transform frames and draw the World's LocalToWorld.
     scene_sim: Option<usize>,
+    scene_live: bool,
     /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
     compare: Option<PathBuf>,
     bench: bool,
@@ -73,6 +74,7 @@ fn parse_args() -> Result<Options> {
         scene: None,
         type_layouts: None,
         scene_sim: None,
+        scene_live: false,
         compare: None,
         bench: false,
         frames: 60,
@@ -99,6 +101,7 @@ fn parse_args() -> Result<Options> {
             "--scene-sim" => {
                 opt.scene_sim = Some(take()?.parse().context("--scene-sim takes a frame count")?)
             }
+            "--scene-live" => opt.scene_live = true,
             "--compare" => opt.compare = Some(PathBuf::from(take()?)),
             "--type-layouts" => opt.type_layouts = Some(PathBuf::from(take()?)),
             "--import-web" => opt.import_web = Some(PathBuf::from(take()?)),
@@ -125,6 +128,7 @@ fn parse_args() -> Result<Options> {
         opt.scene_sim.is_none() || (opt.scene.is_some() && opt.scene_sim != Some(0)),
         "--scene-sim needs --scene and a positive frame count"
     );
+    anyhow::ensure!(!opt.scene_live || (opt.scene.is_some() && opt.scene_sim.is_none() && opt.offscreen.is_none() && opt.export_web.is_none() && opt.compare.is_none()), "--scene-live needs --scene and a window; it cannot be combined with --scene-sim or export modes");
     Ok(opt)
 }
 
@@ -468,13 +472,15 @@ struct App {
     fly: Option<scene_view::FlyCam>,
     keys: std::collections::HashSet<winit::keyboard::KeyCode>,
     last_tick: Option<std::time::Instant>,
+    live: Option<(scene_view::SimWorld, scene_view::SceneData)>,
+    live_tick: Option<std::time::Instant>,
 }
 
 impl App {
     fn frame(&mut self) {
-        let (Some(r), Some(l)) = (&mut self.renderer, &self.loaded) else {
+        if self.renderer.is_none() || self.loaded.is_none() {
             return;
-        };
+        }
         let (w, h) = match &self.window {
             Some(win) => {
                 let s = win.inner_size();
@@ -482,6 +488,25 @@ impl App {
             }
             None => (1280, 720),
         };
+        if let (Some((sim, scene)), Some(loaded)) = (&mut self.live, &mut self.loaded) {
+            let now = std::time::Instant::now();
+            let elapsed = self.live_tick.replace(now).map_or(0, |last| {
+                now.duration_since(last)
+                    .as_nanos()
+                    .min(u128::from(u64::MAX)) as u64
+            });
+            match sim.advance(elapsed, 4) {
+                Ok(steps) if steps > 0 => {
+                    sim.apply(scene);
+                    loaded.sync(scene);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    log::error!("scene simulation: {error:#}");
+                    self.live = None;
+                }
+            }
+        }
         let uniforms = match &mut self.fly {
             Some(cam) => {
                 use winit::keyboard::KeyCode as K;
@@ -510,6 +535,9 @@ impl App {
                 cam.uniforms(w as f32 / h as f32)
             }
             None => frame_uniforms(w as f32 / h as f32),
+        };
+        let (Some(r), Some(l)) = (&mut self.renderer, &self.loaded) else {
+            return;
         };
         let neutral = r.neutral_view();
         let draws = l.draws(&neutral);
@@ -554,8 +582,9 @@ impl ApplicationHandler for App {
             }
         };
         match run_windowed(&renderer) {
-            Ok((loaded, fly)) => {
+            Ok((loaded, fly, live)) => {
                 self.fly = fly;
+                self.live = live;
                 self.loaded = Some(loaded);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
@@ -645,7 +674,8 @@ fn open_content(opt: &Options) -> Result<GameContent> {
     Ok(content)
 }
 
-fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCam>)> {
+type LiveScene = Option<(scene_view::SimWorld, scene_view::SceneData)>;
+fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCam>, LiveScene)> {
     let opt = parse_args()?;
     let content = open_content(&opt)?;
     if let Some(scene_path) = &opt.scene {
@@ -654,11 +684,18 @@ fn run_windowed(renderer: &Renderer) -> Result<(Loaded, Option<scene_view::FlyCa
         apply_sim(&opt, &layouts, scene_path, &mut data)?;
         let loaded = load_scene_view(renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
-        return Ok((loaded, Some(scene_view::FlyCam::framing(data.bounds))));
+        let fly = Some(scene_view::FlyCam::framing(data.bounds));
+        let live = if opt.scene_live {
+            println!("Experimental live ECS scene: camera controls only; no player locomotion or animation.");
+            Some((scene_view::simulate(&layouts, scene_path, 0)?, data))
+        } else {
+            None
+        };
+        return Ok((loaded, fly, live));
     }
     let spec = scene::showcase(&content, opt.items);
     println!("scene: {} items", spec.len());
-    Ok((load_scene(renderer, &content, &spec)?, None))
+    Ok((load_scene(renderer, &content, &spec)?, None, None))
 }
 
 /// With `--scene-sim N`, replace the stored matrices by the ones the Schedule produced.

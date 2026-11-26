@@ -796,3 +796,9 @@ A host-side input boundary can write the recovered movement and aim fields of `E
 selected ECS entity while preserving the remaining input bytes. It does not yet connect keyboard or
 mouse, identify a live player, run locomotion, or animate a character. Its field layout is supported
 by the saved shared-steering replays; it is not a replay of the original client input pipeline.
+
+The native viewer has an opt-in `--scene-live` mode which retains a scene World and Schedule and
+advances existing steering/transform systems on fixed steps while the window is open. This is an
+experimental ECS loop: WASD still controls the camera, and player selection, input-to-locomotion,
+collision, animation, HUD and original system ordering remain unimplemented. The mode requires the
+owner's scene and layout report; it has not been visually verified in the present environment.

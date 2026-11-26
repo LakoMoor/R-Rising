@@ -968,6 +968,7 @@ pub fn layouts_path(opt: Option<&PathBuf>) -> Result<PathBuf> {
 /// A scene built as a `World` and stepped by the `Schedule` (`TransformSystem`).
 pub struct SimWorld {
     pub world: rrising_ecs::World,
+    schedule: rrising_ecs::Schedule,
     pub ltw: rrising_ecs::TypeIndex,
     /// Wall time of building the world from the decoded scene.
     pub build_ms: f64,
@@ -1045,6 +1046,7 @@ pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result
     }
     Ok(SimWorld {
         world: sw.world,
+        schedule: sched,
         ltw,
         build_ms,
         frame_ms,
@@ -1057,6 +1059,12 @@ pub fn simulate(layouts_path: &Path, scene_path: &Path, frames: usize) -> Result
 }
 
 impl SimWorld {
+    /// Advance a retained world on fixed steps; the step cap limits catch-up after a pause.
+    pub fn advance(&mut self, elapsed_ns: u64, max_steps: u32) -> Result<u32> {
+        self.schedule
+            .advance(&mut self.world, elapsed_ns, max_steps)
+    }
+
     fn instance(&self, e: Entity) -> Option<Instance> {
         let b = self.world.store.try_component_bytes(e, self.ltw).ok()??;
         let mut m = [0f32; 16];
