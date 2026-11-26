@@ -147,6 +147,44 @@ fn bounded_ordinary_step_on_client_player_projection() {
         read(&previous[8..12]) + 0.8 * 4.0 * 0.25
     );
     assert_eq!(&command[20..116], raw.as_slice());
+    // Exercise the recovered ability setup body on the real component. The test
+    // supplies eligibility; it does not assert that the original scheduler runs it.
+    let mut setup = world
+        .store
+        .component_bytes(player, types.movement)
+        .unwrap()
+        .to_vec();
+    rrising_core::movement::setup_ability_movement(&mut setup, &raw).unwrap();
+    world
+        .store
+        .set_component_bytes(player, types.movement, &setup)
+        .unwrap();
+    rrising_core::command_movement::write_command_input_from_world(
+        &world,
+        player,
+        &mut command,
+        input_type,
+    )
+    .unwrap();
+    assert_eq!(&command[..8], &raw[..8]);
+    let before_setup_step = world
+        .store
+        .component_bytes(player, types.translation)
+        .unwrap()
+        .to_vec();
+    step_ordinary_command_bytes(&mut world, player, types, &command, true).unwrap();
+    let after_setup_step = world
+        .store
+        .component_bytes(player, types.translation)
+        .unwrap();
+    assert_eq!(
+        read(&after_setup_step[0..4]),
+        read(&before_setup_step[0..4]) + 0.75 * 4.0 * 0.25
+    );
+    assert_eq!(
+        read(&after_setup_step[8..12]),
+        read(&before_setup_step[8..12]) - 0.25 * 4.0 * 0.25
+    );
     movement[60] = 1;
     world
         .store

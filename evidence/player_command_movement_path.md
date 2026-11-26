@@ -47,6 +47,19 @@ in 36 cases on Rosetta; the Rust body matches their full 104-byte outputs. The r
 supplies the query result and excludes the preceding debug/assertion calls, scheduler,
 and other gameplay branches. It does not establish end-to-end player behavior.
 
+Further static inspection of `__AssignQueries` (server RVA `0x631b6f0`) identifies
+one query built with `WithAllRW<Movement>`, `WithAllRW<TargetDirection>`, and
+`WithAll<EntityInput>`, `WithAll<Translation>`, `WithAll<Rotation>`; the other query
+uses `WithAll<ModificationsRegistry>` and OnUpdate obtains its singleton. Metadata
+identifies these generic builder methods; default ECS query filtering and singleton
+lifecycle still require reconstruction. Before the setup write, OnUpdate calls
+`WorldUtility.IsClientWorld` (RVA `0x7896e50`). For each matching entity, server world
+proceeds; on a client, a `LocalControlled` entity proceeds, as does an entity without
+`NetworkInterpolated_Shared`. A non-local client entity with that component proceeds
+only if `NetworkInterpolated_Shared.Simulate` at +0x44 is nonzero; otherwise the branch
+at `0x631b263` advances to the next entity. This is static control-flow evidence,
+not a runtime replay or a complete implementation of the other component changes.
+
 The pinned server `AiMoveSystem_Client_Update.Move` (RVA `0x7ed0ea0`) was also
 inspected as a candidate. Metadata identifies its fourth argument as `ref Movement`;
 the preserved pointer is accessed for Speed at +0x5c near `0x7ed10d4` and

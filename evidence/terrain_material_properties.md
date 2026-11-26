@@ -15,3 +15,11 @@ Separately, the viewer substitutes layer 0 for Texture2DArray `_BaseMaps` and do
 terrain blending. The data needed for layer selection, masks, and original shader logic is not
 recovered here, so neither the green appearance nor the correct replacement layer can be
 attributed to one cause from this inventory alone.
+
+The focused `terrain_shader_inventory` example reads compiled-variant metadata for the shader
+referenced by `ElrisSnowWhispy01_Terrain`. On the pinned installation the shader is named
+`Shader Graphs/Shader_Terrain`, with platform 4 (D3D11); among the inspected vertex/fragment
+variant parameter fields is `_WorldUVScale`. The same material stores that value as 0.075.
+`_BaseMaps` did not appear among the texture parameters returned by this inventory; that is
+not evidence it is unused. Variant parameter blobs or other stages may need additional decoding.
+These are metadata observations, not shader instruction analysis or proof of the formula.
