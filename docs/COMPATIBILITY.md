@@ -809,3 +809,8 @@ WASD writes raw world X/Z axes into that component while preserving aim and acti
 a diagnostic input path, not original keyboard mapping, automatic player identification or movement:
 no player locomotion/collision/animation is implemented and a steering system can overwrite input.
 Original scene/world and GUI operation have not yet been verified for this mode.
+
+`--list-input-entities <scene> --type-layouts <report>` lists live non-Prefab/non-Disabled
+entities carrying EntityInput in a reconstructed scene. The list is diagnostic and does not identify
+players. The pinned Silver Mountain scene returned no eligible entities in a local check; finding
+or spawning a live controlled player still requires additional systems and content handling.

@@ -36,6 +36,7 @@ struct Options {
     export_web: Option<PathBuf>,
     import_web: Option<PathBuf>,
     inspect_scene: Option<PathBuf>,
+    list_input_entities: Option<PathBuf>,
     inspect_save: Option<PathBuf>,
     clone_prefab: Option<i32>,
     restore_projection: bool,
@@ -69,6 +70,7 @@ fn parse_args() -> Result<Options> {
         export_web: None,
         import_web: None,
         inspect_scene: None,
+        list_input_entities: None,
         inspect_save: None,
         clone_prefab: None,
         restore_projection: false,
@@ -94,6 +96,7 @@ fn parse_args() -> Result<Options> {
             "--width" => opt.width = take()?.parse().context("--width takes a number")?,
             "--height" => opt.height = take()?.parse().context("--height takes a number")?,
             "--inspect-scene" => opt.inspect_scene = Some(PathBuf::from(take()?)),
+            "--list-input-entities" => opt.list_input_entities = Some(PathBuf::from(take()?)),
             "--inspect-save" => opt.inspect_save = Some(PathBuf::from(take()?)),
             "--clone-prefab" => {
                 opt.clone_prefab = Some(take()?.parse().context("expected a signed prefab GUID")?)
@@ -1257,6 +1260,37 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// List eligible input components; this does not identify which entity is a player.
+fn list_input_entities(opt: &Options, path: &Path) -> Result<()> {
+    let layout_path = opt
+        .type_layouts
+        .as_ref()
+        .context("--list-input-entities needs --type-layouts")?;
+    let layouts =
+        rrising_content::type_layouts::TypeLayouts::from_json(&std::fs::read(layout_path)?)?;
+    let scene = rrising_content::entity_scenes::SceneFile::open(path)?;
+    let sw = rrising_content::world_adapter::build_scene_world(&layouts, &scene)?;
+    let ty = sw.world.types.type_index_of("ProjectM.EntityInput");
+    let entities = match ty {
+        Some(ty) => sw.world.store.query_entities(&rrising_ecs::EntityQuery {
+            all: vec![ty],
+            ..Default::default()
+        })?,
+        None => vec![],
+    };
+    let rows: Vec<_> = entities
+        .into_iter()
+        .map(|e| serde_json::json!({"index":e.index,"version":e.version}))
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(
+            &serde_json::json!({"scene":path.display().to_string(), "scope":"live non-prefab entities with EntityInput; not player identification", "entities":rows})
+        )?
+    );
+    Ok(())
+}
+
 /// Read original component bytes through recovered storage layout, without simulation.
 fn inspect_scene(opt: &Options, path: &Path) -> Result<()> {
     use rrising_content::type_layouts::{TypeLayouts, LOCAL_TO_WORLD_HASH, TRANSLATION_HASH};
@@ -1649,6 +1683,9 @@ fn main() -> Result<()> {
     }
     if opt.bench {
         return bench(&opt);
+    }
+    if let Some(path) = &opt.list_input_entities {
+        return list_input_entities(&opt, path);
     }
     if let Some(path) = &opt.inspect_scene {
         return inspect_scene(&opt, path);
