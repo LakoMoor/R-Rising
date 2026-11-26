@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use rrising_content::{list_archives, GameContent};
 use std::{collections::BTreeSet, path::Path};
-use unity_formats::program::ShaderPrograms;
+use unity_formats::program::{Segments, ShaderPrograms};
 
 fn main() -> Result<()> {
     let data = std::env::var("VRISING_DATA")?;
@@ -26,13 +26,32 @@ fn main() -> Result<()> {
     );
     let mut fields = BTreeSet::new();
     let mut textures = BTreeSet::new();
+    let mut cache = Segments::default();
+    let mut inspected = 0usize;
+    let mut failures = BTreeSet::new();
+    let mut failed = 0usize;
+    let mut scale_locations = BTreeSet::new();
     for pass in programs.passes.iter().flatten() {
         for stage in [&pass.vertex, &pass.fragment] {
             for variant in &stage.variants {
-                let params = stage.parameters_of(variant);
+                let params = match programs.variant_parameters(&mut cache, 4, stage, variant) {
+                    Ok(params) => params,
+                    Err(error) => {
+                        failed += 1;
+                        failures.insert(error.to_string());
+                        stage.parameters_of(variant).clone()
+                    }
+                };
+                inspected += 1;
                 for cb in &params.constant_buffers {
                     for field in &cb.fields {
                         fields.insert(field.name.clone());
+                        if field.name == "_WorldUVScale" {
+                            scale_locations.insert(format!(
+                                "_WorldUVScale: buffer={} slot={:?} offset={} shape={:?}",
+                                cb.name, cb.slot, field.offset, field.shape
+                            ));
+                        }
                     }
                 }
                 for texture in &params.textures {
@@ -40,6 +59,12 @@ fn main() -> Result<()> {
                 }
             }
         }
+    }
+    println!(
+        "visited {inspected} variants; {failed} used incomplete fallback metadata: {failures:?}"
+    );
+    for location in scale_locations {
+        println!("{location}");
     }
     for field in fields.iter().filter(|n| {
         n.contains("Base")

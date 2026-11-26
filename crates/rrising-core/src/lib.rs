@@ -5,6 +5,7 @@
 //! drawable scenes from the original's archives. The gameplay systems themselves wait on the
 //! decompiled bodies, which `docs/PORT.md` tracks.
 
+pub mod ability_movement_ecs;
 pub mod aim;
 pub mod command_movement;
 pub mod easing;

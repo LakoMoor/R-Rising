@@ -191,4 +191,17 @@ fn bounded_ordinary_step_on_client_player_projection() {
         .set_component_bytes(player, types.movement, &movement)
         .unwrap();
     assert!(step_ordinary_entity(&mut world, player, types, true, 0.25).is_err());
+    // Only the recovered Movement body, not the complete original system.
+    let setup_types =
+        rrising_core::ability_movement_ecs::AbilityMovementTypes::from_world(&world).unwrap();
+    let matching = world.store.query_entities(&setup_types.query()).unwrap();
+    assert!(matching.contains(&player));
+    rrising_core::ability_movement_ecs::apply_ability_movement_body(
+        &mut world,
+        &setup_types,
+        false,
+    )
+    .unwrap();
+    let updated = world.store.component_bytes(player, types.movement).unwrap();
+    assert_eq!(&updated[76..84], &raw[..8]);
 }

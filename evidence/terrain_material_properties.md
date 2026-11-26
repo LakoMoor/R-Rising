@@ -23,3 +23,11 @@ variant parameter fields is `_WorldUVScale`. The same material stores that value
 `_BaseMaps` did not appear among the texture parameters returned by this inventory; that is
 not evidence it is unused. Variant parameter blobs or other stages may need additional decoding.
 These are metadata observations, not shader instruction analysis or proof of the formula.
+
+The inventory now requests merged variant-specific parameter blobs instead of only common
+parameters. On the pinned installation it visits 252 vertex/fragment variants: 192 decode
+fully, while 60 use incomplete common-parameter fallback because the current unity-formats
+parser rejects an entry of kind 2. In fallback metadata `_WorldUVScale` is a scalar at offset 0
+in `UnityPerMaterial`, with no resolved binding slot. `_BaseMaps` is still not returned, but
+the 60 incomplete variants prevent a negative conclusion. The shader instructions and UV
+formula have not been decoded; changing the renderer from this metadata would be speculative.
