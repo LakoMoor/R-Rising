@@ -137,7 +137,7 @@ pub fn upload_vertices(
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some(&format!("verts {name}")),
         contents: bytemuck::cast_slice(verts),
-        usage: wgpu::BufferUsages::VERTEX,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
     });
     let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some(&format!("inds {name}")),
@@ -153,6 +153,22 @@ pub fn upload_vertices(
         vertex_buffer,
         index_buffer,
     })
+}
+
+/// Replace the vertices of an existing mesh without changing its topology.
+pub fn update_vertices(queue: &wgpu::Queue, mesh: &GpuMesh, vertices: &[Vertex]) -> Result<()> {
+    anyhow::ensure!(vertices.len() == mesh.vertex_count, "vertex count changed");
+    anyhow::ensure!(
+        vertices.iter().all(|v| v
+            .position
+            .iter()
+            .chain(&v.normal)
+            .chain(&v.uv)
+            .all(|x| x.is_finite())),
+        "nonfinite vertex"
+    );
+    queue.write_buffer(&mesh.vertex_buffer, 0, bytemuck::cast_slice(vertices));
+    Ok(())
 }
 
 /// The vertex layout the pipeline is built with; must match `Vertex` and the shader's inputs.

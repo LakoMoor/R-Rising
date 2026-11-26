@@ -47,6 +47,7 @@ struct Options {
     scene_live: bool,
     control_entity: Option<rrising_ecs::Entity>,
     spawn_player: bool,
+    animate_player: bool,
     /// `--compare out.json`: stored-vs-simulated image comparison for `--scene`.
     compare: Option<PathBuf>,
     bench: bool,
@@ -81,6 +82,7 @@ fn parse_args() -> Result<Options> {
         scene_live: false,
         control_entity: None,
         spawn_player: false,
+        animate_player: false,
         compare: None,
         bench: false,
         frames: 60,
@@ -110,6 +112,7 @@ fn parse_args() -> Result<Options> {
             }
             "--scene-live" => opt.scene_live = true,
             "--spawn-player" => opt.spawn_player = true,
+            "--animate-player" => opt.animate_player = true,
             "--control-entity" => {
                 let value = take()?;
                 let (index, version) = value
@@ -152,6 +155,10 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         !opt.spawn_player || ((opt.scene_live || (opt.scene.is_some() && opt.offscreen.is_some())) && opt.control_entity.is_none()),
         "--spawn-player requires --scene-live or --scene with --offscreen, and cannot be combined with --control-entity"
+    );
+    anyhow::ensure!(
+        !opt.animate_player || (opt.spawn_player && opt.scene_live),
+        "--animate-player requires --scene-live --spawn-player"
     );
     Ok(opt)
 }
@@ -500,6 +507,15 @@ struct App {
     live_tick: Option<std::time::Instant>,
     control: Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>,
     input_direction: [f32; 3],
+    player_animation: Option<PlayerAnimation>,
+}
+
+struct PlayerAnimation {
+    duration: f32,
+    frames: Vec<Vec<Vec<rrising_render::mesh::Vertex>>>,
+    first_group: usize,
+    started: std::time::Instant,
+    last_frame: Option<usize>,
 }
 
 impl App {
@@ -559,6 +575,31 @@ impl App {
                     log::error!("scene simulation: {error:#}");
                     self.live = None;
                 }
+            }
+        }
+        if let (Some(animation), Some(loaded), Some(renderer)) =
+            (&mut self.player_animation, &mut self.loaded, &self.renderer)
+        {
+            let count = animation.frames[0].len();
+            let phase = animation
+                .started
+                .elapsed()
+                .as_secs_f32()
+                .rem_euclid(animation.duration)
+                / animation.duration;
+            let frame = ((phase * count as f32) as usize).min(count - 1);
+            if animation.last_frame != Some(frame) {
+                for (part, frames) in animation.frames.iter().enumerate() {
+                    let mesh = loaded.items[animation.first_group + part].mesh;
+                    if let Err(error) = rrising_render::mesh::update_vertices(
+                        renderer.queue(),
+                        &loaded.meshes[mesh],
+                        &frames[frame],
+                    ) {
+                        log::error!("experimental animation: {error:#}");
+                    }
+                }
+                animation.last_frame = Some(frame);
             }
         }
         let uniforms = match &mut self.fly {
@@ -644,10 +685,11 @@ impl ApplicationHandler for App {
             }
         };
         match run_windowed(&renderer) {
-            Ok((loaded, fly, live, control)) => {
+            Ok((loaded, fly, live, control, animation)) => {
                 self.fly = fly;
                 self.live = live;
                 self.control = control;
+                self.player_animation = animation;
                 self.loaded = Some(loaded);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
@@ -744,7 +786,13 @@ fn open_content(opt: &Options) -> Result<GameContent> {
 
 type LiveScene = Option<(scene_view::SimWorld, scene_view::SceneData)>;
 type ControlTarget = Option<(rrising_ecs::Entity, rrising_ecs::TypeIndex)>;
-type WindowedScene = (Loaded, Option<scene_view::FlyCam>, LiveScene, ControlTarget);
+type WindowedScene = (
+    Loaded,
+    Option<scene_view::FlyCam>,
+    LiveScene,
+    ControlTarget,
+    Option<PlayerAnimation>,
+);
 
 fn player_camera(bounds: ([f32; 3], [f32; 3]), instance: Instance) -> scene_view::FlyCam {
     let mut camera = scene_view::FlyCam::framing(bounds);
@@ -765,11 +813,14 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         apply_sim(&opt, &layouts, scene_path, &mut data)?;
         let mut fly = Some(scene_view::FlyCam::framing(data.bounds));
         let mut sim = if opt.scene_live {
-            println!("Experimental live ECS scene: no player locomotion or animation.");
+            println!(
+                "Experimental live ECS scene: no player locomotion or gameplay animation system."
+            );
             Some(scene_view::simulate(&layouts, scene_path, 0)?)
         } else {
             None
         };
+        let mut animation = None;
         let selected_entity = if opt.spawn_player {
             let sim = sim.as_mut().context("spawn needs live world")?;
             let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
@@ -778,8 +829,24 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                 .instance(entity)
                 .context("spawned player's LocalToWorld unavailable")?;
             fly = Some(player_camera(data.bounds, instance));
+            let first_group = data.groups.len();
             let parts = scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
-            println!("Experimental player visual: {parts} static parts; no textures, head, animation or verified hybrid-model selection.");
+            if opt.animate_player {
+                let (duration, frames) = scene_view::player_walk_samples(&content, 24)?;
+                anyhow::ensure!(
+                    parts == frames.len(),
+                    "animation parts differ from visual parts"
+                );
+                animation = Some(PlayerAnimation {
+                    duration,
+                    frames,
+                    first_group,
+                    started: std::time::Instant::now(),
+                    last_frame: None,
+                });
+                println!("Experimental looping walk clip; no gameplay state machine or movement synchronization.");
+            }
+            println!("Experimental player visual: {parts} parts; no textures, head or verified hybrid-model selection.");
             Some(entity)
         } else {
             opt.control_entity
@@ -803,7 +870,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                 sim.world.store.component_bytes(entity, ty)?.len() == 96,
                 "invalid EntityInput layout"
             );
-            println!("Experimental camera-relative WASD input for {entity:?}: no locomotion or animation system yet.");
+            println!("Experimental camera-relative WASD input for {entity:?}: no locomotion or gameplay animation system yet.");
             Some((entity, ty))
         } else {
             None
@@ -811,11 +878,17 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         let loaded = load_scene_view(renderer, &content, &mut data)?;
         println!("{}", data.stats.report());
         let live = sim.map(|sim| (sim, data));
-        return Ok((loaded, fly, live, control));
+        return Ok((loaded, fly, live, control, animation));
     }
     let spec = scene::showcase(&content, opt.items);
     println!("scene: {} items", spec.len());
-    Ok((load_scene(renderer, &content, &spec)?, None, None, None))
+    Ok((
+        load_scene(renderer, &content, &spec)?,
+        None,
+        None,
+        None,
+        None,
+    ))
 }
 
 /// With `--scene-sim N`, replace the stored matrices by the ones the Schedule produced.

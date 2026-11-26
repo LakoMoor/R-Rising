@@ -858,8 +858,15 @@ caller provides the branch conditions and movement input; it is not connected to
 or the scene loop, and does not implement collision or the original command scheduler.
 
 The [animation inventory](../evidence/player_animation_inventory.md) identifies the candidate
-model's avatar, controller and walking/running clips and matches tracks to bone paths. Animation
-evaluation and runtime selection are still unimplemented.
+model's avatar, controller and walking/running clips and matches tracks to bone paths. Original
+Animator evaluation and runtime selection are still unimplemented.
+
+For diagnostics, `--scene-live --spawn-player --animate-player` samples 24 poses of the first
+base-controller walk clip at startup and loops them by replacing the player meshes' GPU vertex
+buffers. It does not follow player input, evaluate the Animator, apply overrides or transitions,
+or establish Unity parity; it runs even while the player stands still. A pinned-data test checked
+both model parts' topology and changed vertices between sampled poses. A bounded native run
+reached the render loop without logged GPU errors, but the window was not visually inspected.
 
 The owner's client archive `ade72d3099b8ad7fbfcba0827fe43cd7` also contains male and female
 customization-screen character prefabs. The `character_inventory` example resolves their skinned

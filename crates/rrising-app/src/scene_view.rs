@@ -1212,6 +1212,72 @@ pub fn attach_player_visual(
     Ok(count)
 }
 
+/// Precompute samples of the first base-controller clip for the diagnostic player.
+/// This is not the game's animation state selection, blending, or GPU skinning.
+pub fn player_walk_samples(
+    content: &GameContent,
+    sample_count: usize,
+) -> Result<(f32, Vec<Vec<Vec<Vertex>>>)> {
+    use rrising_render::{clip_pose::sample_bones, skin::skin_static_pose};
+    use unity_formats::{
+        clip::{controller_clips, ClipData},
+        scene::Scene,
+    };
+    ensure!(sample_count > 0, "animation needs samples");
+    let scene = Scene::read(content.player(), "ae19a255904fd765632aa97a2d7c670c")?;
+    let animator = scene
+        .animators(content.player())?
+        .into_iter()
+        .find(|a| a.path.starts_with("HYB_VampireMale_Prefab/"))
+        .context("player animator")?;
+    let root = scene
+        .transform_of(animator.game_object)
+        .context("animator root")?;
+    let controller = animator.controller.context("controller")?;
+    let data = content.player().decode(&controller)?;
+    let base = match data.get("m_Controller") {
+        Some(ptr) => content
+            .player()
+            .resolve(&controller.file, ptr)?
+            .context("base controller")?,
+        None => controller,
+    };
+    let clips = controller_clips(content.player(), &base)?;
+    let clip = ClipData::read(content.player(), clips.first().context("no clip")?)?;
+    ensure!(
+        clip.name == "VampireMale_Unarmed_Walk_Forward" && clip.duration > 0.0,
+        "unexpected walk clip"
+    );
+    let (renderers, _) = scene.renderers(content.player())?;
+    let mut result = Vec::new();
+    for renderer in renderers
+        .into_iter()
+        .filter(|r| r.path.starts_with("HYB_VampireMale_Prefab/") && r.skin.is_some())
+    {
+        let skin = renderer.skin.context("skin")?;
+        let bones = skin
+            .bones
+            .iter()
+            .map(|id| id.context("missing bone"))
+            .collect::<Result<Vec<_>>>()?;
+        let mesh = content.read_mesh(&renderer.mesh)?;
+        let mut frames = Vec::with_capacity(sample_count);
+        for index in 0..sample_count {
+            let joints = sample_bones(
+                &scene,
+                root,
+                &bones,
+                &clip,
+                clip.duration * index as f32 / sample_count as f32,
+            )?;
+            frames.push(skin_static_pose(&mesh, &joints)?.0);
+        }
+        result.push(frames);
+    }
+    ensure!(!result.is_empty(), "player has no skinned parts");
+    Ok((clip.duration, result))
+}
+
 #[cfg(test)]
 mod managed_array_tests {
     use super::{needs_runtime_or_range_resolution, parse_index_arrays};
@@ -1388,7 +1454,10 @@ mod managed_array_tests {
     #[test]
     #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
     fn experimental_player_visual_follows_entity_transform() {
-        use super::{attach_player_visual, simulate, spawn_player, SceneData, SceneStats, STEP_NS};
+        use super::{
+            attach_player_visual, player_walk_samples, simulate, spawn_player, SceneData,
+            SceneStats, STEP_NS,
+        };
         use rrising_content::{list_archives, GameContent};
         use std::path::{Path, PathBuf};
         let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
@@ -1414,6 +1483,19 @@ mod managed_array_tests {
             attach_player_visual(&content, &mut visual, entity, sim.instance(entity).unwrap())
                 .unwrap();
         assert_eq!(count, 2);
+        let (duration, samples) = player_walk_samples(&content, 4).unwrap();
+        assert!(duration > 0.0);
+        assert_eq!(samples.len(), count);
+        for (part, frames) in samples.iter().enumerate() {
+            assert_eq!(frames.len(), 4);
+            assert!(frames
+                .iter()
+                .all(|frame| frame.len() == visual.groups[part].verts.len()));
+            assert!(frames[0]
+                .iter()
+                .zip(&frames[1])
+                .any(|(a, b)| a.position != b.position));
+        }
         let translation = sim
             .world
             .types
