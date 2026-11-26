@@ -33,6 +33,13 @@ write to Movement.MoveInput and therefore do not establish the missing input bri
 This is a bounded static inspection, not proof that the system never modifies it
 through another call or execution path.
 
+The pinned server `AiMoveSystem_Client_Update.Move` (RVA `0x7ed0ea0`) was also
+inspected as a candidate. Metadata identifies its fourth argument as `ref Movement`;
+the preserved pointer is accessed for Speed at +0x5c near `0x7ed10d4` and
+`0x7ed10fb`. No direct store to +0x4c through that pointer was found in the
+inspected body. Indirect calls remain unexamined, and this AI system does not
+establish the player's input path.
+
 Direct relative calls to `DoCommand` in the server image occur in
 `PlayCommandsSystem_Server.OnUpdate` at RVA `0x839f598` and
 `PlayCommandsSystem_Client.OnUpdate` at `0x83a622e`. The latter has metadata
