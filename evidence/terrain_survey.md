@@ -41,3 +41,9 @@ The static viewer also accepts repeatable `--terrain-neighbor x,z` options along
 sections because both entries use the same source GUID. This is a placement experiment, not
 proof of the original world's runtime composition or streaming. Scene statistics principally
 describe the primary section; merged geometry is not a complete world inventory.
+
+A second offscreen run used distinct sources: (10,0), yaw 180°, GUID
+`3b35dfc3f24e9bb45b6da67f70a87fbd`, and (10,1), yaw 270°, GUID
+`a32a1d347a4b31d4c90744a4ede6acc5`. It drew 479 groups in the
+[diagnostic image](../docs/screenshots/experimental-distinct-chunks.png). The image does not
+establish correct seams, runtime loading, terrain shading or placement parity with the game.
