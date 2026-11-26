@@ -36,6 +36,18 @@ consumer, not a running client trace. Its lookup, buffering, replay, collision,
 and full call prerequisites remain to be reconstructed. Server-image RVAs are
 not client-image addresses.
 
+The same image exposes `CommandUtility.CalculateDirectionAndRotationSpeed` at
+RVA `0x83aa8a0`, a candidate for the missing player-facing rotation path. Metadata
+declares its inputs as `Movement`, `TargetDirection`, `EntityInput`, `Translation`,
+`Rotation`, player flag and optional aim parameters, with direction and rotation
+speed outputs. The instruction branch `0x83aa930..0x83aa9ba` checks the squared
+length of the first two `EntityInput` floats, and if positive and
+`TargetDirection.RotateTowardsMouse` (byte `+0x2c`) is zero, normalizes those
+input components as an XZ direction. Subsequent instructions also calculate
+rotation speed, and other branches use aim or forced direction. This is static
+analysis on the server image, not a complete implementation or runtime trace;
+normalization edge cases and all remaining branches still need original replay.
+
 The compiled `CreateInputCommandsSystem.OnUpdate` (RVA `0x7e4e050`) queries a
 command buffer, `EntityInput`, and `Controller`. It copies all 96 bytes of the
 input into the `RawInput` portion of a temporary command at `0x7e4e71b` through
