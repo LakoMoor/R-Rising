@@ -3,7 +3,10 @@ use rrising_content::{
     prefab_catalog::ScenePrefabCatalog,
     type_layouts::{TypeLayouts, ENTITY_HASH},
 };
-use rrising_core::player_input::{write_player_command, PlayerCommand};
+use rrising_core::{
+    movement::CharacterMovementFields,
+    player_input::{write_player_command, PlayerCommand},
+};
 use rrising_ecs::{EntityQuery, SpecialTypes, TypeManager, TypeSpec, World, WorldInput};
 use std::path::PathBuf;
 
@@ -69,6 +72,21 @@ fn player_template_projection_contains_input_and_movement() {
             ..Default::default()
         })
         .unwrap()[0];
+    let movement = world.types.type_index_of("ProjectM.Movement").unwrap();
+    let fields =
+        CharacterMovementFields::read(world.store.component_bytes(player, movement).unwrap())
+            .unwrap();
+    println!("player prefab movement defaults: {fields:?}");
+    assert_eq!(fields.move_input, [0., 0.]);
+    assert_eq!(fields.last_nonzero_move_input, [1., 0.]);
+    assert_eq!(
+        (
+            fields.speed,
+            fields.ability_cast_speed_multiplier,
+            fields.has_move_stop_data
+        ),
+        (4., 1., false)
+    );
     let before = world.store.component_bytes(player, input).unwrap().to_vec();
     let command = PlayerCommand {
         movement: [0.25, -0.5],

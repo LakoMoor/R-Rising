@@ -6,6 +6,61 @@ use rrising_ecs::{Entity, EntityQuery, FrameContext, System, TypeIndex, World};
 
 use crate::pathfinding::{try_get_target_position_from_waypoints, PathWaypoints};
 
+/// Selected fields from the pinned build's 104-byte `ProjectM.Movement` component.
+/// The force-position and collision payloads remain opaque.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CharacterMovementFields {
+    pub move_input: [f32; 2],
+    pub last_nonzero_move_input: [f32; 2],
+    pub speed: f32,
+    pub ability_cast_speed_multiplier: f32,
+    pub has_move_stop_data: bool,
+}
+
+impl CharacterMovementFields {
+    /// Decode component values without modifying the surrounding force-position data.
+    pub fn read(bytes: &[u8]) -> Result<Self> {
+        ensure!(bytes.len() == 104, "Movement requires 104 bytes");
+        let f = |at| f32::from_le_bytes(bytes[at..at + 4].try_into().expect("checked size"));
+        Ok(Self {
+            move_input: [f(76), f(80)],
+            last_nonzero_move_input: [f(84), f(88)],
+            speed: f(92),
+            ability_cast_speed_multiplier: f(96),
+            has_move_stop_data: bytes[100] != 0,
+        })
+    }
+}
+
+#[cfg(test)]
+mod character_movement_tests {
+    use super::CharacterMovementFields;
+
+    #[test]
+    fn reads_fields_and_rejects_wrong_size() {
+        let mut bytes = [0u8; 104];
+        for (offset, value) in [
+            (76, -0.5f32),
+            (80, 0.25),
+            (84, 1.0),
+            (88, -1.0),
+            (92, 4.5),
+            (96, 0.75),
+        ] {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes[100] = 1;
+        let fields = CharacterMovementFields::read(&bytes).unwrap();
+        assert_eq!(fields.move_input, [-0.5, 0.25]);
+        assert_eq!(fields.last_nonzero_move_input, [1.0, -1.0]);
+        assert_eq!(fields.speed, 4.5);
+        assert_eq!(fields.ability_cast_speed_multiplier, 0.75);
+        assert!(fields.has_move_stop_data);
+        assert!(CharacterMovementFields::read(&bytes[..103]).is_err());
+        assert!(CharacterMovementFields::read(&[0; 105]).is_err());
+    }
+}
+
 /// Inputs of one shared steering update. World coordinates are projected onto XZ.
 #[derive(Clone, Copy, Debug)]
 pub struct SteeringParameters {
