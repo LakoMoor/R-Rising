@@ -732,3 +732,8 @@ read without treating serialized offsets as pointers. The pinned diagnostic scen
 colliders, all compound. Metadata also exposes a separate tile-based moving-circle collision
 path; its runtime callers, tile data and behavior are not yet recovered. The prototype still
 passes through obstacles. See `evidence/physics_collider_survey.md` for counts and limits.
+
+Tile data continuation: a bounded reader now reads dense collision flags and existence arrays
+from local TileBlob values. All 9,268 installed TileData references resolved; 4,553 unique blobs
+contain 99,199 dense entries. Runtime placement, map assembly and collision response remain
+unimplemented. See `evidence/tile_collision_data.md`.
