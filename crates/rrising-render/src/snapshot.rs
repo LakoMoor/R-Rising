@@ -6,6 +6,13 @@ use crate::{
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 
+/// Optional diagnostic frame art in a local transfer; this is not game HUD state.
+#[derive(Serialize, Deserialize)]
+pub struct SnapshotOverlay {
+    pub texture: TextureData,
+    pub layout: crate::overlay::ActionBarLayout,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct SnapshotItem {
     pub name: String,
@@ -34,6 +41,8 @@ pub struct Snapshot {
     /// Shared texture pool referenced by `SnapshotItem::texture_index`.
     #[serde(default)]
     pub textures: Vec<TextureData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_overlay: Option<SnapshotOverlay>,
 }
 pub struct LoadedSnapshot {
     meshes: Vec<GpuMesh>,
@@ -43,6 +52,7 @@ pub struct LoadedSnapshot {
     cutout: Vec<bool>,
     instances: Vec<Vec<Instance>>,
     pub uniforms: FrameUniforms,
+    overlay: Option<(GpuTexture, crate::overlay::ActionBarLayout)>,
 }
 impl Snapshot {
     pub fn upload(self, renderer: &Renderer) -> Result<LoadedSnapshot> {
@@ -63,7 +73,17 @@ impl Snapshot {
             cutout: vec![],
             instances: vec![],
             uniforms: self.uniforms,
+            overlay: None,
         };
+        if let Some(overlay) = self.diagnostic_overlay {
+            overlay.layout.validate()?;
+            let texture = overlay.texture.upload(
+                renderer.device(),
+                renderer.queue(),
+                renderer.device().features(),
+            )?;
+            loaded.overlay = Some((texture, overlay.layout));
+        }
         for t in self.textures {
             loaded.pool.push(t.upload(
                 renderer.device(),
@@ -125,7 +145,22 @@ impl LoadedSnapshot {
                 cutout: self.cutout[i],
             })
             .collect();
-        renderer.render_surface(&self.uniforms, &draws)
+        let (w, h) = renderer.size();
+        let rects = self
+            .overlay
+            .as_ref()
+            .map_or_else(Vec::new, |(_, layout)| layout.rects(w, h));
+        let overlays: Vec<_> = self
+            .overlay
+            .as_ref()
+            .map(|(tex, _)| crate::overlay::OverlayDraw {
+                texture: &tex.view,
+                rects: &rects,
+                uv: [0.0, 0.0, 1.0, 1.0],
+            })
+            .into_iter()
+            .collect();
+        renderer.render_surface_with_overlay(&self.uniforms, &draws, &overlays)
     }
     pub fn render_to_image(&self, renderer: &mut Renderer) -> Result<(u32, u32, Vec<u8>)> {
         let neutral = renderer.neutral_view();
@@ -144,7 +179,22 @@ impl LoadedSnapshot {
                 cutout: self.cutout[i],
             })
             .collect();
-        renderer.render_to_image(&self.uniforms, &draws)
+        let (w, h) = renderer.size();
+        let rects = self
+            .overlay
+            .as_ref()
+            .map_or_else(Vec::new, |(_, layout)| layout.rects(w, h));
+        let overlays: Vec<_> = self
+            .overlay
+            .as_ref()
+            .map(|(tex, _)| crate::overlay::OverlayDraw {
+                texture: &tex.view,
+                rects: &rects,
+                uv: [0.0, 0.0, 1.0, 1.0],
+            })
+            .into_iter()
+            .collect();
+        renderer.render_to_image_with_overlay(&self.uniforms, &draws, &overlays)
     }
     pub fn item_count(&self) -> usize {
         self.meshes.len()

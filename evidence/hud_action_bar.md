@@ -17,5 +17,6 @@ the actual scene; the native window was also visually inspected.
 
 The parent Canvas, layout group and CanvasScaler are not evaluated. The diagnostic assumes a
 center-bottom parent and a 1080-pixel reference height, and draws no item icons, numbers, health,
-minimap or input response. It is not an original HUD or gameplay comparison. Browser overlay
-integration and a controlled original-game reference scenario remain outstanding.
+minimap or input response. It is not an original HUD or gameplay comparison. A local scene
+transfer can carry this same frame texture and layout to the browser; the browser uses the same
+renderer and remains a static viewer. A controlled original-game reference scenario remains outstanding.

@@ -218,8 +218,8 @@ fn parse_args() -> Result<Options> {
         "--control-entity requires --scene-live"
     );
     anyhow::ensure!(
-        !opt.spawn_player || ((opt.scene_live || (opt.scene.is_some() && opt.offscreen.is_some())) && opt.control_entity.is_none()),
-        "--spawn-player requires --scene-live or --scene with --offscreen, and cannot be combined with --control-entity"
+        !opt.spawn_player || ((opt.scene_live || (opt.scene.is_some() && (opt.offscreen.is_some() || opt.export_web.is_some()))) && opt.control_entity.is_none() && opt.scene_sim.is_none()),
+        "--spawn-player requires --scene-live or --scene with --offscreen/--export-web, without --control-entity or --scene-sim"
     );
     anyhow::ensure!(
         opt.player_position.is_none() || opt.spawn_player,
@@ -238,8 +238,10 @@ fn parse_args() -> Result<Options> {
         "--follow-player requires --scene-live --spawn-player"
     );
     anyhow::ensure!(
-        !opt.diagnostic_hud || opt.spawn_player,
-        "--diagnostic-hud requires --spawn-player"
+        !opt.diagnostic_hud
+            || opt.spawn_player
+            || (opt.scene.is_some() && opt.export_web.is_some()),
+        "--diagnostic-hud requires --spawn-player or a scene export"
     );
     anyhow::ensure!(opt.terrain_chunk.is_none() || (opt.scene.is_some() && opt.server_data.is_some() && opt.server_layouts.is_some() && !opt.scene_live && opt.scene_sim.is_none() && !opt.spawn_player && opt.export_web.is_none() && opt.compare.is_none()), "--terrain-chunk requires --scene, --server-data and --server-layouts and supports static native viewing only");
     anyhow::ensure!(
@@ -249,9 +251,9 @@ fn parse_args() -> Result<Options> {
     anyhow::ensure!(
         opt.animation_frame.is_none()
             || (opt.spawn_player
-                && opt.offscreen.is_some()
+                && (opt.offscreen.is_some() || opt.export_web.is_some())
                 && opt.animation_frame.is_some_and(|n| n < 24)),
-        "--animation-frame needs --spawn-player --offscreen and an index from 0 to 23"
+        "--animation-frame needs --spawn-player and --offscreen/--export-web with an index from 0 to 23"
     );
     Ok(opt)
 }
@@ -277,35 +279,31 @@ struct Loaded {
 /// Static frame art only; no inventory, hotkeys or Unity Canvas behavior.
 struct DiagnosticHud {
     texture: rrising_render::GpuTexture,
-    source: rrising_content::hud::ActionBarFrame,
+    layout: rrising_render::overlay::ActionBarLayout,
+}
+
+fn action_bar_layout(
+    source: &rrising_content::hud::ActionBarFrame,
+) -> rrising_render::overlay::ActionBarLayout {
+    rrising_render::overlay::ActionBarLayout {
+        slot_size: source.slot_size,
+        frame_extra: source.frame_extra,
+        anchor_position: source.anchor_position,
+        spacing: source.spacing,
+        count: source.count,
+    }
 }
 
 impl DiagnosticHud {
     fn load(renderer: &Renderer, content: &GameContent) -> Result<Self> {
         let source = rrising_content::hud::candidate_action_bar(content)?;
         let texture = renderer.upload_texture(&content.read_texture(&source.texture)?)?;
-        Ok(Self { texture, source })
+        let layout = action_bar_layout(&source);
+        layout.validate()?;
+        Ok(Self { texture, layout })
     }
     fn rects(&self, width: u32, height: u32) -> Vec<[f32; 4]> {
-        // Approximate CanvasScaler: reference height 1080, center-bottom parent.
-        let scale = height as f32 / 1080.0;
-        let slot = self.source.slot_size;
-        let extra = self.source.frame_extra;
-        let count = self.source.count;
-        let total = count as f32 * slot[0] + count.saturating_sub(1) as f32 * self.source.spacing;
-        let right = width as f32 * 0.5 + self.source.anchor_position[0] * scale;
-        let center_y = height as f32 - self.source.anchor_position[1] * scale;
-        (0..count)
-            .map(|i| {
-                [
-                    right - total * scale + i as f32 * (slot[0] + self.source.spacing) * scale
-                        - extra[0] * scale * 0.5,
-                    center_y - (slot[1] + extra[1]) * scale * 0.5,
-                    (slot[0] + extra[0]) * scale,
-                    (slot[1] + extra[1]) * scale,
-                ]
-            })
-            .collect()
+        self.layout.rects(width, height)
     }
 }
 
@@ -1642,6 +1640,7 @@ fn export_web(opt: &Options, path: &Path) -> Result<()> {
         uniforms: frame_uniforms(opt.width as f32 / opt.height as f32),
         items,
         textures: vec![],
+        diagnostic_overlay: None,
     };
     let file =
         std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?;
@@ -1665,6 +1664,38 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
     let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
     let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
     apply_sim(opt, &layouts, scene_path, &mut data)?;
+    let camera = if opt.spawn_player {
+        let mut sim = scene_view::simulate(&layouts, scene_path, 0)?;
+        let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
+        if let Some(position) = opt.player_position {
+            scene_view::set_diagnostic_player_position(&mut sim.world, entity, position)?;
+        }
+        sim.advance(scene_view::STEP_NS, 1)?;
+        let instance = sim
+            .instance(entity)
+            .context("spawned player transform missing")?;
+        let first = data.groups.len();
+        let parts = scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
+        if let Some(frame) = opt.animation_frame {
+            let (_, samples) = scene_view::player_walk_samples(&content, 24)?;
+            anyhow::ensure!(
+                samples.len() == parts,
+                "animation parts differ from visual parts"
+            );
+            for (group, frames) in data.groups[first..].iter_mut().zip(samples) {
+                group.verts = Arc::new(
+                    frames
+                        .into_iter()
+                        .nth(frame)
+                        .context("missing animation frame")?,
+                );
+            }
+        }
+        println!("Exporting static diagnostic player; no browser player simulation or controls.");
+        player_camera(data.bounds, instance)
+    } else {
+        scene_view::FlyCam::framing(data.bounds)
+    };
     let mut pool = Vec::new();
     let mut slot: std::collections::HashMap<unity_formats::player::ObjRef, Option<usize>> =
         Default::default();
@@ -1743,13 +1774,23 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
             cutout: false,
         });
     }
-    let cam = scene_view::FlyCam::framing(data.bounds);
+    let diagnostic_overlay = if opt.diagnostic_hud {
+        let source = rrising_content::hud::candidate_action_bar(&content)?;
+        let layout = action_bar_layout(&source);
+        layout.validate()?;
+        let texture =
+            rrising_render::unity_texture::export(&content.read_texture(&source.texture)?)?;
+        Some(rrising_render::snapshot::SnapshotOverlay { texture, layout })
+    } else {
+        None
+    };
     let snapshot = Snapshot {
         version: 1,
         description: "Original scene entities at original LocalToWorld placements; not gameplay, no lighting parity".into(),
-        uniforms: cam.uniforms(opt.width as f32 / opt.height as f32),
+        uniforms: camera.uniforms(opt.width as f32 / opt.height as f32),
         items,
         textures: pool,
+        diagnostic_overlay,
     };
     let mut writer = std::io::BufWriter::new(
         std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?,

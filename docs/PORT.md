@@ -707,3 +707,11 @@ native diagnostic. The original-data test verifies the asset chain; the overlay 
 position and blending, and both offscreen and windowed Windows output were inspected. Parent
 Canvas scale/placement is approximated; inventory, interaction, dynamic HUD state and browser
 wiring are not implemented. [HUD evidence](../evidence/hud_action_bar.md) records the boundary.
+
+Browser continuation: a local transfer can include a static diagnostic player, sampled pose and
+the same slot-frame overlay. Chrome 158 on Windows loaded 318 draw groups with hardware BC and
+with BC disabled; both runs had no page errors. At 1280×720 the hardware browser screenshot,
+cropped by one CSS-border pixel, differed from the same native Rust render in 109/921,600 pixels
+(mean RGB channel difference 0.00078/255). This is not an original-game comparison; browser
+gameplay, input, animation playback and original HUD behavior remain absent. See
+`docs/verification/browser-player-hud.json`.

@@ -875,9 +875,11 @@ The optional native `--diagnostic-hud` path reads eight ActionBar frame Images a
 The prefab records 48×48 slots, frame size delta 6×6, horizontal spacing 8 and anchored
 position (-103, 80); the current center-bottom parent and 1080-height scaling are assumptions.
 An original-data test checks the references and dimensions; a synthetic GPU test checks
-position and transparency. Windowed and offscreen Windows output were inspected. There is no
-inventory, input handling, health, minimap, dynamic game state or original Canvas implementation,
-and this overlay is not wired into the browser viewer. See [HUD evidence](../evidence/hud_action_bar.md).
+position and transparency. Windowed and offscreen Windows output were inspected. The local scene
+export can now include the same static overlay and a sampled player; Chrome 158 rendered it with
+and without BC support. There is no inventory, input handling, health, minimap, dynamic game state
+or original Canvas implementation. See [HUD evidence](../evidence/hud_action_bar.md) and
+[browser verification](verification/browser-player-hud.json).
 
 For repeatable diagnostics, `--scene ... --spawn-player --offscreen out.png --animation-frame N`
 renders one of the same 24 precomputed walk samples used by the live experimental loop (N=0..23).

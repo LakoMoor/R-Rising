@@ -1,0 +1,21 @@
+{
+  "date": "2026-11-27",
+  "scope": "Same static diagnostic scene, player sample and eight HUD frames in native Rust and browser Rust; not an original-game comparison",
+  "platform": "Windows x64",
+  "browser": "Chrome 158.0.8127.38, headless WebGPU, unsafe WebGPU enabled for test",
+  "scene_draw_groups": 318,
+  "local_export_bytes": 78149170,
+  "local_export_contains_original_content": true,
+  "browser_runs": [
+    { "bc_feature": "enabled", "load_and_capture_ms": 1616, "page_errors": 0 },
+    { "bc_feature": "disabled on adapter and device", "load_and_capture_ms": 1809, "page_errors": 0 }
+  ],
+  "comparison": {
+    "width": 1280,
+    "height": 720,
+    "method": "RGB comparison; crop one-pixel CSS canvas border from browser capture",
+    "hardware_bc": { "different_pixels": 109, "pixels_above_10": 29, "mean_absolute_channel_delta": 0.000776548, "maximum_channel_delta": 50 },
+    "cpu_bc": { "different_pixels": 598170, "pixels_above_10": 29, "mean_absolute_channel_delta": 0.271291233, "maximum_channel_delta": 50 }
+  },
+  "limitations": "Only a static sample, no browser movement or animation playback. CSS corner rounding and GPU/codec differences affect pixel comparison; no original screenshot or original performance measurement."
+}

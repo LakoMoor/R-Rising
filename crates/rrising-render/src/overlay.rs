@@ -1,6 +1,58 @@
 //! Small alpha-blended image overlay. No Unity canvas or input semantics are implied.
 use wgpu::util::DeviceExt;
 
+/// The currently supported diagnostic action-bar layout, in assumed 1080-height canvas units.
+/// This is not the original CanvasScaler or an inventory state.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ActionBarLayout {
+    pub slot_size: [f32; 2],
+    pub frame_extra: [f32; 2],
+    pub anchor_position: [f32; 2],
+    pub spacing: f32,
+    pub count: usize,
+}
+
+impl ActionBarLayout {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!((1..=64).contains(&self.count), "invalid action bar count");
+        anyhow::ensure!(
+            self.slot_size
+                .iter()
+                .chain(&self.frame_extra)
+                .chain(&self.anchor_position)
+                .chain([&self.spacing])
+                .all(|v| v.is_finite()),
+            "nonfinite action bar layout"
+        );
+        anyhow::ensure!(
+            self.slot_size.iter().all(|v| *v > 0.0)
+                && self.frame_extra.iter().all(|v| *v >= 0.0)
+                && self.spacing >= 0.0,
+            "invalid action bar dimensions"
+        );
+        Ok(())
+    }
+
+    pub fn rects(&self, width: u32, height: u32) -> Vec<[f32; 4]> {
+        let scale = height as f32 / 1080.0;
+        let total = self.count as f32 * self.slot_size[0]
+            + self.count.saturating_sub(1) as f32 * self.spacing;
+        let right = width as f32 * 0.5 + self.anchor_position[0] * scale;
+        let center_y = height as f32 - self.anchor_position[1] * scale;
+        (0..self.count)
+            .map(|i| {
+                [
+                    right - total * scale + i as f32 * (self.slot_size[0] + self.spacing) * scale
+                        - self.frame_extra[0] * scale * 0.5,
+                    center_y - (self.slot_size[1] + self.frame_extra[1]) * scale * 0.5,
+                    (self.slot_size[0] + self.frame_extra[0]) * scale,
+                    (self.slot_size[1] + self.frame_extra[1]) * scale,
+                ]
+            })
+            .collect()
+    }
+}
+
 /// Pixel rectangles (x, y, width, height) in top-left viewport coordinates.
 pub struct OverlayDraw<'a> {
     pub texture: &'a wgpu::TextureView,

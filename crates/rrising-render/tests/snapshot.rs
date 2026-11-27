@@ -15,6 +15,7 @@ fn fixture() -> Snapshot {
     Snapshot {
         version: 1,
         textures: vec![],
+        diagnostic_overlay: None,
         description: "synthetic triangle, no game assets".into(),
         uniforms: FrameUniforms {
             view_proj: identity,
@@ -119,4 +120,54 @@ fn updated_vertices_change_the_rendered_frame() {
     let second = render(&mut renderer);
     assert_ne!(first, second);
     assert!(mesh::update_vertices(renderer.queue(), &mesh, &moved[..2]).is_err());
+}
+
+#[test]
+fn transfer_keeps_optional_overlay_and_rejects_invalid_layout() {
+    use rrising_render::{
+        overlay::ActionBarLayout, snapshot::SnapshotOverlay, texture::TextureData,
+    };
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(64, 64)).unwrap();
+    let baseline = fixture()
+        .upload(&renderer)
+        .unwrap()
+        .render_to_image(&mut renderer)
+        .unwrap()
+        .2;
+    let mut scene = fixture();
+    scene.diagnostic_overlay = Some(SnapshotOverlay {
+        texture: TextureData::flat("synthetic", [255, 0, 0, 255]),
+        layout: ActionBarLayout {
+            slot_size: [300., 300.],
+            frame_extra: [0., 0.],
+            anchor_position: [0., 600.],
+            spacing: 0.,
+            count: 1,
+        },
+    });
+    let json = serde_json::to_string(&scene).unwrap();
+    let decoded: Snapshot = serde_json::from_str(&json).unwrap();
+    let overlay = decoded
+        .upload(&renderer)
+        .unwrap()
+        .render_to_image(&mut renderer)
+        .unwrap()
+        .2;
+    assert_ne!(baseline, overlay);
+    let mut invalid = fixture();
+    invalid.diagnostic_overlay = Some(SnapshotOverlay {
+        texture: TextureData::flat("synthetic", [255, 255, 255, 255]),
+        layout: ActionBarLayout {
+            slot_size: [48., 48.],
+            frame_extra: [0., 0.],
+            anchor_position: [0., 0.],
+            spacing: 0.,
+            count: 65,
+        },
+    });
+    assert!(invalid.upload(&renderer).is_err());
+    // Old version-1 files had no diagnostic_overlay key.
+    let legacy: Snapshot =
+        serde_json::from_str(&serde_json::to_string(&fixture()).unwrap()).unwrap();
+    assert!(legacy.diagnostic_overlay.is_none());
 }

@@ -389,6 +389,10 @@ impl Renderer {
         self.format
     }
 
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
     /// The device, so a test can build the buffers it wants to draw.
     pub fn device(&self) -> &wgpu::Device {
         &self.device

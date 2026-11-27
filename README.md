@@ -167,7 +167,13 @@ python3 -m http.server 8080 --directory web --bind 127.0.0.1
 
 Open `http://localhost:8080` in a WebGPU browser and choose **Open local scene**.
 The file is read on-device. Exports contain original game art and are excluded
-from Git. Generated WASM/JS are build outputs, also excluded from Git.
+from Git; do not publish or share them. Generated WASM/JS are build outputs, also excluded from Git.
+
+To export an original scene with the static diagnostic player and action-bar frames,
+add `--scene /path/to/scene.0.entities --type-layouts /path/to/layout.json --spawn-player
+--player-position 142.5,20,22.5 --animation-frame 6 --diagnostic-hud` to the export
+command. The position is a diagnostic assumption. Browser input, simulation and animated
+playback are not implemented. [Chrome diagnostic frame](docs/screenshots/browser-player-hud.png).
 
 Requires WebGPU. BC1/3/4/5/6H/7 textures now decode on the CPU when BC compression
 is unavailable; BC6H/BC7 also decode for correct row orientation. This costs load
