@@ -20,3 +20,8 @@ full query exclusions, target-time adjustment and failure/exception paths remain
 
 Event consumers, active child replacement, original world scheduling and tile-map updates are
 not connected. No visual change, complete gameplay scenario or performance parity is claimed.
+
+Follow-up: the numeric adjustment is now identified and checked as a remainder operation.
+Finite time with finite nonzero target duration is supported; the unsupported outcome now
+covers domains such as zero duration. A wrapped-time ECS event is tested. See
+auto_chain_remainder.md for the original-helper evidence and platform limits.

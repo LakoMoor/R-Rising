@@ -1,4 +1,4 @@
-//! Experimental ECS bridge for the bounded non-normalizing automatic-event path.
+//! Experimental ECS bridge for the bounded finite-time automatic-event path.
 //! Caller owns binding/order; original scheduling, debug and event consumption are absent.
 use crate::auto_chain::{progress, AutoProgressElement};
 use anyhow::{ensure, Context, Result};
@@ -91,13 +91,21 @@ pub fn apply_entity(
         now - next,
         256,
     )?;
-    if result.success
-        && usize::try_from(result.target)
+    let mut forwarded = result.forwarded;
+    if result.success {
+        if let Some(target) = usize::try_from(result.target)
             .ok()
             .and_then(|i| chain.elements.get(i))
-            .is_some_and(|e| e.use_auto_transition)
-    {
-        return Ok(AutoEventOutcome::UnsupportedNormalization);
+            .filter(|e| e.use_auto_transition)
+        {
+            match crate::auto_chain::forwarded_remainder(
+                forwarded,
+                f64::from(target.auto_transition.duration),
+            ) {
+                Ok(value) => forwarded = value,
+                Err(_) => return Ok(AutoEventOutcome::UnsupportedNormalization),
+            }
+        }
     }
     let outcome = if result.success {
         let mut event = [0u8; 96];
@@ -107,7 +115,7 @@ pub fn apply_entity(
         event[72..80].copy_from_slice(&active[4..12]);
         event[80..84].copy_from_slice(&index.to_le_bytes());
         event[84..88].copy_from_slice(&result.origin.to_le_bytes());
-        event[88..].copy_from_slice(&result.forwarded.to_le_bytes());
+        event[88..].copy_from_slice(&forwarded.to_le_bytes());
         let archetype = world
             .store
             .get_or_create_archetype(&world.types, &[types.event])?;

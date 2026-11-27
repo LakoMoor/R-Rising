@@ -806,3 +806,9 @@ transition event entity for the bounded path not requiring target-time adjustmen
 ECS validation checks all 96 payload bytes and clock gates; this is not an original job oracle.
 The unsupported adjustment returns explicitly without advancing the clock. Original scheduling,
 event consumption and child replacement remain pending. See `evidence/auto_chain_ecs.md`.
+
+Forwarded time continuation: original numeric-helper replay confirms remainder semantics for
+154 finite/nonzero-divisor pairs; Rust matches result bits on Windows. ECS events now use this
+adjustment, including a tested 205-to-5-second wrap. Zero-duration/domain failures remain
+explicit. No full job scheduling or event-consumer parity is claimed. WASM checks pass.
+See `evidence/auto_chain_remainder.md`.

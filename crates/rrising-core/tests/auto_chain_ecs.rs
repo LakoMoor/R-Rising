@@ -94,12 +94,35 @@ fn terminal_event_is_queued_with_original_field_layout() {
     chain.elements[0].transitions[0].target = 1;
     chain.elements[0].transitions[0].end_of_chain = false;
     chain.main_index = 1;
+    let normalized = match apply_entity(&mut world, entity, &chain, &t, 14.).unwrap() {
+        AutoEventOutcome::Queued(e) => e,
+        other => panic!("{other:?}"),
+    };
     assert_eq!(
-        apply_entity(&mut world, entity, &chain, &t, 14.).unwrap(),
+        &world.store.component_bytes(normalized, event).unwrap()[88..],
+        &1f64.to_le_bytes()
+    );
+    assert_eq!(
+        world.store.component_bytes(entity, clock).unwrap(),
+        16f64.to_le_bytes()
+    );
+    chain.main_index = 0;
+    chain.elements[0].transitions[0].target = 0;
+    let wrapped = match apply_entity(&mut world, entity, &chain, &t, 221.).unwrap() {
+        AutoEventOutcome::Queued(e) => e,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        &world.store.component_bytes(wrapped, event).unwrap()[88..],
+        &5f64.to_le_bytes()
+    );
+    chain.elements[0].auto_transition.duration = 0.;
+    assert_eq!(
+        apply_entity(&mut world, entity, &chain, &t, 224.).unwrap(),
         AutoEventOutcome::UnsupportedNormalization
     );
     assert_eq!(
         world.store.component_bytes(entity, clock).unwrap(),
-        13f64.to_le_bytes()
+        223f64.to_le_bytes()
     );
 }

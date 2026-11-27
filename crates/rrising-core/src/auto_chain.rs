@@ -158,3 +158,12 @@ pub fn progress(
     }
     anyhow::bail!("automatic progression exceeded host step budget")
 }
+
+/// Verified finite-input branch of the original forwarded-time remainder helper.
+pub fn forwarded_remainder(value: f64, duration: f64) -> anyhow::Result<f64> {
+    anyhow::ensure!(
+        value.is_finite() && duration.is_finite() && duration != 0.,
+        "remainder outside verified finite nonzero-divisor domain"
+    );
+    Ok(value % duration)
+}

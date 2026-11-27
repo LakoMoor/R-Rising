@@ -140,3 +140,24 @@ fn zero_duration_cycle_reports_host_budget_exhaustion() {
     }];
     assert!(progress(&elements, 1, 0, true, false, false, 0., 16).is_err());
 }
+
+#[test]
+fn forwarded_remainder_matches_original_helper() {
+    use rrising_core::auto_chain::forwarded_remainder;
+    let mut count = 0;
+    for line in include_str!("../../../evidence/oracles/auto_chain_remainder.tsv")
+        .lines()
+        .filter(|s| !s.starts_with('#'))
+    {
+        let bits: Vec<u64> = line
+            .split_whitespace()
+            .map(|s| u64::from_str_radix(s, 16).unwrap())
+            .collect();
+        let actual = forwarded_remainder(f64::from_bits(bits[0]), f64::from_bits(bits[1])).unwrap();
+        assert_eq!(actual.to_bits(), bits[2], "row {count}");
+        count += 1;
+    }
+    assert_eq!(count, 154);
+    assert!(forwarded_remainder(1., 0.).is_err());
+    assert!(forwarded_remainder(f64::INFINITY, 1.).is_err());
+}
