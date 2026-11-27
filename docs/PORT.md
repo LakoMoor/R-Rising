@@ -748,3 +748,9 @@ height inputs. Shared Rust height and height-level functions match float bits an
 every input. Capture uses temporary executable memory only in its Windows x64 oracle process;
 the Rust runtime uses safe arithmetic. Runtime tile registration and collision integration
 remain pending. See `evidence/tile_position_height.md`.
+
+Baked tile placement continuation: the shared TilePosition operation matches 4,096 isolated
+original function outputs, including all chunk rotation bytes and signed coordinate extrema.
+The replay supplies the metadata-initialized flag and skips initialization; no other runtime
+is constructed. Actual chunk offsets, pivot integration and tile registration remain to be
+connected. See `evidence/tile_position_world.md`.
