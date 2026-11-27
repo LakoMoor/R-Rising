@@ -1413,7 +1413,185 @@ pub fn attach_player_visual(
         count += 1;
     }
     ensure!(count > 0, "candidate player model has no skinned renderers");
+    for part in candidate_face_parts(content, 0)? {
+        data.groups.push(ReadyGroup {
+            name: format!("experimental face {}", part.name),
+            mesh_id: first_mesh + count,
+            verts: Arc::new(part.rest),
+            inds: Arc::new(part.indices),
+            texture: Some(part.texture),
+            cutout: part.cutout,
+            instances: vec![instance],
+            entities: vec![entity],
+        });
+        count += 1;
+    }
     Ok(count)
+}
+
+struct FacePart {
+    name: String,
+    texture: ObjRef,
+    cutout: bool,
+    indices: Vec<u32>,
+    rest: Vec<Vertex>,
+    frames: Vec<Vec<Vertex>>,
+}
+
+/// Diagnostic selection of face collection entry zero. The stored attachment and
+/// bone mapping are real, but original runtime selection and transform behavior
+/// have not been observed; the composition below remains an explicit approximation.
+fn candidate_face_parts(content: &GameContent, sample_count: usize) -> Result<Vec<FacePart>> {
+    use rrising_math::{float3, quaternion};
+    use rrising_render::{clip_pose::sample_bones, mesh::build_vertices};
+    use unity_formats::{
+        clip::{controller_clips, ClipData},
+        scene::{mul, trs, Scene},
+    };
+
+    let prefab = rrising_content::player_customization::candidate_male_faces(content)?
+        .into_iter()
+        .next()
+        .context("face collection is empty")?
+        .0;
+    let attachment =
+        rrising_content::player_customization::candidate_male_face_attachment(content, &prefab)?;
+    let player_scene = Scene::read(content.player(), &attachment.bone.file)?;
+    let animator = player_scene
+        .animators(content.player())?
+        .into_iter()
+        .find(|a| a.path.starts_with("HYB_VampireMale_Prefab/"))
+        .context("player animator")?;
+    let root = player_scene
+        .transform_of(animator.game_object)
+        .context("animator root")?;
+    ensure!(
+        player_scene
+            .path_below(attachment.bone.path_id, root)
+            .is_some(),
+        "head bone outside animator"
+    );
+    let rest_bone = player_scene.world_of(attachment.bone.path_id)?;
+    let mut bone_frames = Vec::new();
+    if sample_count > 0 {
+        let controller = animator.controller.context("controller")?;
+        let value = content.player().decode(&controller)?;
+        let base = match value.get("m_Controller") {
+            Some(ptr) => content
+                .player()
+                .resolve(&controller.file, ptr)?
+                .context("base controller")?,
+            None => controller,
+        };
+        let clips = controller_clips(content.player(), &base)?;
+        let clip = ClipData::read(content.player(), clips.first().context("no clip")?)?;
+        ensure!(
+            clip.name == "VampireMale_Unarmed_Walk_Forward" && clip.duration > 0.0,
+            "unexpected walk clip"
+        );
+        for i in 0..sample_count {
+            bone_frames.push(
+                sample_bones(
+                    &player_scene,
+                    root,
+                    &[attachment.bone.path_id],
+                    &clip,
+                    clip.duration * i as f32 / sample_count as f32,
+                )?[0],
+            );
+        }
+    }
+    let angles = attachment.euler_degrees.map(f32::to_radians);
+    let q = quaternion::euler_zxy(float3::new(angles[0], angles[1], angles[2])).value;
+    let offset = trs(
+        attachment.translation.map(f64::from),
+        [
+            f64::from(q.x),
+            f64::from(q.y),
+            f64::from(q.z),
+            f64::from(q.w),
+        ],
+        [1.0; 3],
+    );
+    let face_scene = Scene::read(content.player(), &prefab.file)?;
+    let attach_root = face_scene
+        .transform_of(attachment.attachment_object)
+        .context("attachment transform")?;
+    let attach_world = face_scene.world_of(attach_root)?;
+    for (row, values) in attach_world.iter().enumerate() {
+        for (col, value) in values.iter().enumerate() {
+            ensure!(
+                (*value - f64::from(u8::from(row == col))).abs() < 1e-6,
+                "nonidentity face attachment root needs relative conversion"
+            );
+        }
+    }
+    let (renderers, _) = face_scene.renderers(content.player())?;
+    let mut result = Vec::new();
+    for source in renderers.into_iter().filter(|r| {
+        face_scene
+            .transform_of(r.game_object)
+            .and_then(|id| face_scene.path_below(id, attach_root))
+            .is_some()
+    }) {
+        ensure!(source.skin.is_none(), "skinned face renderer unsupported");
+        let mesh = content.read_mesh(&source.mesh)?;
+        ensure!(
+            mesh.submeshes.len() == 1 && source.materials.len() == 1,
+            "unsupported face material layout"
+        );
+        let material =
+            content.read_material(source.materials[0].as_ref().context("null face material")?)?;
+        let env = material
+            .textures
+            .iter()
+            .find(|(name, _)| name == "_BaseColorMap")
+            .map(|(_, env)| env)
+            .context("missing face base map")?;
+        ensure!(
+            env.scale == [1.0, 1.0] && env.offset == [0.0, 0.0],
+            "unsupported face UV transform"
+        );
+        let texture = env.texture.clone().context("null face base map")?;
+        let (surface, _) = classify_material(&material);
+        ensure!(
+            surface != Surface::Transparent,
+            "transparent face material unsupported"
+        );
+        let (vertices, indices) = build_vertices(&mesh)?;
+        let place = |bone: &unity_formats::scene::Matrix| {
+            let matrix = mul(&mul(bone, &offset), &source.world);
+            vertices
+                .iter()
+                .map(|vertex| {
+                    let mut result = *vertex;
+                    for (row, values) in matrix.iter().enumerate().take(3) {
+                        result.position[row] = (values[0] * f64::from(vertex.position[0])
+                            + values[1] * f64::from(vertex.position[1])
+                            + values[2] * f64::from(vertex.position[2])
+                            + values[3]) as f32;
+                        result.normal[row] = (values[0] * f64::from(vertex.normal[0])
+                            + values[1] * f64::from(vertex.normal[1])
+                            + values[2] * f64::from(vertex.normal[2]))
+                            as f32;
+                    }
+                    result
+                })
+                .collect()
+        };
+        let rest = place(&rest_bone);
+        let frames = bone_frames.iter().map(place).collect();
+        result.push(FacePart {
+            name: mesh.name,
+            texture,
+            cutout: surface == Surface::Cutout,
+            indices,
+            rest,
+            frames,
+        });
+    }
+    ensure!(!result.is_empty(), "no face renderers below attachment");
+    Ok(result)
 }
 
 /// Precompute samples of the first base-controller clip for the diagnostic player.
@@ -1479,6 +1657,11 @@ pub fn player_walk_samples(
         result.push(frames);
     }
     ensure!(!result.is_empty(), "player has no skinned parts");
+    result.extend(
+        candidate_face_parts(content, sample_count)?
+            .into_iter()
+            .map(|part| part.frames),
+    );
     Ok((clip.duration, result))
 }
 
@@ -1859,7 +2042,7 @@ mod managed_array_tests {
         let count =
             attach_player_visual(&content, &mut visual, entity, sim.instance(entity).unwrap())
                 .unwrap();
-        assert_eq!(count, 2);
+        assert_eq!(count, 4);
         for (mesh_name, file, path_id) in [
             (
                 "Cape_GEO",
@@ -1870,6 +2053,16 @@ mod managed_array_tests {
                 "Body_GEO",
                 "ae526d3c19a62d5cad7d4b511d1752c3",
                 6936050851984838789,
+            ),
+            (
+                "Head_GEO",
+                "ae526d3c19a62d5cad7d4b511d1752c3",
+                6936050851984838789,
+            ),
+            (
+                "Eyebrows01_GEO",
+                "3ca6c7f7e50049d1e51d4a3d757c20b5",
+                5390511342249646069,
             ),
         ] {
             let group = visual
@@ -1911,7 +2104,7 @@ mod managed_array_tests {
             .set_component_bytes(entity, translation, &position)
             .unwrap();
         sim.advance(STEP_NS, 1).unwrap();
-        assert_eq!(sim.apply(&mut visual), (2, 0));
+        assert_eq!(sim.apply(&mut visual), (4, 0));
         for group in &visual.groups {
             assert_eq!(group.entities, vec![entity]);
             assert_eq!(&group.instances[0].model[3][..3], &[12., 3., -7.]);

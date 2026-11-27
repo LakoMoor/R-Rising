@@ -118,7 +118,7 @@ The generated local layout report is kept in the ignored `target` directory.
 On the pinned Windows installation, an offscreen diagnostic frame and a synthetic
 W press/release test succeeded. A short W press in the real window was delivered and
 moved the diagnostic player; its timing and movement have not been compared to the game.
-[Windows diagnostic frame with serialized player base maps](docs/screenshots/windows-player-textured.png).
+[Windows diagnostic frame with a candidate face and elevated camera](docs/screenshots/player-face-diagnostic.png).
 
 The script verifies the client build, derives a temporary layout report if needed, and starts
 the scene with experimental WASD motion, a following camera and walk samples. Set
@@ -126,12 +126,15 @@ the scene with experimental WASD motion, a following camera and walk samples. Se
 `tools/run_player_prototype.sh --help`. For the default scene the script uses a diagnostic
 position chosen for visibility; `RRISING_PLAYER_POSITION=x,y,z` overrides it. Neither is a
 recovered spawn or collision-checked position.
-The player has no head, complete materials, collision, gameplay animation or original scheduler.
+The player has a diagnostic standard face, but no complete materials, collision, original
+gameplay animation or original scheduler. Face selection and attachment behavior remain unverified.
 The candidate prefab's cloak uses a debug grid material, which is not verified as its in-game appearance.
 The diagnostic switches between a serialized rest pose and walk samples based on horizontal
 displacement; it does not evaluate the original Animator. Short presses are retained until a
 simulation update, whose catch-up steps can overstate their duration. This is a technical
 diagnostic, not a playable V Rising port.
+The elevated camera is an approximation informed by a user-supplied gameplay image. Its
+parameters, lighting, HUD and depicted scene are not matched to the original.
 
 Inspect a local dedicated-server autosave without starting the renderer:
 

@@ -1,5 +1,9 @@
 //! Tests on the owner's pinned installation; no game asset bytes are stored here.
-use rrising_content::{list_archives, player_customization::candidate_male_faces, GameContent};
+use rrising_content::{
+    list_archives,
+    player_customization::{candidate_male_face_attachment, candidate_male_faces},
+    GameContent,
+};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -25,6 +29,14 @@ fn player_face_collection_resolves_all_entries() {
         .collect();
     assert_eq!(names[0], "VampireMale_Face_Standard_Prefab");
     assert_eq!(names[14], "VampireMale_Face15_Incubus_Prefab");
+    let attachment = candidate_male_face_attachment(&content, &faces[0].0).unwrap();
+    assert_eq!(attachment.translation, [0.0; 3]);
+    assert_eq!(attachment.euler_degrees, [90.0, -90.0, 0.0]);
+    let rig = unity_formats::scene::Scene::read(content.player(), &attachment.bone.file).unwrap();
+    assert_eq!(
+        rig.joint(attachment.bone.path_id).unwrap().unwrap().name,
+        "Head_JNT"
+    );
     assert_eq!(
         names
             .iter()

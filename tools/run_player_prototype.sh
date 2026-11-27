@@ -73,7 +73,7 @@ position=${RRISING_PLAYER_POSITION:-}
 if [[ -z $position && -z ${RRISING_SCENE:-} ]]; then position='142.5,20,22.5'; fi
 if [[ -n $position ]]; then args+=(--player-position "$position"); fi
 cat <<'EOF'
-Experimental diagnostic: movement and camera are approximations; no collision, head,
+Experimental diagnostic: movement, camera and face attachment are approximations; no collision,
 complete materials, gameplay animation state or original spawn. WASD moves the player,
 arrow keys turn the camera, Q/E move it vertically. Rest/walk selection is approximate.
 EOF

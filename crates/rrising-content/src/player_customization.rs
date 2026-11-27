@@ -8,11 +8,12 @@ use unity_formats::{
 
 use crate::GameContent;
 
-/// The final word's meaning is not yet established; preserve it without interpretation.
+/// The final word corresponds to `Feature.Requirements`, a `UserContentFlags` bitset
+/// in the pinned client's type metadata. It is preserved without applying entitlement rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FeatureEntry {
     pub prefab: PPtr,
-    pub unknown: u32,
+    pub requirements: u32,
 }
 
 fn pointer(bytes: &[u8]) -> Result<PPtr> {
@@ -40,7 +41,7 @@ pub fn parse_face_entries(bytes: &[u8]) -> Result<Vec<FeatureEntry>> {
         .map(|entry| {
             Ok(FeatureEntry {
                 prefab: pointer(&entry[..12])?,
-                unknown: u32::from_le_bytes(entry[12..16].try_into()?),
+                requirements: u32::from_le_bytes(entry[12..16].try_into()?),
             })
         })
         .collect()
@@ -102,9 +103,134 @@ pub fn candidate_male_faces(content: &GameContent) -> Result<Vec<(ObjRef, u32)>>
                 player.class_name(&prefab) == Some("GameObject"),
                 "face entry is not a GameObject"
             );
-            Ok((prefab, entry.unknown))
+            Ok((prefab, entry.requirements))
         })
         .collect()
+}
+
+/// A serialized face attachment and the matching serialized player bone.
+/// This identifies content, not the original runtime's transform or state-selection behavior.
+#[derive(Debug)]
+pub struct FaceAttachment {
+    pub prefab: ObjRef,
+    pub attachment_object: i64,
+    pub bone: ObjRef,
+    pub translation: [f32; 3],
+    pub euler_degrees: [f32; 3],
+}
+
+/// Recover the standard face's single rigid attachment and its player bone mapping.
+/// This deliberately rejects Magica dynamic setups until those are supported.
+pub fn candidate_male_face_attachment(
+    content: &GameContent,
+    prefab: &ObjRef,
+) -> Result<FaceAttachment> {
+    const PLAYER_FILE: &str = "ae19a255904fd765632aa97a2d7c670c";
+    let player = content.player();
+    let face_scene = Scene::read(player, &prefab.file)?;
+    let root = face_scene
+        .transform_of(prefab.path_id)
+        .context("face root transform missing")?;
+    let mut attachments = Vec::new();
+    for (&id, object) in &face_scene.game_objects {
+        let Some(transform) = face_scene.transform_of(id) else {
+            continue;
+        };
+        if face_scene.path_below(transform, root).is_none() {
+            continue;
+        }
+        for &path_id in &object.components {
+            let r = ObjRef {
+                file: prefab.file.clone(),
+                path_id,
+            };
+            if player.class_name(&r) == Some("MonoBehaviour")
+                && player.script_class(&r)?.as_deref()
+                    == Some("ProjectM.HybridEquipmentMagicaAttachment")
+            {
+                attachments.push((id, r));
+            }
+        }
+    }
+    ensure!(attachments.len() == 1, "expected one face attachment");
+    let (_, payload) = player.behaviour(&attachments[0].1)?;
+    ensure!(payload.len() == 32, "unsupported face attachment payload");
+    let bone_id = i32::from_le_bytes(payload[0..4].try_into()?);
+    let v = |at: usize| -> Result<[f32; 3]> {
+        Ok([
+            f32::from_le_bytes(payload[at..at + 4].try_into()?),
+            f32::from_le_bytes(payload[at + 4..at + 8].try_into()?),
+            f32::from_le_bytes(payload[at + 8..at + 12].try_into()?),
+        ])
+    };
+    let translation = v(4)?;
+    let euler_degrees = v(16)?;
+    ensure!(
+        translation
+            .iter()
+            .chain(&euler_degrees)
+            .all(|x| x.is_finite()),
+        "nonfinite face offset"
+    );
+    ensure!(
+        i32::from_le_bytes(payload[28..32].try_into()?) == 0,
+        "unsupported Magica setups"
+    );
+
+    let scene = Scene::read(player, PLAYER_FILE)?;
+    let roots: Vec<_> = scene
+        .game_objects
+        .values()
+        .filter(|o| o.name == "HYB_VampireMale_Prefab")
+        .collect();
+    ensure!(roots.len() == 1, "candidate player root is ambiguous");
+    let mut components = Vec::new();
+    for &path_id in &roots[0].components {
+        let r = ObjRef {
+            file: PLAYER_FILE.into(),
+            path_id,
+        };
+        if player.class_name(&r) == Some("MonoBehaviour")
+            && player.script_class(&r)?.as_deref()
+                == Some("ProjectM.Hybrid.HybridModelBonesComponent")
+        {
+            components.push(r);
+        }
+    }
+    ensure!(
+        components.len() == 1,
+        "candidate bone component is ambiguous"
+    );
+    let (_, bones) = player.behaviour(&components[0])?;
+    let count = i32::from_le_bytes(bones.get(..4).context("missing bone count")?.try_into()?);
+    let count = usize::try_from(count).context("negative bone count")?;
+    let size = count
+        .checked_mul(16)
+        .and_then(|n| n.checked_add(4))
+        .context("bone table size overflow")?;
+    ensure!(size == bones.len(), "invalid bone table size");
+    let mut matches = Vec::new();
+    for entry in bones[4..].as_chunks::<16>().0 {
+        if i32::from_le_bytes(entry[..4].try_into()?) == bone_id {
+            let ptr = pointer(&entry[4..])?;
+            let bone = player
+                .resolve_pptr(PLAYER_FILE, ptr)?
+                .context("null target bone")?;
+            ensure!(
+                bone.file == PLAYER_FILE && player.class_name(&bone) == Some("Transform"),
+                "unexpected bone target"
+            );
+            matches.push(bone);
+        }
+    }
+    ensure!(matches.len() == 1, "target bone mapping is ambiguous");
+    Ok(FaceAttachment {
+        prefab: prefab.clone(),
+        attachment_object: attachments[0].0,
+        bone: matches.remove(0),
+        translation,
+        euler_degrees,
+    })
 }
 
 #[cfg(test)]
@@ -122,7 +248,7 @@ mod tests {
             (
                 rows[0].prefab.file_id,
                 rows[0].prefab.path_id,
-                rows[0].unknown
+                rows[0].requirements
             ),
             (2, -3, 0x11223344)
         );

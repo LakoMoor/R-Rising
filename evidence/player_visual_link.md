@@ -68,10 +68,12 @@ Its stripped 404-byte script payload contains a pointer at byte 80 to the
 244-byte script payload finds a count of 15 followed by 15 records of 16 bytes; each starts
 with a resolvable Unity object pointer and has a final four-byte word of zero. All 15 point
 to distinct GameObjects; entry 0 is `VampireMale_Face_Standard_Prefab`, entry 14 is
-`VampireMale_Face15_Incubus_Prefab`. The last word's meaning is unknown. Metadata identifies
+`VampireMale_Face15_Incubus_Prefab`. Metadata identifies
 `FeaturesCollection.Entries` and `HybridEquipmentUser.FaceCollection`; it does not establish
 that byte 80 is a field solely by offset. The matching named collection and referenced prefab
-identities are independent static anchors for this build-specific interpretation.
+identities are independent static anchors for this build-specific interpretation. Later
+metadata inspection identifies `Feature` as a prefab pointer and a `UserContentFlags`
+requirements field; the final word is retained as those flags without applying unlock rules.
 
 `rrising-content::player_customization::candidate_male_faces` follows and validates this
 chain and indexes the entries; it does not select a face or connect it to the renderer.
@@ -81,6 +83,15 @@ the standard face mesh occupies local bounds (-0.110838, -0.058530, -0.083258) t
 (0.110838, 0.164734, 0.122686). The head joint's rotation is not identity. These observations
 do not establish the face-to-bone transform. Metadata also contains `HybridEquipmentUser`
 attachment methods and a `HybridEquipmentAttachment` type with target-bone and local-offset
-fields; neither their execution nor the standard face's binding has been observed. Next:
-recover the serialized or runtime attachment and customization-index selection, then compare
-against the original before claiming visual or behavioral parity.
+fields. The standard face's `HybridEquipmentMagicaAttachment` is on its static child: its
+32-byte serialized payload is consistent with target bone `Head` (enum 1), translation
+`[0,0,0]`, Euler angles `[90,-90,0]` and zero dynamic setups. The player prefab's
+`HybridModelBonesComponent` contains 20 records; its Head entry resolves to `Head_JNT`.
+Il2CppDumper 6.7.46 on the SHA-256-pinned client supplies the metadata names and types;
+the original image was not executed during this inspection. Its output stays local.
+
+The Rust diagnostic chooses entry 0 and composes the sampled bone, ZXY Euler offset and face
+child transform to render head and eyebrows. The actual `HybridEquipmentUser.AddAttachment`
+(client RVA `0x7d790e0`) has not been analyzed or observed, so this composition and face
+selection are not established as original behavior. There is no original screenshot comparison.
+Next: recover and test the original attachment and customization-index selection.

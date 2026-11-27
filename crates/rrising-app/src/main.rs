@@ -1044,9 +1044,11 @@ fn follow_camera(
 fn player_camera(bounds: ([f32; 3], [f32; 3]), instance: Instance) -> scene_view::FlyCam {
     let mut camera = scene_view::FlyCam::framing(bounds);
     let position = instance.model[3];
-    camera.eye = [position[0], position[1] + 3.0, position[2] - 5.0];
+    // Diagnostic framing informed by the supplied gameplay screenshot; the
+    // original camera's parameters and collision behavior are not recovered.
+    camera.eye = [position[0], position[1] + 10.0, position[2] - 10.0];
     camera.yaw = 0.0;
-    camera.pitch = -0.3;
+    camera.pitch = -0.75;
     camera.speed = 4.0;
     camera.near = 0.05;
     camera
@@ -1119,7 +1121,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                     println!("Experimental looping walk samples; not the game's Animator.");
                 }
             }
-            println!("Experimental player visual: {parts} parts with serialized base maps; no head or verified hybrid-model selection.");
+            println!("Experimental player visual: {parts} parts; first face is diagnostic and attachment behavior is unverified.");
             Some(entity)
         } else {
             opt.control_entity

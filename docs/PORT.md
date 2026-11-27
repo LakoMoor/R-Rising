@@ -688,6 +688,15 @@ selection; its runtime replacement, head attachment and original shaders remain 
 
 Face-catalog continuation: `candidate_male_faces` follows the pinned player prefab's
 `HybridEquipmentUser` into a 15-entry face collection, checks pointer targets and preserves
-the still-unidentified word per entry. An original-data test resolved 15/15 unique GameObjects.
+the requirement flags per entry. An original-data test resolved 15/15 unique GameObjects.
 Only the candidate collection framing and references were inspected, not the selection rules,
 head transform, original runtime or browser integration; see `evidence/player_visual_link.md`.
+
+Face attachment continuation: pinned client metadata identifies the final face-entry word as
+`Feature.Requirements` and the serialized attachment as target bone plus translation/rotation
+offsets. The first face's child attachment selects `Head` (1), zero translation and Euler
+(90, -90, 0); the player's bone table maps Head to `Head_JNT`. The diagnostic selects entry 0,
+composes these values and draws two face meshes, including sampled head-bone motion. Original
+selection, transform order, dynamic hair, shaders and runtime parity remain unverified. A user
+provided a gameplay image as a visual reference; the diagnostic camera was moved higher and
+farther back as an approximation, without claiming a matched camera or scene.

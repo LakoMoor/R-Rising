@@ -40,7 +40,7 @@ try {
         & $Python tools/probe_type_registry.py --install $install --check --output $Layout
         if ($LASTEXITCODE -ne 0) { throw 'Client layout generation failed.' }
     }
-    Write-Host 'Experimental diagnostic: approximate movement and camera; no collision, head, original animation state or verified spawn.'
+    Write-Host 'Experimental diagnostic: approximate movement, camera and face attachment; no collision, original animation state or verified spawn.'
     $arguments = @('--data', $dataPath, '--scene', $Scene, '--type-layouts', $Layout, '--archives', '100000', '--scene-live', '--spawn-player', '--experimental-motion', '--follow-player', '--animate-player')
     if ($Position) { $arguments += @('--player-position', $Position) }
     & cargo run --locked -p rrising-app -- @arguments
