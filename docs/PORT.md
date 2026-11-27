@@ -754,3 +754,9 @@ original function outputs, including all chunk rotation bytes and signed coordin
 The replay supplies the metadata-initialized flag and skips initialization; no other runtime
 is constructed. Actual chunk offsets, pivot integration and tile registration remain to be
 connected. See `evidence/tile_position_world.md`.
+
+Tile definition binding continuation: a local catalog indexes 4,553 validated TileBlob
+definitions by PrefabGUID; all 9,268 TileData references agree without conflicting payloads.
+The diagnostic visual scene has no serialized TilePosition rows, so runtime tile creation
+and placement must be recovered separately before constructing its collision map. The full
+installation catalog test passes. See `evidence/tile_binding.md`.
