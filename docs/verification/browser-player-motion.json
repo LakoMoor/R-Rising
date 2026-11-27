@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-27",
+  "scope": "Experimental browser player movement and sampled animation; no comparison with the running original game",
+  "platform": "Windows x64",
+  "browser": "Chrome 158.0.8127.38, headless WebGPU",
+  "local_export_bytes": 88778365,
+  "local_export_contains_original_content": true,
+  "input_test": {
+    "method": "Click canvas, hold W for 300 ms, release and observe position twice",
+    "before": [
+      142.5,
+      20,
+      22.5
+    ],
+    "after": [
+      142.5,
+      20,
+      23.700016021728516
+    ],
+    "stopped": [
+      142.5,
+      20,
+      23.700016021728516
+    ],
+    "walk_sample": 5,
+    "rest_sample": -1,
+    "page_errors": 0
+  },
+  "projection_test": {
+    "source": "Pinned original player prefab components",
+    "comparison": "Native Rust driver vs isolated Rust ECS projection",
+    "fixed_steps": 5,
+    "result": "positions bit-identical per step"
+  },
+  "limitations": "No original runtime comparison, no collision, original Animator or original scheduling; no game or performance parity measurement. Walk poses are sampled and timing is approximate."
+}

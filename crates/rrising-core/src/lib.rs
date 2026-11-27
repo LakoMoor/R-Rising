@@ -8,6 +8,7 @@
 pub mod ability_movement_ecs;
 pub mod aim;
 pub mod command_movement;
+pub mod diagnostic_player;
 pub mod easing;
 pub mod helpers;
 pub mod move_facing;

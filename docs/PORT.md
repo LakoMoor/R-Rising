@@ -715,3 +715,13 @@ cropped by one CSS-border pixel, differed from the same native Rust render in 10
 (mean RGB channel difference 0.00078/255). This is not an original-game comparison; browser
 gameplay, input, animation playback and original HUD behavior remain absent. See
 `docs/verification/browser-player-hud.json`.
+
+
+Browser motion continuation: local exports may carry selected player component bytes and 24
+walk samples per visual part. The browser reconstructs a bounded ECS projection and runs
+the shared native Rust movement driver at fixed steps; WASD, following camera and sampled
+walk/rest switching are experimental. On the pinned original prefab, native and projected
+Rust positions matched bit-for-bit for five tested steps. Chrome input and release were
+tested separately; neither test compares behavior with the running original game. Collision,
+original scheduling and Animator behavior, gameplay and performance parity remain unmeasured.
+See `docs/verification/browser-player-motion.json`.

@@ -1044,7 +1044,7 @@ pub struct SimWorld {
 
 const SCALE_HASH: u64 = 0xadc0_56c7_729e_d01e;
 const POST_HASH: u64 = 0x0233_3773_b807_e90d;
-pub const STEP_NS: u64 = 16_666_667;
+pub const STEP_NS: u64 = rrising_core::diagnostic_player::STEP_NS;
 
 /// Instantiate a partial clone of the pinned client player prefab in a scene world.
 /// Rendering, animation, locomotion and external prefab references are not supplied.
@@ -1226,7 +1226,7 @@ impl SimWorld {
             .component_bytes(entity, types.translation)?;
         self.schedule.add_system(
             "ExperimentalPlayer",
-            Box::new(ExperimentalPlayerMotion {
+            Box::new(rrising_core::diagnostic_player::ExperimentalPlayerMotion {
                 entity,
                 input,
                 types,
@@ -1268,56 +1268,6 @@ impl SimWorld {
             fix(inst, e);
         }
         (ok, missing)
-    }
-}
-
-/// Deliberate approximation: invokes recovered leaf bodies in a host-defined order.
-/// It is not the original command scheduler, and excludes abilities and collisions.
-struct ExperimentalPlayerMotion {
-    entity: Entity,
-    input: rrising_ecs::TypeIndex,
-    types: rrising_core::ordinary_movement_ecs::OrdinaryMovementTypes,
-}
-
-impl rrising_ecs::System for ExperimentalPlayerMotion {
-    fn name(&self) -> &str {
-        "ExperimentalPlayerMotion"
-    }
-    fn update(
-        &mut self,
-        world: &mut rrising_ecs::World,
-        ctx: &rrising_ecs::FrameContext,
-    ) -> Result<()> {
-        let input = world
-            .store
-            .component_bytes(self.entity, self.input)?
-            .to_vec();
-        let mut movement = world
-            .store
-            .component_bytes(self.entity, self.types.movement)?
-            .to_vec();
-        rrising_core::movement::setup_ability_movement(&mut movement, &input)?;
-        world
-            .store
-            .set_component_bytes(self.entity, self.types.movement, &movement)?;
-        let mut command = [0u8; rrising_core::command_movement::INPUT_COMMAND_SIZE];
-        rrising_core::command_movement::write_command_input_from_world(
-            world,
-            self.entity,
-            &mut command,
-            self.input,
-        )?;
-        command[144..148].copy_from_slice(&(ctx.delta_ns as f32 * 1e-9).to_le_bytes());
-        rrising_core::ordinary_movement_ecs::step_ordinary_command_bytes(
-            world,
-            self.entity,
-            self.types,
-            &command,
-            true,
-        )
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }
 
@@ -1923,6 +1873,63 @@ mod managed_array_tests {
         sim.advance(STEP_NS * 2, 4).unwrap();
         assert_eq!(read_x(&sim.world), moved);
         assert!((sim.instance(player).unwrap().model[3][0] - moved).abs() < 0.0001);
+    }
+
+    #[test]
+    #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
+    fn isolated_projection_matches_native_player_driver_per_tick() {
+        use super::{simulate, spawn_player, STEP_NS};
+        use crate::input_control::write_input;
+        use rrising_core::diagnostic_player::{DiagnosticPlayer, PlayerComponents};
+        use std::{collections::HashSet, path::PathBuf};
+        use winit::keyboard::KeyCode;
+        let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
+        let layouts = PathBuf::from(
+            std::env::var_os("RRISING_LAYOUT_REPORT").expect("RRISING_LAYOUT_REPORT"),
+        );
+        let scene =
+            data.join("StreamingAssets/EntityScenes/c6d34432693f24046ae5916650cc70ef.0.entities");
+        let mut sim = simulate(&layouts, &scene, 0).unwrap();
+        let player = spawn_player(&mut sim.world, &data, &layouts).unwrap();
+        sim.enable_experimental_player_motion(player).unwrap();
+        sim.advance(STEP_NS, 1).unwrap();
+        let captured = PlayerComponents::capture(&sim.world, player).unwrap();
+        let mut isolated = DiagnosticPlayer::from_components(&captured).unwrap();
+        let input = sim
+            .world
+            .types
+            .type_index_of("ProjectM.EntityInput")
+            .unwrap();
+        let translation = sim
+            .world
+            .types
+            .type_index_of("Unity.Transforms.Translation")
+            .unwrap();
+        let mut last = [0.; 3];
+        for (keys, axis) in [
+            (vec![KeyCode::KeyW], [0., 1.]),
+            (vec![KeyCode::KeyW, KeyCode::KeyD], [1., 1.]),
+            (vec![], [0., 0.]),
+            (vec![KeyCode::KeyA], [-1., 0.]),
+            (vec![], [0., 0.]),
+        ] {
+            let keys: HashSet<_> = keys.into_iter().collect();
+            write_input(&mut sim.world, player, input, &keys, 0., &mut last).unwrap();
+            assert_eq!(sim.advance(STEP_NS, 1).unwrap(), 1);
+            assert_eq!(isolated.advance(axis, 0., STEP_NS).unwrap(), 1);
+            let bytes = sim
+                .world
+                .store
+                .component_bytes(player, translation)
+                .unwrap();
+            let native: [f32; 3] = std::array::from_fn(|i| {
+                f32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap())
+            });
+            assert_eq!(
+                native.map(f32::to_bits),
+                isolated.position().unwrap().map(f32::to_bits)
+            );
+        }
     }
 
     #[test]

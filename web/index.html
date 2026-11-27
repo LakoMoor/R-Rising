@@ -8,15 +8,36 @@
 :root{color-scheme:dark;font:15px/1.6 system-ui;background:#0c0d11;color:#e5e2e0}body{max-width:1280px;margin:auto;padding:28px}header{display:flex;align-items:center;gap:22px}header img{width:76px;height:76px;object-fit:contain}h1{font:32px Georgia;letter-spacing:.09em;margin:0}p{color:#b4adb1;margin:8px 0 22px}.tag{font-size:11px;letter-spacing:.16em;color:#da6970;text-transform:uppercase}.toolbar{display:flex;gap:20px;align-items:center;flex-wrap:wrap;padding:18px 0}label{background:#812b39;border:1px solid #b94a58;border-radius:6px;padding:10px 18px;cursor:pointer}input{display:none}#status{color:#c9bdc4}canvas{display:block;width:100%;aspect-ratio:16/9;background:#17171d;border:1px solid #343039;border-radius:8px}footer{font-size:13px;color:#92898f;padding-top:18px}a{color:#db969e}
 </style>
 <header><img src="branding/logo.png" alt="R-Rising emblem"><div><div class="tag">Experimental Rust runtime</div><h1>R-RISING</h1></div></header>
-<p>Original content. Shared Rust renderer. WebGPU.<br>This viewer displays a locally exported scene. Optional diagnostic player and action-bar frames are static; gameplay, controls and lighting parity are not implemented.</p>
+<p>Original content. Shared Rust renderer. WebGPU.<br>A locally exported diagnostic player can move with WASD after clicking the canvas. Movement is experimental; collision, gameplay and lighting parity are not implemented.</p>
 <div class="toolbar"><label>Open local scene<input id="scene" type="file" accept=".json"></label><span id="status" role="status">Starting WebAssembly…</span></div>
-<canvas id="viewport" width="1600" height="900" aria-label="Scene rendered by Rust and WebGPU"></canvas>
+<canvas id="viewport" width="1600" height="900" tabindex="0" aria-label="Scene rendered by Rust and WebGPU; click and use WASD for experimental movement"></canvas>
 <footer>Export with <code>r-rising --export-web scene.rrscene.json --archives 5000 --items 48 --width 1600 --height 900</code>.<br>Files stay on this device. WebGPU is required. BC textures decode on the CPU when hardware support is unavailable, using more memory. Physical mobile devices remain untested. <a href="https://github.com/LakoMoor/R-Rising">Source & compatibility</a></footer>
 <script type="module">
 import init, { BrowserViewer } from './pkg/rrising_web.js';
 const status = document.querySelector('#status');
 const input = document.querySelector('#scene');
+const canvas = document.querySelector('#viewport');
 let viewer, frame;
+// Read-only local test hook; enabled only when explicitly requested in the URL.
+if (new URLSearchParams(location.search).get('diagnostic') === '1') {
+  window.rrisingPlayerPosition = () => viewer?.player_position() ?? [];
+  window.rrisingPlayerAnimationFrame = () => viewer?.player_animation_frame() ?? -1;
+}
+const keys = new Set(), pending = new Set();
+const movementKeys = new Set(['KeyW','KeyA','KeyS','KeyD']);
+canvas.addEventListener('pointerdown', () => canvas.focus());
+canvas.addEventListener('keydown', event => {
+  if (!viewer?.has_player() || !movementKeys.has(event.code)) return;
+  event.preventDefault();
+  if (!keys.has(event.code)) pending.add(event.code);
+  keys.add(event.code);
+});
+canvas.addEventListener('keyup', event => {
+  if (!movementKeys.has(event.code)) return;
+  event.preventDefault();
+  keys.delete(event.code);
+});
+canvas.addEventListener('blur', () => { keys.clear(); pending.clear(); });
 try {
   if (!navigator.gpu) throw new Error('WebGPU is unavailable in this browser. Use a browser with WebGPU support over HTTPS or localhost.');
   await init();
@@ -25,17 +46,27 @@ try {
     if (!file) return;
     delete document.documentElement.dataset.loaded;
     cancelAnimationFrame(frame);
+    keys.clear(); pending.clear();
     if (viewer) { viewer.free(); viewer = undefined; }
     status.textContent = 'Loading local content…';
     try {
       if (file.size > 256 * 1024 * 1024) throw new Error('Scene transfer exceeds 256 MiB');
-      viewer = await BrowserViewer.create(document.querySelector('canvas'), await file.text());
-      const render = () => {
-        try { viewer.render(); frame = requestAnimationFrame(render); }
+      viewer = await BrowserViewer.create(canvas, await file.text());
+      let last;
+      const render = now => {
+        try {
+          const active = key => keys.has(key) || pending.has(key);
+          const x = Number(active('KeyD')) - Number(active('KeyA'));
+          const z = Number(active('KeyW')) - Number(active('KeyS'));
+          if (viewer.advance_player(x, z, last === undefined ? 0 : now - last) > 0) pending.clear();
+          last = now;
+          viewer.render(); frame = requestAnimationFrame(render);
+        }
         catch (error) { status.textContent = `Render failed: ${error}`; }
       };
-      render();
-      status.textContent = `${viewer.item_count()} draw groups · Rust / WebGPU · original data, not gameplay`;
+      viewer.render();
+      frame = requestAnimationFrame(render);
+      status.textContent = `${viewer.item_count()} draw groups · Rust / WebGPU · ${viewer.has_player() ? 'click canvas for experimental WASD' : 'static scene'} · not gameplay`;
       document.documentElement.dataset.loaded = 'true';
     } catch (error) { status.textContent = `Unable to load scene: ${error}`; }
   };

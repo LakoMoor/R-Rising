@@ -17,6 +17,7 @@ mod scene_view;
 use anyhow::{Context, Result};
 use rrising_content::persistence::{PersistentSave, SavedSnapshot, CONTAINER_VERSION};
 use rrising_content::{list_archives, GameContent};
+use rrising_core::diagnostic_player::MotionAnimation;
 use rrising_core::scene::{self, SceneSpec};
 use rrising_math::{float3, float4, float4x4};
 use rrising_render::{DrawCall, FrameUniforms, Instance, Renderer};
@@ -653,31 +654,6 @@ struct PlayerAnimation {
     last_frame: Option<Option<usize>>,
 }
 
-/// Diagnostic visual policy, not the original Animator's state machine.
-struct MotionAnimation {
-    previous: [f32; 3],
-    phase_seconds: f32,
-    moving: bool,
-}
-
-impl MotionAnimation {
-    fn advance(&mut self, position: [f32; 3], elapsed: f32, duration: f32) {
-        self.moving = position[0] != self.previous[0] || position[2] != self.previous[2];
-        if self.moving {
-            log::debug!(target: "rrising::input", "player moved {:?} -> {position:?}", self.previous);
-        }
-        self.previous = position;
-        if self.moving {
-            self.phase_seconds = (self.phase_seconds + elapsed).rem_euclid(duration);
-        }
-    }
-
-    fn frame(&self, duration: f32, count: usize) -> Option<usize> {
-        self.moving
-            .then(|| ((self.phase_seconds / duration * count as f32) as usize).min(count - 1))
-    }
-}
-
 impl App {
     fn frame(&mut self) {
         if self.renderer.is_none() || self.loaded.is_none() {
@@ -1158,15 +1134,11 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                         .collect(),
                     first_group,
                     started: std::time::Instant::now(),
-                    motion: opt.experimental_motion.then_some(MotionAnimation {
-                        previous: [
-                            instance.model[3][0],
-                            instance.model[3][1],
-                            instance.model[3][2],
-                        ],
-                        phase_seconds: 0.0,
-                        moving: false,
-                    }),
+                    motion: opt.experimental_motion.then_some(MotionAnimation::new([
+                        instance.model[3][0],
+                        instance.model[3][1],
+                        instance.model[3][2],
+                    ])),
                     last_frame: None,
                 });
                 if opt.experimental_motion {
@@ -1641,6 +1613,7 @@ fn export_web(opt: &Options, path: &Path) -> Result<()> {
         items,
         textures: vec![],
         diagnostic_overlay: None,
+        diagnostic_player: None,
     };
     let file =
         std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?;
@@ -1664,6 +1637,7 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
     let layouts = scene_view::layouts_path(opt.type_layouts.as_ref())?;
     let mut data = scene_view::collect(&content, &opt.data, &layouts, scene_path)?;
     apply_sim(opt, &layouts, scene_path, &mut data)?;
+    let mut diagnostic_player = None;
     let camera = if opt.spawn_player {
         let mut sim = scene_view::simulate(&layouts, scene_path, 0)?;
         let entity = scene_view::spawn_player(&mut sim.world, &opt.data, &layouts)?;
@@ -1676,12 +1650,38 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
             .context("spawned player transform missing")?;
         let first = data.groups.len();
         let parts = scene_view::attach_player_visual(&content, &mut data, entity, instance)?;
+        let (duration, samples) = scene_view::player_walk_samples(&content, 24)?;
+        anyhow::ensure!(
+            samples.len() == parts,
+            "animation parts differ from visual parts"
+        );
+        let animation_parts = data.groups[first..]
+            .iter()
+            .zip(samples.iter())
+            .map(
+                |(group, frames)| rrising_render::snapshot::SnapshotAnimationPart {
+                    rest: (*group.verts).clone(),
+                    frames: frames.clone(),
+                },
+            )
+            .collect();
+        let captured =
+            rrising_core::diagnostic_player::PlayerComponents::capture(&sim.world, entity)?;
+        diagnostic_player = Some(rrising_render::snapshot::SnapshotPlayer {
+            input: captured.input,
+            movement: captured.movement,
+            velocity: captured.velocity,
+            move_velocity: captured.move_velocity,
+            translation: captured.translation,
+            spell_controlled: captured.spell_controlled,
+            visual_items: (first..first + parts).collect(),
+            camera_yaw: 0.0,
+            animation: Some(rrising_render::snapshot::SnapshotPlayerAnimation {
+                duration,
+                parts: animation_parts,
+            }),
+        });
         if let Some(frame) = opt.animation_frame {
-            let (_, samples) = scene_view::player_walk_samples(&content, 24)?;
-            anyhow::ensure!(
-                samples.len() == parts,
-                "animation parts differ from visual parts"
-            );
             for (group, frames) in data.groups[first..].iter_mut().zip(samples) {
                 group.verts = Arc::new(
                     frames
@@ -1691,7 +1691,7 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
                 );
             }
         }
-        println!("Exporting static diagnostic player; no browser player simulation or controls.");
+        println!("Exporting experimental player component projection; browser motion has no collision or original scheduler.");
         player_camera(data.bounds, instance)
     } else {
         scene_view::FlyCam::framing(data.bounds)
@@ -1791,6 +1791,7 @@ fn export_scene_web(opt: &Options, path: &Path) -> Result<()> {
         items,
         textures: pool,
         diagnostic_overlay,
+        diagnostic_player,
     };
     let mut writer = std::io::BufWriter::new(
         std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?,
@@ -2259,11 +2260,7 @@ mod tests {
 
     #[test]
     fn diagnostic_animation_tracks_horizontal_displacement_and_stops() {
-        let mut motion = super::MotionAnimation {
-            previous: [1.0, 2.0, 3.0],
-            phase_seconds: 0.0,
-            moving: false,
-        };
+        let mut motion = super::MotionAnimation::new([1.0, 2.0, 3.0]);
         assert_eq!(motion.frame(1.0, 4), None);
         motion.advance([1.0, 3.0, 3.0], 0.25, 1.0);
         assert_eq!(motion.frame(1.0, 4), None);

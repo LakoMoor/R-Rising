@@ -3,7 +3,7 @@ use crate::{
     mesh, texture::TextureData, DrawCall, FrameUniforms, GpuMesh, GpuTexture, Instance, Renderer,
     Vertex,
 };
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// Optional diagnostic frame art in a local transfer; this is not game HUD state.
@@ -11,6 +11,34 @@ use serde::{Deserialize, Serialize};
 pub struct SnapshotOverlay {
     pub texture: TextureData,
     pub layout: crate::overlay::ActionBarLayout,
+}
+
+/// Local-only component projection for the experimental player driver.
+/// This is not a saved game or a complete ECS world.
+#[derive(Serialize, Deserialize)]
+pub struct SnapshotPlayer {
+    pub input: Vec<u8>,
+    pub movement: Vec<u8>,
+    pub velocity: Vec<u8>,
+    pub move_velocity: Vec<u8>,
+    pub translation: Vec<u8>,
+    pub spell_controlled: Option<Vec<u8>>,
+    pub visual_items: Vec<usize>,
+    pub camera_yaw: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<SnapshotPlayerAnimation>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SnapshotPlayerAnimation {
+    pub duration: f32,
+    pub parts: Vec<SnapshotAnimationPart>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SnapshotAnimationPart {
+    pub rest: Vec<Vertex>,
+    pub frames: Vec<Vec<Vertex>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,6 +71,8 @@ pub struct Snapshot {
     pub textures: Vec<TextureData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_overlay: Option<SnapshotOverlay>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_player: Option<SnapshotPlayer>,
 }
 pub struct LoadedSnapshot {
     meshes: Vec<GpuMesh>,
@@ -128,6 +158,128 @@ impl Snapshot {
     }
 }
 impl LoadedSnapshot {
+    pub fn validate_player_animation(
+        &self,
+        indices: &[usize],
+        animation: &SnapshotPlayerAnimation,
+    ) -> Result<usize> {
+        ensure!(
+            animation.duration.is_finite() && animation.duration > 0.0,
+            "invalid player animation duration"
+        );
+        ensure!(
+            !indices.is_empty() && indices.len() <= 16 && animation.parts.len() == indices.len(),
+            "invalid animation part count"
+        );
+        let count = animation.parts[0].frames.len();
+        ensure!((1..=64).contains(&count), "invalid animation sample count");
+        let mut unique = std::collections::BTreeSet::new();
+        for (&index, part) in indices.iter().zip(&animation.parts) {
+            ensure!(unique.insert(index), "duplicate player visual index");
+            let mesh = self
+                .meshes
+                .get(index)
+                .context("player visual index out of range")?;
+            ensure!(
+                part.frames.len() == count
+                    && part.rest.len() == mesh.vertex_count
+                    && part.frames.iter().all(|v| v.len() == mesh.vertex_count),
+                "player animation topology mismatch"
+            );
+            for vertex in part.rest.iter().chain(part.frames.iter().flatten()) {
+                ensure!(
+                    vertex
+                        .position
+                        .iter()
+                        .chain(&vertex.normal)
+                        .chain(&vertex.uv)
+                        .all(|v| v.is_finite()),
+                    "nonfinite player animation vertex"
+                );
+            }
+        }
+        Ok(count)
+    }
+
+    /// Apply a validated diagnostic pose (`None` means serialized rest pose).
+    pub fn set_player_animation(
+        &self,
+        renderer: &Renderer,
+        indices: &[usize],
+        animation: &SnapshotPlayerAnimation,
+        frame: Option<usize>,
+    ) -> Result<()> {
+        ensure!(
+            indices.len() == animation.parts.len() && !indices.is_empty(),
+            "invalid animation part count"
+        );
+        for (&index, part) in indices.iter().zip(&animation.parts) {
+            let mesh = self
+                .meshes
+                .get(index)
+                .context("player visual index out of range")?;
+            let vertices = match frame {
+                Some(f) => part.frames.get(f).context("animation frame out of range")?,
+                None => &part.rest,
+            };
+            ensure!(
+                vertices.len() == mesh.vertex_count
+                    && vertices.iter().all(|v| v
+                        .position
+                        .iter()
+                        .chain(&v.normal)
+                        .chain(&v.uv)
+                        .all(|x| x.is_finite())),
+                "invalid player pose"
+            );
+        }
+        for (&index, part) in indices.iter().zip(&animation.parts) {
+            let vertices = frame.map_or(part.rest.as_slice(), |f| part.frames[f].as_slice());
+            mesh::update_vertices(renderer.queue(), &self.meshes[index], vertices)?;
+        }
+        Ok(())
+    }
+    /// Move the explicitly indexed player groups and a following diagnostic camera.
+    /// `base_uniforms` and `initial` must be the original transfer values.
+    pub fn set_diagnostic_player_position(
+        &mut self,
+        indices: &[usize],
+        initial: [f32; 3],
+        current: [f32; 3],
+        base_uniforms: FrameUniforms,
+    ) -> Result<()> {
+        ensure!(
+            initial.iter().chain(&current).all(|v| v.is_finite()),
+            "nonfinite player position"
+        );
+        ensure!(
+            !indices.is_empty() && indices.len() <= 16,
+            "invalid player visual count"
+        );
+        let mut unique = std::collections::BTreeSet::new();
+        for &index in indices {
+            ensure!(unique.insert(index), "duplicate player visual index");
+            let instance = self
+                .instances
+                .get(index)
+                .context("player visual index out of range")?;
+            ensure!(instance.len() == 1, "player visual must have one instance");
+        }
+        for &index in indices {
+            self.instances[index][0].model[3][..3].copy_from_slice(&current);
+        }
+        let delta = std::array::from_fn::<_, 3, _>(|i| current[i] - initial[i]);
+        self.uniforms = base_uniforms;
+        for row in 0..4 {
+            self.uniforms.view_proj[3][row] -= base_uniforms.view_proj[0][row] * delta[0]
+                + base_uniforms.view_proj[1][row] * delta[1]
+                + base_uniforms.view_proj[2][row] * delta[2];
+        }
+        for (axis, value) in delta.iter().enumerate() {
+            self.uniforms.camera_pos[axis] += value;
+        }
+        Ok(())
+    }
     pub fn render(&self, renderer: &mut Renderer) -> Result<()> {
         let neutral = renderer.neutral_view();
         let draws: Vec<_> = self

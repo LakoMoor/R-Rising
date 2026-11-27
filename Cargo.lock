@@ -1987,6 +1987,7 @@ dependencies = [
 name = "rrising-web"
 version = "0.1.0"
 dependencies = [
+ "rrising-core",
  "rrising-render",
  "serde_json",
  "wasm-bindgen",
