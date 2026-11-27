@@ -26,9 +26,16 @@ configuration, checks prepared tags, and writes optional network linkage/clock
 and the change event. The child retains Disabled until the still-unimplemented
 spawn lifecycle handles it. Installed-data acceptance covers 3,589 registered
 server prefab source payloads (93 networked, zero mega-compatible), with a supplied
-parent index; it is partial projection only. Prefab cloning, placement, old-child
+parent index; it is partial projection only. Full prefab fidelity, placement, old-child
 destruction and visual-loop scheduling remain absent.
 See [attachment evidence](../evidence/chain_attachment.md).
+
+The spawn wrapper now joins admitted prefab cloning, four measured transform
+writes and attachment for an explicit host pose. Payloads match 256 original-body
+captures; one real chain/main-prefab initial projection and the prepared-root
+catalog regression pass. Cloning remains partial and instances retain Disabled;
+there is no visible replacement or original scheduling yet.
+See [spawn evidence](../evidence/chain_spawn.md).
 
 Spawn-chain candidate selection now matches 400 isolated original-client cases
 (232 candidates, 168 no-selection results), comparing signed priority and the

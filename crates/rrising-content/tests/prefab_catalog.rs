@@ -489,6 +489,9 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
         },
     )?;
     let mut totals = [0; 9];
+    let prepared_tag = types.register(TypeSpec::tag("R-Rising.PreparedRoot"))?;
+    let prepared_value =
+        types.register(TypeSpec::component_data("R-Rising.PreparedRootValue", 4, 4))?;
     let existing = store.get_or_create_archetype(&types, &[prefab])?;
     for (scene_id, _) in SERVER_PREFAB_SCENES {
         let scene = SceneFile::open(&data.join(format!("{scene_id}.0.entities")))?;
@@ -536,10 +539,20 @@ fn original_prefab_groups_clone_independent_handles_and_reference_fields() -> Re
                 template.instantiate_with_external(&mut store, &mut types, &layouts, |key| {
                     external.get(&key).copied()
                 })?;
-            let second =
-                template.instantiate_with_external(&mut store, &mut types, &layouts, |key| {
-                    external.get(&key).copied()
-                })?;
+            let second = template.instantiate_prepared(
+                &mut store,
+                &mut types,
+                &layouts,
+                &[prepared_tag, prepared_value, prepared_tag],
+                |key| external.get(&key).copied(),
+            )?;
+            assert!(store.try_component_bytes(first[0], prepared_tag)?.is_none());
+            assert!(store.component_bytes(second[0], prepared_tag)?.is_empty());
+            assert_eq!(store.component_bytes(second[0], prepared_value)?, [0; 4]);
+            for &member in &second[1..] {
+                assert!(store.try_component_bytes(member, prepared_tag)?.is_none());
+                assert!(store.try_component_bytes(member, prepared_value)?.is_none());
+            }
             let distinct: std::collections::HashSet<_> = first.iter().chain(&second).collect();
             assert_eq!(distinct.len(), first.len() + second.len());
             for group in [first, second] {

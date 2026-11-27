@@ -93,9 +93,27 @@ impl LinkedPrefabTemplate {
         store: &mut EntityComponentStore,
         types: &mut TypeManager,
         layouts: &TypeLayouts,
+        resolve: impl FnMut(PrefabMemberKey) -> Option<Entity>,
+    ) -> Result<Vec<Entity>> {
+        self.instantiate_prepared(store, types, layouts, &[], resolve)
+    }
+
+    /// Add caller-required root slots while cloning admitted prefab values. Existing values
+    /// and linked-member remapping remain authoritative; added slots start at zero.
+    pub fn instantiate_prepared(
+        &self,
+        store: &mut EntityComponentStore,
+        types: &mut TypeManager,
+        layouts: &TypeLayouts,
+        extra_root_components: &[TypeIndex],
         mut resolve: impl FnMut(PrefabMemberKey) -> Option<Entity>,
     ) -> Result<Vec<Entity>> {
         ensure!(!self.members.is_empty(), "prefab template has no root");
+        for &ty in extra_root_components {
+            types
+                .type_info(ty)
+                .context("unregistered prepared root type")?;
+        }
         let mut registry = rustc_hash::FxHashMap::default();
         for info in types.infos() {
             registry.insert(info.stable_type_hash, info.type_index);
@@ -144,6 +162,7 @@ impl LinkedPrefabTemplate {
             let mut set: Vec<_> = member_types.iter().flatten().map(|(ty, _)| *ty).collect();
             if ordinal == 0 {
                 set.extend(group);
+                set.extend_from_slice(extra_root_components);
             }
             let arch = store.get_or_create_archetype(types, &set)?;
             instances.push(store.create_entity(arch)?);

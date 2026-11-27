@@ -866,3 +866,12 @@ parent index, not full prefab cloning or live world execution. The 432-case
 non-static oracle is unchanged. WASM host compilation and Clippy pass. Spawn/destroy
 barriers, structural addition, activation, placement and visible replacement remain
 pending. Timing and reproduction are in `../evidence/chain_attachment.md`.
+
+Chain prefab spawn continuation (2026-11-28): 256 original wrapper/TRS captures
+match the four transform payloads. The admitted linked-prefab cloner now prepares
+attachment slots on the root; spawn_linked joins allocation, explicit pose writes
+and attachment. One actual server chain/main-prefab passes this partial initial-
+spawn path (one member, 32 root values). The prepared-root regression passes across
+23,583 prefabs / 41,205 source members. Full component fidelity, deferred barriers,
+activation, placement, old-child destruction and visual-loop execution remain
+pending. See `../evidence/chain_spawn.md` for scope and Rust-only timings.

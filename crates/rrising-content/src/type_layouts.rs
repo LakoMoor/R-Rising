@@ -339,6 +339,10 @@ impl TypeLayouts {
     pub fn get(&self, stable_hash: u64) -> Option<&RecoveredType> {
         self.by_hash.get(&stable_hash)
     }
+    /// Exact qualified metadata name, useful for explicit runtime type bindings.
+    pub fn get_by_name(&self, name: &str) -> Option<&RecoveredType> {
+        self.by_hash.values().find(|value| value.name == name)
+    }
 
     pub(crate) fn recovered_types(&self) -> impl Iterator<Item = &RecoveredType> {
         self.by_hash.values()

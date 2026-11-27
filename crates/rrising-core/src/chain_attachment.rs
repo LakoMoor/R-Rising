@@ -102,6 +102,61 @@ pub struct AttachmentTypes {
     pub changed_event: TypeIndex,
     pub static_types: Option<StaticAttachmentTypes>,
 }
+fn read_static_input(
+    world: &World,
+    chain: Entity,
+    prefab: Entity,
+    types: &AttachmentTypes,
+) -> Result<Option<StaticInput>> {
+    world
+        .store
+        .try_component_bytes(prefab, types.static_compatible)?
+        .map(|source| -> Result<StaticInput> {
+            let bindings = types
+                .static_types
+                .as_ref()
+                .context("static-transform type bindings are missing")?;
+            let chain_index = world
+                .store
+                .try_component_bytes(chain, bindings.index)?
+                .map(|value| -> Result<[u8; 4]> { Ok(value.try_into()?) })
+                .transpose()?;
+            Ok(StaticInput {
+                prefab_compatible: source.try_into()?,
+                prefab_mega_compatible: chain_index.is_some()
+                    && world
+                        .store
+                        .try_component_bytes(prefab, bindings.mega_compatible)?
+                        .is_some(),
+                chain_index,
+            })
+        })
+        .transpose()
+}
+/// Structural slots requested by the original component-set command, for a root clone.
+pub fn required_root_components(
+    world: &World,
+    chain: Entity,
+    prefab: Entity,
+    types: &AttachmentTypes,
+) -> Result<Vec<TypeIndex>> {
+    ensure!(world.store.exists(prefab)?, "prefab entity is not live");
+    let mut out = vec![types.disabled, types.child];
+    if let Some(input) =
+        read_static_input(world, chain, prefab, types)?.filter(|value| value.chain_index.is_some())
+    {
+        let bindings = types
+            .static_types
+            .as_ref()
+            .context("static type bindings")?;
+        out.push(bindings.guaranteed_static);
+        if input.prefab_mega_compatible {
+            out.push(bindings.mega_static);
+        }
+        out.push(bindings.static_tag);
+    }
+    Ok(out)
+}
 /// Attach a caller-created, already-shaped child. This is immediate ECS application;
 /// original ECB playback order relative to other systems has not been recovered.
 /// Does not clone a prefab, apply TRS, delete the previous child or consume requests.
@@ -118,30 +173,7 @@ pub fn apply_existing(
         world.store.exists(candidate.prefab)?,
         "prefab entity is not live"
     );
-    let static_input = world
-        .store
-        .try_component_bytes(candidate.prefab, types.static_compatible)?
-        .map(|source| -> Result<StaticInput> {
-            let bindings = types
-                .static_types
-                .as_ref()
-                .context("static-transform type bindings are missing")?;
-            let chain_index = world
-                .store
-                .try_component_bytes(chain, bindings.index)?
-                .map(|value| -> Result<[u8; 4]> { Ok(value.try_into()?) })
-                .transpose()?;
-            Ok(StaticInput {
-                prefab_compatible: source.try_into()?,
-                prefab_mega_compatible: chain_index.is_some()
-                    && world
-                        .store
-                        .try_component_bytes(candidate.prefab, bindings.mega_compatible)?
-                        .is_some(),
-                chain_index,
-            })
-        })
-        .transpose()?;
+    let static_input = read_static_input(world, chain, candidate.prefab, types)?;
     let networked = world
         .store
         .try_component_bytes(candidate.prefab, types.networked_child)?
