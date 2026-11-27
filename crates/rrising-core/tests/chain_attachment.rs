@@ -9,12 +9,29 @@ fn hex(bytes: &[u8]) -> String {
 }
 #[test]
 fn original_attachment_command_payloads_match() {
-    let data: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../evidence/oracles/chain_attachment.json"
-    ))
-    .unwrap();
+    compare_original(
+        include_str!("../../../evidence/oracles/chain_attachment.json"),
+        432,
+        false,
+    );
+}
+#[test]
+fn original_static_attachment_command_payloads_match() {
+    compare_original(
+        include_str!("../../../evidence/oracles/chain_attachment_static.json"),
+        512,
+        true,
+    );
+}
+fn decode<const N: usize>(text: &str) -> [u8; N] {
+    assert_eq!(text.len(), N * 2);
+    std::array::from_fn(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).unwrap())
+}
+fn compare_original(json: &str, count: usize, static_mode: bool) {
+    use rrising_core::chain_attachment::{plan_with_static, StaticInput};
+    let data: serde_json::Value = serde_json::from_str(json).unwrap();
     let cases = data["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 432);
+    assert_eq!(cases.len(), count);
     for (row, case) in cases.iter().enumerate() {
         let candidate = PrefabCandidate {
             element_index: case["index"].as_i64().unwrap() as i32,
@@ -29,19 +46,39 @@ fn original_attachment_command_payloads_match() {
                 duration: case["duration"].as_f64().unwrap() as f32,
             }),
         };
-        let result = plan(
+        let input = static_mode.then(|| StaticInput {
+            prefab_compatible: decode(case["source_static"].as_str().unwrap()),
+            chain_index: case["has_index"]
+                .as_bool()
+                .unwrap()
+                .then(|| decode(case["static_index"].as_str().unwrap())),
+            prefab_mega_compatible: case["mega"].as_bool().unwrap(),
+        });
+        let result = plan_with_static(
             Entity::new(7, 2),
             Entity::new(88, 3),
             &candidate,
             case["networked"].as_bool().unwrap(),
             case["now"].as_f64().unwrap(),
+            input.as_ref(),
         );
         let mut trace = Vec::new();
         if let Some(clock) = result.clock {
             trace.push(json!({"op":"clock","entity":0x200000007u64,"bytes":hex(&clock)}));
         }
-        trace.push(json!({"op":"add_set","entity":0x300000058u64,"types":["disabled","child"]}));
+        let mut types = vec!["disabled", "child"];
+        if let Some(data) = result.static_data.as_ref().filter(|s| s.guaranteed_static) {
+            types.push("guaranteed_static");
+            if data.mega_static {
+                types.push("mega_static");
+            }
+            types.push("static");
+        }
+        trace.push(json!({"op":"add_set","entity":0x300000058u64,"types":types}));
         trace.push(json!({"op":"child","entity":0x300000058u64,"bytes":hex(&result.child)}));
+        if let Some(data) = result.static_data {
+            trace.push(json!({"op":"static_compatible","entity":0x300000058u64,"bytes":hex(&data.compatible)}));
+        }
         if let Some(network) = result.networked_child {
             trace.push(json!({"op":"network","entity":0x300000058u64,"bytes":hex(&network)}));
         }
@@ -83,6 +120,7 @@ fn ecs_attachment_updates_links_and_preserves_unwritten_state() {
                     changed_event: types
                         .register(TypeSpec::component_data("changed", 8, 4))
                         .unwrap(),
+                    static_types: None,
                 };
                 let mut world = World::build(
                     types,

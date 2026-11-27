@@ -855,3 +855,14 @@ these actual ECS writes. Fixtures remain synthetic; prefab cloning, TRS, placeme
 static/mega-static branches, Disabled removal, old-child destruction and original
 deferred scheduling remain absent. No visual-loop or performance parity is claimed.
 See `../evidence/chain_attachment.md`.
+
+Static chain attachment continuation (2026-11-28): 512 additional original-body
+traces match the plan and immediate ECS field writes, including packed parent
+index transfer, preservation of prefab padding/transform bytes, and the requested
+GuaranteedStaticTransform/Static/MegaStaticTag combinations. Installed-data checks
+apply 3,589 registered prefab source payloads (93 networked; zero mega-compatible
+among these roots) to prepared children. This is partial projection with a supplied
+parent index, not full prefab cloning or live world execution. The 432-case
+non-static oracle is unchanged. WASM host compilation and Clippy pass. Spawn/destroy
+barriers, structural addition, activation, placement and visible replacement remain
+pending. Timing and reproduction are in `../evidence/chain_attachment.md`.

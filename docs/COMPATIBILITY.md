@@ -19,10 +19,14 @@ original assets, executables or decompiled sources should be distributed.
 
 ## Metrics
 
-Essential non-static chain attachment matches 432 isolated original command
-traces. Its prepared-child ECS bridge updates links, optional network linkage/clock
+Essential chain attachment matches 432 non-static and 512 static isolated original
+command traces. The 512 static cases also match actual immediate ECS writes after
+handle remapping. Its prepared-child ECS bridge updates links and optional static
+configuration, checks prepared tags, and writes optional network linkage/clock
 and the change event. The child retains Disabled until the still-unimplemented
-spawn lifecycle handles it. Prefab cloning, placement, static branches, old-child
+spawn lifecycle handles it. Installed-data acceptance covers 3,589 registered
+server prefab source payloads (93 networked, zero mega-compatible), with a supplied
+parent index; it is partial projection only. Prefab cloning, placement, old-child
 destruction and visual-loop scheduling remain absent.
 See [attachment evidence](../evidence/chain_attachment.md).
 

@@ -234,6 +234,7 @@ fn terminal_event_is_queued_with_original_field_layout() {
             networked_child,
             static_compatible,
             changed_event,
+            static_types: None,
         },
         224.,
     )
