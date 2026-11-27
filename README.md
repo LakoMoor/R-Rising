@@ -30,7 +30,8 @@ performance improvement has been demonstrated.
 | Original runtime reference | Dedicated server boots through CrossOver; six autosaves captured | [Measured startup/save evidence](evidence/crossover_runtime.md); no deterministic Rust comparison yet |
 | Save index vs original debug dump | 136 / 136 archetypes agree on chunk count, entity count and included/excluded component names; 133 / 133 serialized byte spans match exactly (one server autosave) | Structure only; no component bytes or shared values compared. See [save bindings](evidence/save_bindings.md) |
 | Saves | Containers, complete headers and all 8 serialization jobs read across two original autosaves; 274,238 and 274,236 entity rows | Partial ECS restore admits all 278 observed column types in two newer autosaves and 49 tag types; six shared-component types remain unprojected. [Save allocation and query evidence](evidence/save_bindings.md) |
-| Gameplay, HUD, animation, physics, audio, networking | Not implemented | Not playable |
+| Gameplay / HUD | Diagnostic movement, sampled animation and eight static original slot frames | No inventory, HUD state, collision or original scheduler; not playable |
+| Physics, audio, networking | Not implemented | Not playable |
 | Rust-only timings (Apple M4, release) | Index 4,409 archives 3.3 s; decode 1,183 scenes 1.3 s; offscreen 1280x720 frame median 1.4 ms | Absolute numbers only, **no original-game comparison**; see COMPATIBILITY.md |
 
 Name matching can over-count shared identifiers and does not prove correctness,
@@ -118,7 +119,7 @@ The generated local layout report is kept in the ignored `target` directory.
 On the pinned Windows installation, an offscreen diagnostic frame and a synthetic
 W press/release test succeeded. A short W press in the real window was delivered and
 moved the diagnostic player; its timing and movement have not been compared to the game.
-[Windows diagnostic frame with a candidate face and elevated camera](docs/screenshots/player-face-diagnostic.png).
+[Windows diagnostic frame with candidate face and static action-bar frames](docs/screenshots/action-bar-diagnostic.png).
 
 The script verifies the client build, derives a temporary layout report if needed, and starts
 the scene with experimental WASD motion, a following camera and walk samples. Set
@@ -133,8 +134,10 @@ The diagnostic switches between a serialized rest pose and walk samples based on
 displacement; it does not evaluate the original Animator. Short presses are retained until a
 simulation update, whose catch-up steps can overstate their duration. This is a technical
 diagnostic, not a playable V Rising port.
-The elevated camera is an approximation informed by a user-supplied gameplay image. Its
-parameters, lighting, HUD and depicted scene are not matched to the original.
+The elevated camera is an approximation informed by a user-supplied gameplay image. The
+diagnostic HUD contains only the eight original slot-frame sprites; it has no inventory,
+interactions, health, minimap or original Canvas scaling. Camera, lighting and scene are not
+matched to the original.
 
 Inspect a local dedicated-server autosave without starting the renderer:
 

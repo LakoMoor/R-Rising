@@ -10,6 +10,7 @@
 
 pub mod content;
 pub mod entity_scenes;
+pub mod hud;
 pub mod localization;
 pub mod persistence;
 pub mod player_customization;

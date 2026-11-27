@@ -68,7 +68,7 @@ if [[ -z $report ]]; then
   python3 tools/probe_type_registry.py --install "$install" --check --output "$report"
 fi
 args=(--data "$data" --scene "$scene" --type-layouts "$report" --archives 100000
-      --scene-live --spawn-player --experimental-motion --follow-player --animate-player)
+      --scene-live --spawn-player --experimental-motion --follow-player --animate-player --diagnostic-hud)
 position=${RRISING_PLAYER_POSITION:-}
 if [[ -z $position && -z ${RRISING_SCENE:-} ]]; then position='142.5,20,22.5'; fi
 if [[ -n $position ]]; then args+=(--player-position "$position"); fi
@@ -76,6 +76,7 @@ cat <<'EOF'
 Experimental diagnostic: movement, camera and face attachment are approximations; no collision,
 complete materials, gameplay animation state or original spawn. WASD moves the player,
 arrow keys turn the camera, Q/E move it vertically. Rest/walk selection is approximate.
+The HUD shows original slot-frame art only; inventory and gameplay HUD state are not implemented.
 EOF
 if [[ -n $position ]]; then printf 'Diagnostic position: %s (no collision check).\n' "$position"; fi
 cargo run --locked -p rrising-app -- "${args[@]}"

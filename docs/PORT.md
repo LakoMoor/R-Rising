@@ -700,3 +700,10 @@ composes these values and draws two face meshes, including sampled head-bone mot
 selection, transform order, dynamic hair, shaders and runtime parity remain unverified. A user
 provided a gameplay image as a visual reference; the diagnostic camera was moved higher and
 farther back as an approximation, without claiming a matched camera or scene.
+
+HUD continuation: `--diagnostic-hud` reads the pinned ActionBar prefab's eight frame Images,
+their common sprite and frame/slot dimensions, and displays static alpha-blended frames in the
+native diagnostic. The original-data test verifies the asset chain; the overlay GPU test checks
+position and blending, and both offscreen and windowed Windows output were inspected. Parent
+Canvas scale/placement is approximated; inventory, interaction, dynamic HUD state and browser
+wiring are not implemented. [HUD evidence](../evidence/hud_action_bar.md) records the boundary.

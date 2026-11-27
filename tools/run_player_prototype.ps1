@@ -41,7 +41,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Client layout generation failed.' }
     }
     Write-Host 'Experimental diagnostic: approximate movement, camera and face attachment; no collision, original animation state or verified spawn.'
-    $arguments = @('--data', $dataPath, '--scene', $Scene, '--type-layouts', $Layout, '--archives', '100000', '--scene-live', '--spawn-player', '--experimental-motion', '--follow-player', '--animate-player')
+    $arguments = @('--data', $dataPath, '--scene', $Scene, '--type-layouts', $Layout, '--archives', '100000', '--scene-live', '--spawn-player', '--experimental-motion', '--follow-player', '--animate-player', '--diagnostic-hud')
+    Write-Host 'The HUD shows original slot-frame art only; inventory and gameplay HUD state are not implemented.'
     if ($Position) { $arguments += @('--player-position', $Position) }
     & cargo run --locked -p rrising-app -- @arguments
     if ($LASTEXITCODE -ne 0) { throw "Application failed with exit code $LASTEXITCODE." }

@@ -52,6 +52,7 @@ struct Options {
     animate_player: bool,
     experimental_motion: bool,
     follow_player: bool,
+    diagnostic_hud: bool,
     terrain_chunk: Option<u16>,
     terrain_neighbors: Vec<u16>,
     server_data: Option<PathBuf>,
@@ -111,6 +112,7 @@ fn parse_args() -> Result<Options> {
         animate_player: false,
         experimental_motion: false,
         follow_player: false,
+        diagnostic_hud: false,
         terrain_chunk: None,
         terrain_neighbors: Vec::new(),
         server_data: None,
@@ -149,6 +151,7 @@ fn parse_args() -> Result<Options> {
             "--animate-player" => opt.animate_player = true,
             "--experimental-motion" => opt.experimental_motion = true,
             "--follow-player" => opt.follow_player = true,
+            "--diagnostic-hud" => opt.diagnostic_hud = true,
             "--terrain-chunk" => {
                 let value = take()?;
                 let (x, z) = value.split_once(',').context("--terrain-chunk needs x,z")?;
@@ -234,6 +237,10 @@ fn parse_args() -> Result<Options> {
         !opt.follow_player || (opt.spawn_player && opt.scene_live),
         "--follow-player requires --scene-live --spawn-player"
     );
+    anyhow::ensure!(
+        !opt.diagnostic_hud || opt.spawn_player,
+        "--diagnostic-hud requires --spawn-player"
+    );
     anyhow::ensure!(opt.terrain_chunk.is_none() || (opt.scene.is_some() && opt.server_data.is_some() && opt.server_layouts.is_some() && !opt.scene_live && opt.scene_sim.is_none() && !opt.spawn_player && opt.export_web.is_none() && opt.compare.is_none()), "--terrain-chunk requires --scene, --server-data and --server-layouts and supports static native viewing only");
     anyhow::ensure!(
         opt.terrain_neighbors.is_empty() || opt.terrain_chunk.is_some(),
@@ -264,6 +271,42 @@ struct Loaded {
     items: Vec<Item>,
     /// How many items got a real base map rather than the neutral texture.
     textures_bound: usize,
+    hud: Option<DiagnosticHud>,
+}
+
+/// Static frame art only; no inventory, hotkeys or Unity Canvas behavior.
+struct DiagnosticHud {
+    texture: rrising_render::GpuTexture,
+    source: rrising_content::hud::ActionBarFrame,
+}
+
+impl DiagnosticHud {
+    fn load(renderer: &Renderer, content: &GameContent) -> Result<Self> {
+        let source = rrising_content::hud::candidate_action_bar(content)?;
+        let texture = renderer.upload_texture(&content.read_texture(&source.texture)?)?;
+        Ok(Self { texture, source })
+    }
+    fn rects(&self, width: u32, height: u32) -> Vec<[f32; 4]> {
+        // Approximate CanvasScaler: reference height 1080, center-bottom parent.
+        let scale = height as f32 / 1080.0;
+        let slot = self.source.slot_size;
+        let extra = self.source.frame_extra;
+        let count = self.source.count;
+        let total = count as f32 * slot[0] + count.saturating_sub(1) as f32 * self.source.spacing;
+        let right = width as f32 * 0.5 + self.source.anchor_position[0] * scale;
+        let center_y = height as f32 - self.source.anchor_position[1] * scale;
+        (0..count)
+            .map(|i| {
+                [
+                    right - total * scale + i as f32 * (slot[0] + self.source.spacing) * scale
+                        - extra[0] * scale * 0.5,
+                    center_y - (slot[1] + extra[1]) * scale * 0.5,
+                    (slot[0] + extra[0]) * scale,
+                    (slot[1] + extra[1]) * scale,
+                ]
+            })
+            .collect()
+    }
 }
 
 impl Loaded {
@@ -367,6 +410,7 @@ fn load_scene(renderer: &Renderer, content: &GameContent, spec: &SceneSpec) -> R
         textures,
         items,
         textures_bound,
+        hud: None,
     })
 }
 
@@ -485,6 +529,7 @@ fn load_scene_view(
         textures,
         items,
         textures_bound,
+        hud: None,
     })
 }
 
@@ -783,7 +828,18 @@ impl App {
         };
         let neutral = r.neutral_view();
         let draws = l.draws(&neutral);
-        if let Err(e) = r.render_surface(&uniforms, &draws) {
+        let rects = l.hud.as_ref().map_or_else(Vec::new, |hud| hud.rects(w, h));
+        let overlay: Vec<_> = l
+            .hud
+            .as_ref()
+            .map(|hud| rrising_render::overlay::OverlayDraw {
+                texture: &hud.texture.view,
+                rects: &rects,
+                uv: [0.0, 0.0, 1.0, 1.0],
+            })
+            .into_iter()
+            .collect();
+        if let Err(e) = r.render_surface_with_overlay(&uniforms, &draws, &overlay) {
             log::error!("render: {e}");
         }
         self.frames += 1;
@@ -1150,7 +1206,11 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
         } else {
             None
         };
-        let loaded = load_scene_view(renderer, &content, &mut data)?;
+        let mut loaded = load_scene_view(renderer, &content, &mut data)?;
+        if opt.diagnostic_hud {
+            loaded.hud = Some(DiagnosticHud::load(renderer, &content)?);
+            println!("Diagnostic HUD: eight original action-bar frames; no inventory, controls, health or game HUD state.");
+        }
         println!("{}", data.stats.report());
         let live = sim.map(|sim| (sim, data));
         return Ok((loaded, fly, live, control, animation, opt.follow_player));
@@ -1457,13 +1517,30 @@ fn run_offscreen(opt: &Options) -> Result<()> {
         } else {
             scene_view::FlyCam::framing(data.bounds)
         };
-        let loaded = load_scene_view(&renderer, &content, &mut data)?;
+        let mut loaded = load_scene_view(&renderer, &content, &mut data)?;
+        if opt.diagnostic_hud {
+            loaded.hud = Some(DiagnosticHud::load(&renderer, &content)?);
+        }
         println!("{}", data.stats.report());
         let mut renderer = renderer;
         let uniforms = cam.uniforms(opt.width as f32 / opt.height as f32);
         let neutral = renderer.neutral_view();
         let draws = loaded.draws(&neutral);
-        let (w, h, rgba) = renderer.render_to_image(&uniforms, &draws)?;
+        let rects = loaded
+            .hud
+            .as_ref()
+            .map_or_else(Vec::new, |hud| hud.rects(opt.width, opt.height));
+        let overlay: Vec<_> = loaded
+            .hud
+            .as_ref()
+            .map(|hud| rrising_render::overlay::OverlayDraw {
+                texture: &hud.texture.view,
+                rects: &rects,
+                uv: [0.0, 0.0, 1.0, 1.0],
+            })
+            .into_iter()
+            .collect();
+        let (w, h, rgba) = renderer.render_to_image_with_overlay(&uniforms, &draws, &overlay)?;
         let path = opt
             .offscreen
             .clone()

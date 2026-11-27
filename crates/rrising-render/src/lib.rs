@@ -9,6 +9,7 @@ mod bc;
 #[cfg(feature = "unity")]
 pub mod clip_pose;
 pub mod mesh;
+pub mod overlay;
 pub mod renderer;
 #[cfg(feature = "unity")]
 pub mod skin;

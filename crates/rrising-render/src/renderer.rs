@@ -82,6 +82,7 @@ pub struct Renderer {
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
     pipeline_cutout: wgpu::RenderPipeline,
+    overlay: crate::overlay::OverlayPipeline,
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     neutral: wgpu::TextureView,
@@ -361,6 +362,7 @@ impl Renderer {
             Some((s, c)) => (Some(s), Some(c)),
             None => (None, None),
         };
+        let overlay = crate::overlay::OverlayPipeline::new(&device, format);
         let mut me = Self {
             device,
             queue,
@@ -369,6 +371,7 @@ impl Renderer {
             format,
             pipeline,
             pipeline_cutout,
+            overlay,
             bind_layout,
             sampler,
             neutral: neutral_tex.create_view(&Default::default()),
@@ -475,6 +478,15 @@ impl Renderer {
         uniforms: &FrameUniforms,
         draws: &[DrawCall<'_>],
     ) -> Result<()> {
+        self.render_surface_with_overlay(uniforms, draws, &[])
+    }
+
+    pub fn render_surface_with_overlay(
+        &mut self,
+        uniforms: &FrameUniforms,
+        draws: &[DrawCall<'_>],
+        overlay: &[crate::overlay::OverlayDraw<'_>],
+    ) -> Result<()> {
         use wgpu::CurrentSurfaceTexture as T;
         let surface = self
             .surface
@@ -502,7 +514,7 @@ impl Renderer {
             .map(|(_, v)| v.clone())
             .ok_or_else(|| anyhow!("no depth buffer"))?;
         // `encode` submits what it drew; the frame is presented after it.
-        self.encode(&view, &depth_view, self.format, draws);
+        self.encode(&view, &depth_view, self.format, draws, overlay);
         self.queue.present(frame);
         Ok(())
     }
@@ -512,6 +524,15 @@ impl Renderer {
         &mut self,
         uniforms: &FrameUniforms,
         draws: &[DrawCall<'_>],
+    ) -> Result<(u32, u32, Vec<u8>)> {
+        self.render_to_image_with_overlay(uniforms, draws, &[])
+    }
+
+    pub fn render_to_image_with_overlay(
+        &mut self,
+        uniforms: &FrameUniforms,
+        draws: &[DrawCall<'_>],
+        overlay: &[crate::overlay::OverlayDraw<'_>],
     ) -> Result<(u32, u32, Vec<u8>)> {
         let w = self.width;
         let h = self.height;
@@ -542,6 +563,7 @@ impl Renderer {
             &depth_view,
             wgpu::TextureFormat::Rgba8UnormSrgb,
             draws,
+            overlay,
         );
 
         // Read back with the 256-byte row alignment wgpu requires.
@@ -603,6 +625,7 @@ impl Renderer {
         depth: &wgpu::TextureView,
         format: wgpu::TextureFormat,
         draws: &[DrawCall<'_>],
+        overlay: &[crate::overlay::OverlayDraw<'_>],
     ) {
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
@@ -665,6 +688,13 @@ impl Renderer {
                 pass.draw_indexed(0..d.mesh.index_count as u32, 0, 0..d.instances.len() as u32);
             }
         }
+        self.overlay.encode(
+            &self.device,
+            &mut enc,
+            color,
+            [self.width, self.height],
+            overlay,
+        );
         self.queue.submit([enc.finish()]);
     }
 }

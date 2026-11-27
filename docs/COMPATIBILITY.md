@@ -13,7 +13,7 @@ original assets, executables or decompiled sources should be distributed.
 | ECS | Primitive types and layout; EntityComponentStore entity table (alloc/free, versions, free list), create/destroy in chunks, minimal include/exclude query (default Disabled/Prefab exclusion matches `IsMatchingArchetype` @ 0x90f46c0 by decompiled-body reading; other option gates not ported), `World::build` from plain chunk/archetype input with preserved entity ids/versions (`SpecialTypes::new`; the old all-zero Default aliasing is gone) | Scene Worlds, deterministic schedule and TransformSystem; `--scene-sim` feeds viewer/export | Store tests derived from decompiled bodies; native replay for pure getters, comparisons and change versions; 372 real-scene transform scenarios | Shared/managed/chunk/cleanup archetypes, meta chunks, buffer heap, EntityQueryData parity, original system scheduling |
 | Rendering | Basic lit meshes, sub-meshes and cutout pipeline | Original-scene viewer, optional transform-system output | GPU regressions; native/WebGPU screenshots; stored-vs-simulated Rust image comparison | Animation, HDRP, transparent materials, terrain blending and original-game visual parity |
 | Saves | Container, complete header, jobs and partial ECS restoration | `--inspect-save --restore-projection` without GPU startup | Two CrossOver autosaves, all eight jobs across the two saves, 49 restored tag types with query counts checked, including 262,167 Disabled rows per save | Remaining component types and values, full world and system restoration, original-runtime replay |
-| Gameplay / HUD / physics / sound / networking | Not implemented | None | No end-to-end parity cases | First original-scene playable slice |
+| Gameplay / HUD / physics / sound / networking | Experimental movement and static action-bar frames; other systems not implemented | Native player diagnostic only | Original prefab frame references and GPU alpha test; no end-to-end parity cases | Game-state HUD, interactions, original system scheduling and playable slice |
 | Browser | Shared renderer + async WASM host | Local exported scene import | Chrome / Apple Metal-3: 48 objects, zero JS/WebGPU errors | Direct archive import, physical mobile-device verification, game world |
 | Performance | Rust-only absolute timings (see Performance measurement) | None | No comparable original-runtime benchmark | Same-scene release measurements on both runtimes |
 
@@ -869,6 +869,15 @@ uses its serialized Head-bone mapping and offsets to draw the head and eyebrows 
 Walk samples move the head bone as well. Choice and transform composition are assumptions;
 neither has been compared with original runtime behavior. Details and evidence limits are in
 [player visual links](../evidence/player_visual_link.md).
+
+The optional native `--diagnostic-hud` path reads eight ActionBar frame Images and their shared
+`ItemFrame_Normal` sprite from the pinned client, and draws them in an alpha-blended overlay.
+The prefab records 48×48 slots, frame size delta 6×6, horizontal spacing 8 and anchored
+position (-103, 80); the current center-bottom parent and 1080-height scaling are assumptions.
+An original-data test checks the references and dimensions; a synthetic GPU test checks
+position and transparency. Windowed and offscreen Windows output were inspected. There is no
+inventory, input handling, health, minimap, dynamic game state or original Canvas implementation,
+and this overlay is not wired into the browser viewer. See [HUD evidence](../evidence/hud_action_bar.md).
 
 For repeatable diagnostics, `--scene ... --spawn-player --offscreen out.png --animation-frame N`
 renders one of the same 24 precomputed walk samples used by the live experimental loop (N=0..23).
