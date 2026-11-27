@@ -118,7 +118,7 @@ The generated local layout report is kept in the ignored `target` directory.
 On the pinned Windows installation, an offscreen diagnostic frame and a synthetic
 W press/release test succeeded. A short W press in the real window was delivered and
 moved the diagnostic player; its timing and movement have not been compared to the game.
-[Windows diagnostic frame](docs/screenshots/windows-player-diagnostic.png).
+[Windows diagnostic frame with serialized player base maps](docs/screenshots/windows-player-textured.png).
 
 The script verifies the client build, derives a temporary layout report if needed, and starts
 the scene with experimental WASD motion, a following camera and walk samples. Set
@@ -127,6 +127,7 @@ the scene with experimental WASD motion, a following camera and walk samples. Se
 position chosen for visibility; `RRISING_PLAYER_POSITION=x,y,z` overrides it. Neither is a
 recovered spawn or collision-checked position.
 The player has no head, complete materials, collision, gameplay animation or original scheduler.
+The candidate prefab's cloak uses a debug grid material, which is not verified as its in-game appearance.
 The diagnostic switches between a serialized rest pose and walk samples based on horizontal
 displacement; it does not evaluate the original Animator. Short presses are retained until a
 simulation update, whose catch-up steps can overstate their duration. This is a technical

@@ -50,3 +50,12 @@ file `ae526d3c19a62d5cad7d4b511d1752c3`. Its `LOD00_GRP` contains `Head_GEO` and
 `Eyebrows01_GEO` renderers, readable by `Scene::renderers`; these meshes are not skinned.
 Their attachment to the gameplay skeleton, offset, customization selection and animation
 have not been established. This is an asset inventory, not a reconstructed head binding.
+
+`player_material_inventory` additionally reads the materials actually referenced by the two
+candidate gameplay renderers. `Body_GEO` has 2,640 vertices and one submesh, using
+`Vampire_Male_Body01`; `Cape_GEO` has 291 vertices and one submesh, using
+`CloakUnforgiving_ClothDebugMaterial_MAT`. Both `_BaseColorMap` entries use unit UV scale
+and zero offset. The face prefab's static `Head_GEO` references the same body material.
+The runtime now binds the two gameplay-prefab base maps; the cloak's explicitly named debug
+material does not establish the appearance of an equipped cloak in the original game. The
+head attachment, runtime material replacement and shader behavior remain unknown.

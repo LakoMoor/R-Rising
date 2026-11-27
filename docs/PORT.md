@@ -678,3 +678,10 @@ Windows validation: `cargo fmt --all -- --check`, `cargo clippy --locked --all-t
 and `cargo test --locked` passed; the workspace run includes ignored tests. The separately
 enabled pinned-data keyboard test passed, as did `original_walk_samples_update_the_gpu_render`
 (3,344 pixels differed between two walk samples). Neither is an original runtime comparison.
+
+Player material continuation: the candidate body and cape have one submesh and one material
+each. Their serialized `_BaseColorMap` pointers now feed the normal scene texture path, with
+identity UV scale/offset checked. On the pinned client both references decoded in the player
+integration test; an offscreen Windows frame bound 315 textured groups (previously 313), with
+no texture upload fallback. The cloak uses a debug-grid material, not a verified gameplay
+selection; its runtime replacement, head attachment and original shaders remain unresolved.

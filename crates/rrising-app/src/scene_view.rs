@@ -1372,14 +1372,41 @@ pub fn attach_player_visual(
             .map(|id| Ok(scene.world_of(id.context("missing bone")?)?))
             .collect::<Result<Vec<_>>>()?;
         let mesh = content.read_mesh(&source.mesh)?;
+        ensure!(
+            mesh.submeshes.len() == 1 && source.materials.len() == 1,
+            "candidate player renderer needs one submesh and one material"
+        );
+        let material_ref = source.materials[0]
+            .as_ref()
+            .context("player material is null")?;
+        let material = content.read_material(material_ref)?;
+        let base_map = material
+            .textures
+            .iter()
+            .find(|(name, _)| name == "_BaseColorMap")
+            .map(|(_, env)| env)
+            .context("player material has no base color slot")?;
+        ensure!(
+            base_map.scale == [1.0, 1.0] && base_map.offset == [0.0, 0.0],
+            "player base map needs unsupported UV scale or offset"
+        );
+        let texture = base_map
+            .texture
+            .clone()
+            .context("player base color texture is null")?;
+        let (surface, _) = classify_material(&material);
+        ensure!(
+            surface != Surface::Transparent,
+            "transparent player material is unsupported"
+        );
         let (vertices, indices) = skin_static_pose(&mesh, &joints)?;
         data.groups.push(ReadyGroup {
             name: format!("experimental player {}", mesh.name),
             mesh_id: first_mesh + count,
             verts: Arc::new(vertices),
             inds: Arc::new(indices),
-            texture: None,
-            cutout: false,
+            texture: Some(texture),
+            cutout: surface == Surface::Cutout,
             instances: vec![instance],
             entities: vec![entity],
         });
@@ -1833,6 +1860,30 @@ mod managed_array_tests {
             attach_player_visual(&content, &mut visual, entity, sim.instance(entity).unwrap())
                 .unwrap();
         assert_eq!(count, 2);
+        for (mesh_name, file, path_id) in [
+            (
+                "Cape_GEO",
+                "689701947055f1bb1707d6afd7be11a5",
+                7499724293040937883,
+            ),
+            (
+                "Body_GEO",
+                "ae526d3c19a62d5cad7d4b511d1752c3",
+                6936050851984838789,
+            ),
+        ] {
+            let group = visual
+                .groups
+                .iter()
+                .find(|g| g.name.ends_with(mesh_name))
+                .unwrap();
+            let texture = group.texture.as_ref().expect("original material base map");
+            assert_eq!((&*texture.file, texture.path_id), (file, path_id));
+            assert!(
+                content.read_texture(texture).is_ok(),
+                "base texture must decode"
+            );
+        }
         let (duration, samples) = player_walk_samples(&content, 4).unwrap();
         assert!(duration > 0.0);
         assert_eq!(samples.len(), count);

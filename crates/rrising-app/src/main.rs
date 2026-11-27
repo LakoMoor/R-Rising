@@ -1119,7 +1119,7 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                     println!("Experimental looping walk samples; not the game's Animator.");
                 }
             }
-            println!("Experimental player visual: {parts} parts; no textures, head or verified hybrid-model selection.");
+            println!("Experimental player visual: {parts} parts with serialized base maps; no head or verified hybrid-model selection.");
             Some(entity)
         } else {
             opt.control_entity

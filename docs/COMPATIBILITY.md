@@ -848,14 +848,20 @@ prerequisite, not locomotion or the player's visual binding.
 The experimental `--spawn-player` path now attaches the male gameplay-prefab body and cape
 in their serialized pose to the cloned player's LocalToWorld, and frames a diagnostic camera
 near it. A pinned-data test confirms both parts follow an explicitly changed position. The
-model is chosen explicitly rather than by the original runtime selection; it has no head,
-textures or animation. `--scene ... --spawn-player --offscreen out.png` renders the same
+model is chosen explicitly rather than by the original runtime selection; it has no head or
+original animation state. Its two serialized materials supply base textures, including a cloak
+debug-grid material that is not established as the runtime appearance. Other shader maps,
+customization and material behavior are not implemented. `--scene ... --spawn-player --offscreen out.png` renders the same
 diagnostic camera and player without opening a window. The resulting [scene screenshot](screenshots/experimental-player-in-scene.png)
 shows the body partially obscured by world geometry: the prefab's default position is not a
 verified spawn location, and the incomplete scene is missing substantial world geometry.
-An ECS adapter can apply the isolated ordinary movement arithmetic to this prefab when the
-caller provides the branch conditions and movement input; it is not connected to keyboard input
-or the scene loop, and does not implement collision or the original command scheduler.
+The experimental movement path described below applies isolated ordinary movement arithmetic
+to this prefab; collision and the original command scheduler remain unimplemented.
+
+The pinned-data test verifies and decodes both serialized base-map references. The Windows
+[textured diagnostic frame](screenshots/windows-player-textured.png) bound 315 draw-group
+textures versus 313 in the earlier grey-player frame, with no upload fallback. The renderer's
+lighting and shaders are simplified; this is not a comparison to the original.
 
 For repeatable diagnostics, `--scene ... --spawn-player --offscreen out.png --animation-frame N`
 renders one of the same 24 precomputed walk samples used by the live experimental loop (N=0..23).
