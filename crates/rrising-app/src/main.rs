@@ -588,6 +588,7 @@ struct App {
     /// Fly camera when `--scene` is active: WASD move, Q/E down/up, arrows look, Shift fast.
     fly: Option<scene_view::FlyCam>,
     keys: std::collections::HashSet<winit::keyboard::KeyCode>,
+    pending_player_keys: std::collections::HashSet<winit::keyboard::KeyCode>,
     last_tick: Option<std::time::Instant>,
     live: Option<(scene_view::SimWorld, scene_view::SceneData)>,
     live_tick: Option<std::time::Instant>,
@@ -601,9 +602,37 @@ struct App {
 struct PlayerAnimation {
     duration: f32,
     frames: Vec<Vec<Vec<rrising_render::mesh::Vertex>>>,
+    rest: Vec<Arc<Vec<rrising_render::mesh::Vertex>>>,
     first_group: usize,
     started: std::time::Instant,
-    last_frame: Option<usize>,
+    motion: Option<MotionAnimation>,
+    // Outer None means no pose has yet been uploaded; inner None is the rest pose.
+    last_frame: Option<Option<usize>>,
+}
+
+/// Diagnostic visual policy, not the original Animator's state machine.
+struct MotionAnimation {
+    previous: [f32; 3],
+    phase_seconds: f32,
+    moving: bool,
+}
+
+impl MotionAnimation {
+    fn advance(&mut self, position: [f32; 3], elapsed: f32, duration: f32) {
+        self.moving = position[0] != self.previous[0] || position[2] != self.previous[2];
+        if self.moving {
+            log::debug!(target: "rrising::input", "player moved {:?} -> {position:?}", self.previous);
+        }
+        self.previous = position;
+        if self.moving {
+            self.phase_seconds = (self.phase_seconds + elapsed).rem_euclid(duration);
+        }
+    }
+
+    fn frame(&self, duration: f32, count: usize) -> Option<usize> {
+        self.moving
+            .then(|| ((self.phase_seconds / duration * count as f32) as usize).min(count - 1))
+    }
 }
 
 impl App {
@@ -623,11 +652,12 @@ impl App {
                 // The viewer has a free camera, not the game's camera state. Use its yaw as
                 // an explicit experimental camera projection and the captured mode 0.
                 let yaw = self.fly.as_ref().map_or(0.0, |camera| camera.yaw);
+                let step_keys = input_control::step_keys(&self.keys, &self.pending_player_keys);
                 if let Err(error) = input_control::write_input(
                     &mut sim.world,
                     entity,
                     ty,
-                    &self.keys,
+                    &step_keys,
                     yaw,
                     &mut self.input_direction,
                 ) {
@@ -643,8 +673,23 @@ impl App {
             });
             match sim.advance(elapsed, 4) {
                 Ok(steps) if steps > 0 => {
+                    self.pending_player_keys.clear();
                     sim.apply(scene);
                     loaded.sync(scene);
+                    if let (Some((entity, _)), Some(animation)) =
+                        (self.control, &mut self.player_animation)
+                    {
+                        if let (Some(motion), Some(instance)) =
+                            (&mut animation.motion, sim.instance(entity))
+                        {
+                            let p = instance.model[3];
+                            motion.advance(
+                                [p[0], p[1], p[2]],
+                                steps as f32 * scene_view::STEP_NS as f32 * 1e-9,
+                                animation.duration,
+                            );
+                        }
+                    }
                     if self.follow_player {
                         if let (Some((entity, _)), Some(camera)) = (self.control, &mut self.fly) {
                             if let Some(instance) = sim.instance(entity) {
@@ -669,20 +714,26 @@ impl App {
             (&mut self.player_animation, &mut self.loaded, &self.renderer)
         {
             let count = animation.frames[0].len();
-            let phase = animation
-                .started
-                .elapsed()
-                .as_secs_f32()
-                .rem_euclid(animation.duration)
-                / animation.duration;
-            let frame = ((phase * count as f32) as usize).min(count - 1);
+            let frame = if let Some(motion) = &animation.motion {
+                motion.frame(animation.duration, count)
+            } else {
+                let phase = animation
+                    .started
+                    .elapsed()
+                    .as_secs_f32()
+                    .rem_euclid(animation.duration)
+                    / animation.duration;
+                Some(((phase * count as f32) as usize).min(count - 1))
+            };
             if animation.last_frame != Some(frame) {
                 for (part, frames) in animation.frames.iter().enumerate() {
                     let mesh = loaded.items[animation.first_group + part].mesh;
+                    let vertices =
+                        frame.map_or(animation.rest[part].as_slice(), |index| &frames[index]);
                     if let Err(error) = rrising_render::mesh::update_vertices(
                         renderer.queue(),
                         &loaded.meshes[mesh],
-                        &frames[frame],
+                        vertices,
                     ) {
                         log::error!("experimental animation: {error:#}");
                     }
@@ -798,11 +849,22 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => el.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
-                    input_control::record_key(&mut self.keys, code, event.state);
+                    log::debug!(target: "rrising::input", "key {code:?} {:?}", event.state);
+                    if self.control.is_some() {
+                        input_control::record_player_key(
+                            &mut self.keys,
+                            &mut self.pending_player_keys,
+                            code,
+                            event.state,
+                        );
+                    } else {
+                        input_control::record_key(&mut self.keys, code, event.state);
+                    }
                 }
             }
             WindowEvent::Focused(false) => {
                 self.keys.clear();
+                self.pending_player_keys.clear();
                 self.last_tick = None;
                 self.live_tick = None;
             }
@@ -1034,11 +1096,28 @@ fn run_windowed(renderer: &Renderer) -> Result<WindowedScene> {
                 animation = Some(PlayerAnimation {
                     duration,
                     frames,
+                    rest: data.groups[first_group..first_group + parts]
+                        .iter()
+                        .map(|group| Arc::clone(&group.verts))
+                        .collect(),
                     first_group,
                     started: std::time::Instant::now(),
+                    motion: opt.experimental_motion.then_some(MotionAnimation {
+                        previous: [
+                            instance.model[3][0],
+                            instance.model[3][1],
+                            instance.model[3][2],
+                        ],
+                        phase_seconds: 0.0,
+                        moving: false,
+                    }),
                     last_frame: None,
                 });
-                println!("Experimental looping walk clip; no gameplay state machine or movement synchronization.");
+                if opt.experimental_motion {
+                    println!("Experimental movement-driven rest/walk selection; not the game's Animator.");
+                } else {
+                    println!("Experimental looping walk samples; not the game's Animator.");
+                }
             }
             println!("Experimental player visual: {parts} parts; no textures, head or verified hybrid-model selection.");
             Some(entity)
@@ -2057,6 +2136,26 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{diff_images, follow_camera};
+
+    #[test]
+    fn diagnostic_animation_tracks_horizontal_displacement_and_stops() {
+        let mut motion = super::MotionAnimation {
+            previous: [1.0, 2.0, 3.0],
+            phase_seconds: 0.0,
+            moving: false,
+        };
+        assert_eq!(motion.frame(1.0, 4), None);
+        motion.advance([1.0, 3.0, 3.0], 0.25, 1.0);
+        assert_eq!(motion.frame(1.0, 4), None);
+        motion.advance([2.0, 3.0, 3.0], 0.25, 1.0);
+        assert_eq!(motion.frame(1.0, 4), Some(1));
+        motion.advance([2.0, 3.0, 3.0], 0.5, 1.0);
+        assert_eq!(motion.frame(1.0, 4), None);
+        motion.advance([2.0, 3.0, 4.0], 0.25, 1.0);
+        assert_eq!(motion.frame(1.0, 4), Some(2));
+        motion.advance([3.0, 3.0, 4.0], 0.5, 1.0);
+        assert_eq!(motion.frame(1.0, 4), Some(0));
+    }
 
     #[test]
     fn diagnostic_position_requires_three_finite_values() {

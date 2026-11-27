@@ -868,21 +868,25 @@ model's avatar, controller and walking/running clips and matches tracks to bone 
 Animator evaluation and runtime selection are still unimplemented.
 
 For diagnostics, `--scene-live --spawn-player --animate-player` samples 24 poses of the first
-base-controller walk clip at startup and loops them by replacing the player meshes' GPU vertex
-buffers. It does not follow player input, evaluate the Animator, apply overrides or transitions,
-or establish Unity parity; it runs even while the player stands still. A pinned-data test checked
-both model parts' topology and changed vertices between sampled poses. A bounded native run
-reached the render loop without logged GPU errors, but the window was not visually inspected.
+base-controller walk clip at startup and replaces player GPU vertex buffers. With
+`--experimental-motion`, horizontal simulated displacement selects walk samples; stationary
+updates select the serialized rest pose, not an idle animation. Without that option the walk
+clip loops continuously. Neither path evaluates the original Animator, its overrides or transitions,
+or establishes Unity parity. A pinned-data test checked both model parts' topology and changed
+vertices between sampled poses; a separate test checks the diagnostic rest/walk clock.
 
 `--follow-player` optionally translates the diagnostic camera with the player's displacement,
 preserving its offset. This is not the original game's camera. A bounded native run with
-`--experimental-motion` reached the render loop without a logged error, but keyboard interaction
-and the window image were not inspected during that run.
+`--experimental-motion` was visually inspected in a Windows window; the follow camera remains
+an approximation and is not compared to the original.
 
 `--player-position x,y,z` optionally places the partial player at explicit diagnostic coordinates;
 these are not an original spawn point and are not checked for collisions. A pinned-data integration
 test sends synthetic W press/release events through the same input handlers used by the window and
-checks movement and stopping over fixed steps. It does not test OS event delivery or game parity.
+checks movement and stopping over fixed steps, including a press and release before the next step.
+On Windows, a short injected W press produced OS press/release events and moved the player from
+Z=22.5 to Z=22.633335. Pending presses are coalesced until a simulation update and can span up to
+four catch-up steps, so their original timing and travel distance are not established.
 
 `--scene-live --spawn-player --experimental-motion` opts into an approximate fixed-step
 movement prototype. It deliberately executes the recovered ability-setup body, command-field
@@ -890,7 +894,7 @@ selection and ordinary movement arithmetic in a host-defined order for the selec
 WASD feeds its EntityInput using the viewer's camera yaw. A pinned-data integration test checks
 three steps of movement, two stopped steps and LocalToWorld propagation. This mode assumes
 movement is permitted and reruns ability setup on every step; it does not implement the original
-system's other writes, collision, network, ability state, camera follow or game scheduler. The
+system's other writes, collision, network, ability state, original camera or game scheduler. The
 prefab's starting position is unverified and may be obstructed. It is a movement prototype,
 not evidence of gameplay parity or a playable game.
 

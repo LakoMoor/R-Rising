@@ -663,5 +663,18 @@ An offscreen frame with the partial player and sample 6 of the walk clip rendere
 at 1280x720: 9,474 scene mesh instances, 316 draw groups and 313 bound textures;
 see [Windows diagnostic frame](screenshots/windows-player-diagnostic.png). This is
 not a gameplay comparison. A pinned-data synthetic W press/release test passed
-(1/1); it does not test operating-system key events. Original gameplay scenarios
+(1/1); it did not test operating-system key events. Original gameplay scenarios
 remain 0, and no original-side performance comparison was performed.
+
+Follow-up: in the actual Windows window a short W press previously arrived and was released
+before a redraw, producing no movement. The diagnostic now retains a movement press until a
+simulation update; the same injected press produced both OS events and moved Z from 22.5 to
+22.633335. A pinned-data test covers a press/release before the simulation step. The latch
+coalesces events and may apply them to up to four catch-up steps, so it is not an original input
+timing claim. With experimental movement, diagnostic animation now chooses the serialized rest
+pose when stationary and advances walk samples with horizontal displacement. This policy is not
+the original Animator or idle animation. Gameplay parity and comparative performance remain unmeasured.
+Windows validation: `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D warnings`
+and `cargo test --locked` passed; the workspace run includes ignored tests. The separately
+enabled pinned-data keyboard test passed, as did `original_walk_samples_update_the_gpu_render`
+(3,344 pixels differed between two walk samples). Neither is an original runtime comparison.

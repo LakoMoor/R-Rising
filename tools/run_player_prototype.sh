@@ -75,7 +75,7 @@ if [[ -n $position ]]; then args+=(--player-position "$position"); fi
 cat <<'EOF'
 Experimental diagnostic: movement and camera are approximations; no collision, head,
 complete materials, gameplay animation state or original spawn. WASD moves the player,
-arrow keys turn the camera, Q/E move it vertically. The walk clip loops independently.
+arrow keys turn the camera, Q/E move it vertically. Rest/walk selection is approximate.
 EOF
 if [[ -n $position ]]; then printf 'Diagnostic position: %s (no collision check).\n' "$position"; fi
 cargo run --locked -p rrising-app -- "${args[@]}"

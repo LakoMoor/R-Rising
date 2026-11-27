@@ -116,18 +116,21 @@ The PowerShell launcher defaults to the adjacent `VRising_Data` directory. Use
 `-Data`, `-Python`, `-Layout`, `-Scene` or `-Position` to override its inputs.
 The generated local layout report is kept in the ignored `target` directory.
 On the pinned Windows installation, an offscreen diagnostic frame and a synthetic
-W press/release test succeeded; actual keyboard delivery to the window is unverified.
+W press/release test succeeded. A short W press in the real window was delivered and
+moved the diagnostic player; its timing and movement have not been compared to the game.
 [Windows diagnostic frame](docs/screenshots/windows-player-diagnostic.png).
 
 The script verifies the client build, derives a temporary layout report if needed, and starts
-the scene with experimental WASD motion, a following camera and a looping walk clip. Set
+the scene with experimental WASD motion, a following camera and walk samples. Set
 `VRISING_DATA` and optionally `RRISING_LAYOUT_REPORT` if the files are elsewhere; see
 `tools/run_player_prototype.sh --help`. For the default scene the script uses a diagnostic
 position chosen for visibility; `RRISING_PLAYER_POSITION=x,y,z` overrides it. Neither is a
 recovered spawn or collision-checked position.
 The player has no head, complete materials, collision, gameplay animation or original scheduler.
-Input was tested with synthetic events; OS keyboard delivery and visual interaction in the
-window remain unverified. This is a technical diagnostic, not a playable V Rising port.
+The diagnostic switches between a serialized rest pose and walk samples based on horizontal
+displacement; it does not evaluate the original Animator. Short presses are retained until a
+simulation update, whose catch-up steps can overstate their duration. This is a technical
+diagnostic, not a playable V Rising port.
 
 Inspect a local dedicated-server autosave without starting the renderer:
 

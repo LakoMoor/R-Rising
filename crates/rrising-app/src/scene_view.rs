@@ -1044,7 +1044,7 @@ pub struct SimWorld {
 
 const SCALE_HASH: u64 = 0xadc0_56c7_729e_d01e;
 const POST_HASH: u64 = 0x0233_3773_b807_e90d;
-const STEP_NS: u64 = 16_666_667;
+pub const STEP_NS: u64 = 16_666_667;
 
 /// Instantiate a partial clone of the pinned client player prefab in a scene world.
 /// Rendering, animation, locomotion and external prefab references are not supplied.
@@ -1719,7 +1719,7 @@ mod managed_array_tests {
     #[ignore = "requires pinned client data and RRISING_LAYOUT_REPORT"]
     fn diagnostic_key_press_and_release_drive_player() {
         use super::{simulate, spawn_player, STEP_NS};
-        use crate::input_control::{record_key, write_input};
+        use crate::input_control::{record_key, record_player_key, step_keys, write_input};
         use std::{collections::HashSet, path::PathBuf};
         use winit::{event::ElementState, keyboard::KeyCode};
         let data = PathBuf::from(std::env::var_os("VRISING_DATA").expect("VRISING_DATA"));
@@ -1760,6 +1760,45 @@ mod managed_array_tests {
         write_input(&mut sim.world, player, input, &keys, 0., &mut last).unwrap();
         sim.advance(STEP_NS * 2, 4).unwrap();
         assert_eq!(read_z(&sim.world), moved);
+
+        // Both OS events can arrive before a redraw: retain one simulation step.
+        let mut pending = HashSet::new();
+        record_player_key(
+            &mut keys,
+            &mut pending,
+            KeyCode::KeyW,
+            ElementState::Pressed,
+        );
+        record_player_key(
+            &mut keys,
+            &mut pending,
+            KeyCode::KeyW,
+            ElementState::Released,
+        );
+        write_input(
+            &mut sim.world,
+            player,
+            input,
+            &step_keys(&keys, &pending),
+            0.,
+            &mut last,
+        )
+        .unwrap();
+        sim.advance(STEP_NS, 1).unwrap();
+        let tapped = read_z(&sim.world);
+        assert!(tapped > moved);
+        pending.clear();
+        write_input(
+            &mut sim.world,
+            player,
+            input,
+            &step_keys(&keys, &pending),
+            0.,
+            &mut last,
+        )
+        .unwrap();
+        sim.advance(STEP_NS, 1).unwrap();
+        assert_eq!(read_z(&sim.world), tapped);
     }
 
     #[test]

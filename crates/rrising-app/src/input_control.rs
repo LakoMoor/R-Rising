@@ -12,6 +12,31 @@ pub fn record_key(keys: &mut HashSet<KeyCode>, code: KeyCode, state: ElementStat
     }
 }
 
+/// Preserve a new movement press until a simulation step consumes it, even if
+/// the OS releases the key before the next redraw. This is a diagnostic input
+/// policy, not a reconstruction of the original game's event timing.
+pub fn record_player_key(
+    keys: &mut HashSet<KeyCode>,
+    pending: &mut HashSet<KeyCode>,
+    code: KeyCode,
+    state: ElementState,
+) {
+    if state.is_pressed()
+        && !keys.contains(&code)
+        && matches!(
+            code,
+            KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD
+        )
+    {
+        pending.insert(code);
+    }
+    record_key(keys, code, state);
+}
+
+pub fn step_keys(keys: &HashSet<KeyCode>, pending: &HashSet<KeyCode>) -> HashSet<KeyCode> {
+    keys.union(pending).copied().collect()
+}
+
 pub fn write_input(
     world: &mut World,
     entity: Entity,
