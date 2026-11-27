@@ -30,3 +30,41 @@ fn clocks_match_complete_original_leaves() {
     }
     assert_eq!(count, 240);
 }
+
+#[test]
+fn auto_path_matches_original_replay() {
+    use rrising_core::auto_chain::{duration_until_main, AutoPathStep};
+    let data: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../evidence/oracles/auto_chain_path.json"
+    ))
+    .unwrap();
+    let cases = data["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 404);
+    for (index, case) in cases.iter().enumerate() {
+        let steps: Vec<_> = case["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| AutoPathStep {
+                enabled: e["enabled"].as_bool().unwrap(),
+                duration: e["duration"].as_f64().unwrap() as f32,
+                target: e["target"].as_i64().unwrap() as i32,
+            })
+            .collect();
+        let result = duration_until_main(
+            &steps,
+            case["main"].as_i64().unwrap() as i32,
+            case["start"].as_i64().unwrap() as i32,
+        );
+        assert_eq!(
+            result.is_some(),
+            case["success"].as_bool().unwrap(),
+            "success {index}"
+        );
+        assert_eq!(
+            result.unwrap_or(0.).to_bits(),
+            u64::from_str_radix(case["duration_bits"].as_str().unwrap(), 16).unwrap(),
+            "duration {index}"
+        );
+    }
+}

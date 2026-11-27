@@ -72,10 +72,19 @@ fn installed_chain_graphs_and_weighted_choices_resolve() {
         (2990, 1495, 4297, 15727, 220, 0, 0)
     );
     let mut automatic = 0;
+    let mut reachable = 0;
+    let mut unreachable = 0;
     for chain in chains.values() {
         assert!(chain.main_element().is_some());
         for (index, element) in chain.elements.iter().enumerate() {
             assert_eq!(element.index, index as i32);
+            if rrising_core::auto_chain::definition_duration_until_main(chain, index as i32)
+                .is_some()
+            {
+                reachable += 1;
+            } else {
+                unreachable += 1;
+            }
             if element.use_auto_transition {
                 automatic += 1;
                 let config = &element.auto_transition;
@@ -92,5 +101,7 @@ fn installed_chain_graphs_and_weighted_choices_resolve() {
             }
         }
     }
-    println!("automatic_elements={automatic}");
+    println!(
+        "automatic_elements={automatic} auto_paths_reachable={reachable} failed={unreachable}"
+    );
 }

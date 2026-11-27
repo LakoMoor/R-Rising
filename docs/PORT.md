@@ -789,3 +789,9 @@ Rust double bits in 240 cases. Chain definitions now expose automatic transition
 event configuration; all 2,996 enabled elements in the pinned data have valid transition
 indices and finite timing fields. Scheduling, event selection and live child replacement
 remain absent. See `evidence/auto_chain_clock.md`.
+
+Auto-chain path continuation: a bounded path-duration helper matches 404 isolated original
+paths, including the 20-iteration cutoff. The adapter over installed definitions reports
+4,251 reachable starting elements and 46 failures; those install-wide counts are Rust-only
+and are not a separate original-data oracle. No live spawning or transitions are executed.
+See `evidence/auto_chain_path.md`.
