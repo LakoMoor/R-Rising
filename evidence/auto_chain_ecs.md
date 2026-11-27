@@ -25,3 +25,7 @@ Follow-up: the numeric adjustment is now identified and checked as a remainder o
 Finite time with finite nonzero target duration is supported; the unsupported outcome now
 covers domains such as zero duration. A wrapped-time ECS event is tested. See
 auto_chain_remainder.md for the original-helper evidence and platform limits.
+
+Further validation: auto_chain_job.md records 800 isolated original-job comparisons. Shared
+worker-counter support now gates event production; full original worker/query scheduling and
+command-buffer playback remain outside the bridge.

@@ -27,6 +27,17 @@ pub fn apply_entity(
     types: &AutoEventTypes,
     now: f64,
 ) -> Result<AutoEventOutcome> {
+    apply_entity_with_count(world, entity, chain, types, now, &mut 0)
+}
+/// Process one entity with the original per-job event counter supplied by the caller.
+pub fn apply_entity_with_count(
+    world: &mut World,
+    entity: Entity,
+    chain: &ChainDefinition,
+    types: &AutoEventTypes,
+    now: f64,
+    events_written: &mut u32,
+) -> Result<AutoEventOutcome> {
     ensure!(now.is_finite(), "nonfinite clock outside bridge scope");
     let clock = world.store.component_bytes(entity, types.clock)?;
     ensure!(clock.len() == 8, "clock size");
@@ -54,6 +65,9 @@ pub fn apply_entity(
     if next == 0. {
         set_clock(world, now + f64::from(element.auto_transition.duration))?;
         return Ok(AutoEventOutcome::Initialized);
+    }
+    if *events_written >= 10 {
+        return Ok(AutoEventOutcome::Skipped);
     }
     if now <= next {
         return Ok(AutoEventOutcome::Skipped);
@@ -123,6 +137,7 @@ pub fn apply_entity(
         world
             .store
             .set_component_bytes(queued, types.event, &event)?;
+        *events_written += 1;
         AutoEventOutcome::Queued(queued)
     } else {
         AutoEventOutcome::Retry

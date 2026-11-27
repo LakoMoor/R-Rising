@@ -812,3 +812,10 @@ Forwarded time continuation: original numeric-helper replay confirms remainder s
 adjustment, including a tested 205-to-5-second wrap. Zero-duration/domain failures remain
 explicit. No full job scheduling or event-consumer parity is claimed. WASM checks pass.
 See `evidence/auto_chain_remainder.md`.
+
+Automatic job differential continuation: an instrumented isolated original update job and
+its native progression/remainder helpers match the ECS bridge in 800 generated scenarios.
+Comparison covers clock bits, event payload (mapped chain input handle), presence and worker
+counter. Explicit counter support now enforces the original ten-event gate. Metadata, blob
+accessors and ECB allocation/sink are supplied; no live world is emulated. Event consumers
+and child replacement remain pending. See `evidence/auto_chain_job.md`.
