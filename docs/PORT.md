@@ -760,3 +760,9 @@ definitions by PrefabGUID; all 9,268 TileData references agree without conflicti
 The diagnostic visual scene has no serialized TilePosition rows, so runtime tile creation
 and placement must be recovered separately before constructing its collision map. The full
 installation catalog test passes. See `evidence/tile_binding.md`.
+
+Subscene spawn continuation: the server reader now exposes direct and spawn-chain requests
+with their static placement keys. All 227,511 pinned rows have nonnegative transform indices;
+1,514 of 1,528 direct GUIDs match client tile definitions. The 225,983 chain requests still
+require original selection behavior before collision assembly. Client MegaStatic prefab
+buffers are empty in the baked scenes. See `evidence/subscene_tile_spawns.md`.
