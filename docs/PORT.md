@@ -819,3 +819,10 @@ Comparison covers clock bits, event payload (mapped chain input handle), presenc
 counter. Explicit counter support now enforces the original ten-event gate. Metadata, blob
 accessors and ECB allocation/sink are supplied; no live world is emulated. Event consumers
 and child replacement remain pending. See `evidence/auto_chain_job.md`.
+
+Transition queue continuation (2026-11-28): produced ECS auto events enter the chain request
+buffer, replacing the first equal key or appending. Original isolated equality matches 123
+cases; queue mutation and source-to-buffer integration have synthetic ECS tests, including
+disabled chains and stale references. Full native enqueue-job replay remains absent. Source
+event lifecycle, scheduling, priority selection and active-child replacement remain pending.
+See `evidence/transition_queue.md`.

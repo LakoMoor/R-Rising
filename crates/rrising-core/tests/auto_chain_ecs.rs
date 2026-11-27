@@ -23,6 +23,7 @@ fn terminal_event_is_queued_with_original_field_layout() {
     let event = types
         .register(TypeSpec::component_data("SpawnChainTransitionEvent", 96, 8))
         .unwrap();
+    let queued_type = types.register(TypeSpec::buffer("queued", 96, 0)).unwrap();
     let t = AutoEventTypes {
         clock,
         active,
@@ -38,7 +39,7 @@ fn terminal_event_is_queued_with_original_field_layout() {
     .unwrap();
     let arch = world
         .store
-        .get_or_create_archetype(&world.types, &[clock, active, instance])
+        .get_or_create_archetype(&world.types, &[clock, active, instance, queued_type])
         .unwrap();
     let entity = world.store.create_entity(arch).unwrap();
     world
@@ -49,12 +50,15 @@ fn terminal_event_is_queued_with_original_field_layout() {
     a[4..8].copy_from_slice(&99i32.to_le_bytes());
     a[8..].copy_from_slice(&3i32.to_le_bytes());
     world.store.set_component_bytes(entity, active, &a).unwrap();
+    let mut id = [0u8; 32];
+    id[..2].copy_from_slice(&4u16.to_le_bytes());
+    id[2..6].copy_from_slice(b"grow");
     let element = ChainElement {
         index: 0,
         prefab_guid: 1,
         use_auto_transition: true,
         auto_transition: AutoTransitionConfig {
-            transition_id: [7; 32],
+            transition_id: id,
             transition_index: 0,
             attempt_cooldown: 2.,
             duration: 100.,
@@ -75,13 +79,35 @@ fn terminal_event_is_queued_with_original_field_layout() {
         other => panic!("{other:?}"),
     };
     let bytes = world.store.component_bytes(queued, event).unwrap();
-    assert_eq!(&bytes[..32], &[7; 32]);
+    assert_eq!(&bytes[..32], &id);
     assert_eq!(&bytes[32..64], &[0; 32]);
     assert_eq!(&bytes[64..68], &entity.index.to_le_bytes());
     assert_eq!(&bytes[68..72], &entity.version.to_le_bytes());
     assert_eq!(&bytes[72..80], &a[4..12]);
     assert_eq!(&bytes[80..88], &[0; 8]);
     assert_eq!(&bytes[88..], &1f64.to_le_bytes());
+    let queue_types = rrising_core::transition_queue::TransitionQueueTypes {
+        event,
+        active,
+        queued: queued_type,
+        disabled: None,
+    };
+    let result = rrising_core::transition_queue::enqueue(&mut world, queued, &queue_types).unwrap();
+    assert_eq!(
+        result,
+        rrising_core::transition_queue::EnqueueResult::Accepted {
+            chain: entity,
+            replaced: false,
+            ready: true
+        }
+    );
+    assert_eq!(
+        world
+            .store
+            .buffer_payload(&world.types, entity, queued_type)
+            .unwrap(),
+        world.store.component_bytes(queued, event).unwrap()
+    );
     assert_eq!(
         world.store.component_bytes(entity, clock).unwrap(),
         13f64.to_le_bytes()

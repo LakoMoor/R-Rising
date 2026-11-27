@@ -31,3 +31,5 @@ pub mod weighted_spawn;
 pub mod auto_chain;
 #[cfg(feature = "content")]
 pub mod auto_chain_ecs;
+
+pub mod transition_queue;
