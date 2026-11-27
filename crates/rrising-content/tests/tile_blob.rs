@@ -6,8 +6,14 @@ fn dense_arrays_are_relative_and_bounded() {
     blob[0x174..0x178].copy_from_slice(&2i32.to_le_bytes());
     blob[0x178..0x17c].copy_from_slice(&26i32.to_le_bytes());
     blob[0x17c..0x180].copy_from_slice(&2i32.to_le_bytes());
+    blob[0x188..0x18c].copy_from_slice(&2i32.to_le_bytes());
+    blob[0x18c..0x190].copy_from_slice(&1i32.to_le_bytes());
     blob[0x190..].copy_from_slice(&[1, 32, 1, 0]);
     let tiles = DenseCollisionTiles::read(&blob).unwrap();
+    assert_eq!(tiles.flags_at([0, 0]), Some(1));
+    assert_eq!(tiles.flags_at([1, 0]), None);
+    assert_eq!(tiles.flags_at([-1, 0]), None);
+    assert_eq!(tiles.flags_at([2, 0]), None);
     assert_eq!(tiles.flags, [1, 32]);
     assert_eq!(tiles.exists, [1, 0]);
     assert!(DenseCollisionTiles::read(&blob[..0x193]).is_err());

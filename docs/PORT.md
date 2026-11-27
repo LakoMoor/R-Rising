@@ -737,3 +737,8 @@ Tile data continuation: a bounded reader now reads dense collision flags and exi
 from local TileBlob values. All 9,268 installed TileData references resolved; 4,553 unique blobs
 contain 99,199 dense entries. Runtime placement, map assembly and collision response remain
 unimplemented. See `evidence/tile_collision_data.md`.
+
+Local tile lookup continuation: sparse and dense collision representations agree for all
+46,139 sparse records in the installed unique TileBlobs. Dense bounds are exclusive and X
+is the fast array axis. A bounded coordinate lookup now distinguishes absent tiles from zero
+flags; world collision assembly and response remain pending. See the tile collision evidence.

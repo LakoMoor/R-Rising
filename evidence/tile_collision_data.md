@@ -19,3 +19,13 @@ include prefab data and do not establish that the tiles are instantiated in the 
 The runtime map path must still be traced from the original `CheckMovingCircle` caller through
 tile registration, placement, height level and disabled flags. Movement cannot yet use this data
 faithfully. No gameplay collision scenario or original-side performance comparison was executed.
+
+Follow-up verification: of 4,553 unique blobs, 2,362 have nonempty dense arrays and 2,191
+have empty arrays. Every nonempty array length equals `(Max.x-Min.x)*(Max.y-Min.y)`.
+The sparse collision records at TileBlob offset 0x168 have a 12-byte stride (int2 coordinate,
+one flag byte, padding). All 46,139 records fit the blob, fall within dense bounds and match
+the dense flag at `(y-Min.y)*width + (x-Min.x)`, with the existence byte set.
+The alternate y-fast layout matched only 33,501 records. This cross-check establishes local
+coordinate indexing on the installed data; world placement and original runtime behavior
+remain unverified. `flags_at` returns None for absent or out-of-range tiles; it does not treat
+missing map data as passable space.

@@ -2,7 +2,7 @@
 use anyhow::{Context, Result};
 use rrising_content::{
     entity_scenes::SceneFile,
-    tile_blob::{DenseCollisionTiles, TILE_DATA_HASH},
+    tile_blob::{sparse_collision_tiles, DenseCollisionTiles, TILE_DATA_HASH},
     type_layouts::TypeLayouts,
 };
 use std::{collections::BTreeSet, path::PathBuf};
@@ -24,6 +24,12 @@ fn main() -> Result<()> {
     let mut unique = BTreeSet::new();
     let mut dense = 0;
     let mut nonzero = 0;
+    let mut sparse_count = 0;
+    let mut x_matches = 0;
+    let mut exclusive = 0;
+    let mut inclusive = 0;
+    let mut empty = 0;
+    let mut other = 0;
     for path in paths {
         let scene = SceneFile::open(&path)?;
         if !scene
@@ -56,6 +62,21 @@ fn main() -> Result<()> {
                     .with_context(|| format!("scene {}", path.display()))?;
                 if unique.insert(blob.hash) {
                     dense += tiles.flags.len();
+                    for entry in sparse_collision_tiles(blob.data)? {
+                        sparse_count += 1;
+                        x_matches += usize::from(tiles.flags_at(entry.tile) == Some(entry.flags));
+                    }
+                    let [x0, z0, x1, z1] = tiles.bounds.map(i64::from);
+                    let n = tiles.flags.len() as i64;
+                    if n == 0 {
+                        empty += 1;
+                    } else if (x1 - x0) * (z1 - z0) == n {
+                        exclusive += 1;
+                    } else if (x1 - x0 + 1) * (z1 - z0 + 1) == n {
+                        inclusive += 1;
+                    } else {
+                        other += 1;
+                    }
                     nonzero += tiles.flags.iter().filter(|&&x| x != 0).count();
                 }
                 anyhow::ensure!(
@@ -70,5 +91,11 @@ fn main() -> Result<()> {
         );
     }
     println!("references={refs} null={nulls} unique_blobs={} dense_entries={dense} nonzero_flags={nonzero}",unique.len());
+    println!("bounds exclusive={exclusive} inclusive={inclusive} empty={empty} other={other}");
+    println!("sparse={sparse_count} x_fast_matches={x_matches}");
+    anyhow::ensure!(
+        sparse_count == x_matches && other == 0,
+        "sparse/dense collision layout mismatch"
+    );
     Ok(())
 }
