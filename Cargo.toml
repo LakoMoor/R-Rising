@@ -8,6 +8,7 @@ members = [
     "crates/rrising-render",
     "crates/rrising-app",
     "crates/rrising-web",
+    "crates/rrising-launcher",
 ]
 
 [workspace.package]

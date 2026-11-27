@@ -826,3 +826,12 @@ cases; queue mutation and source-to-buffer integration have synthetic ECS tests,
 disabled chains and stale references. Full native enqueue-job replay remains absent. Source
 event lifecycle, scheduling, priority selection and active-child replacement remain pending.
 See `evidence/transition_queue.md`.
+
+Windows launcher (2026-11-28): a native gpui-fast 0.1.19 window selects and
+persists the installation folder, verifies all four pinned file hashes off the
+UI thread, and starts the existing experimental player script. The launched
+scene rendered successfully; closing it restored the launch button. Folder
+selection and a missing-install failure were also checked. This is a source
+checkout launcher, requiring Cargo/PowerShell and Python for initial layouts;
+it adds no gameplay parity or original-game performance comparison. See
+`verification/launcher-gpui-fast.json` and `screenshots/launcher-gpui-fast.png`.

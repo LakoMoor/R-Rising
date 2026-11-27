@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-28",
+  "target": "V Rising 1.1.13.0-r99712-b17",
+  "launcher": "rrising-launcher",
+  "ui": "gpui-fast 0.1.19",
+  "platform_verified": "Windows",
+  "checks": {
+    "cargo_build_locked": "passed",
+    "cargo_clippy_all_targets_deny_warnings": "passed",
+    "core_regressions": "auto_chain_job 1, transition_queue 2, weighted_spawn 1 passed",
+    "cli_pinned_install": "passed, four files verified against reference.lock.json",
+    "cli_missing_install": "exit 1 with missing VERSION path",
+    "native_folder_picker": "selected install root and persisted JSON path",
+    "ui_verify": "progress status followed by success and enabled launch",
+    "ui_launch": "native experimental scene rendered",
+    "child_window_close": "launcher returned to ready state"
+  },
+  "launched_scene_log": {
+    "drawn_mesh_instances": 9474,
+    "draw_groups_including_prototype": 318,
+    "bound_textures_including_prototype": 317
+  },
+  "screenshot": "../screenshots/launcher-gpui-fast.png",
+  "limits": [
+    "Source checkout launcher, not a portable binary release",
+    "Cargo and PowerShell required; Python needed for initial layout generation",
+    "Experimental native scene, not the reference screenshot location",
+    "No complete gameplay, collision, inventory or original animation scheduler",
+    "No new original-game behavior or performance comparison"
+  ]
+}

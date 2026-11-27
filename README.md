@@ -82,6 +82,31 @@ Without `--offscreen` the window has a fly camera (WASD, Q/E, arrow keys, Shift)
 `--compare` writes stored-versus-simulated PNGs, a pixel diff and timings. This compares
 two Rust renders using the same GPU data, not a screenshot from the original game.
 
+## Windows launcher (gpui-fast)
+
+```powershell
+./tools/run_launcher.ps1           # build and open the native launcher
+./tools/run_launcher.ps1 -Check    # verify the local pinned installation only
+```
+
+The launcher uses `gpui-fast` 0.1.19. Choose the installation folder containing
+`GameAssembly.dll`, verify its four pinned files, then launch the experimental
+native player prototype. Hashing and the child process run off the UI thread.
+The selected folder and launch log stay local in `target/launcher-config.json`
+and `target/launcher-prototype.log`. `VRISING_DATA` overrides the saved folder
+and must point to its `VRising_Data` directory.
+
+This first launcher runs from a source checkout on Windows with Rust/Cargo and
+PowerShell. Initial layout generation also requires Python 3 on PATH, or an
+explicit interpreter path in `RRISING_PYTHON`. It starts the diagnostic scene
+with WASD movement, sampled rest/walk animation and static HUD frames; gameplay,
+collision and full HUD state remain incomplete. It is not a standalone binary
+distribution or a browser launcher.
+
+![Native gpui-fast launcher](docs/screenshots/launcher-gpui-fast.png)
+
+Verification: [launcher evidence](docs/verification/launcher-gpui-fast.json).
+
 ## Native build
 
 Rust **1.99.0** is pinned in `rust-toolchain.toml`.

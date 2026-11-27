@@ -1,0 +1,13 @@
+[package]
+name = "rrising-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+gpui = { package = "gpui-fast", version = "=0.1.19", default-features = false, features = ["windows-manifest"] }
+gpui_platform = { package = "gpui-fast-platform", version = "=0.1.19", default-features = false }
