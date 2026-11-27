@@ -685,3 +685,9 @@ identity UV scale/offset checked. On the pinned client both references decoded i
 integration test; an offscreen Windows frame bound 315 textured groups (previously 313), with
 no texture upload fallback. The cloak uses a debug-grid material, not a verified gameplay
 selection; its runtime replacement, head attachment and original shaders remain unresolved.
+
+Face-catalog continuation: `candidate_male_faces` follows the pinned player prefab's
+`HybridEquipmentUser` into a 15-entry face collection, checks pointer targets and preserves
+the still-unidentified word per entry. An original-data test resolved 15/15 unique GameObjects.
+Only the candidate collection framing and references were inspected, not the selection rules,
+head transform, original runtime or browser integration; see `evidence/player_visual_link.md`.

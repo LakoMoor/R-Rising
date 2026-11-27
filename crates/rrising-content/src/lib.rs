@@ -12,6 +12,7 @@ pub mod content;
 pub mod entity_scenes;
 pub mod localization;
 pub mod persistence;
+pub mod player_customization;
 pub mod prefab_catalog;
 pub mod restore_world;
 pub mod scene_runtime;

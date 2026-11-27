@@ -59,3 +59,28 @@ and zero offset. The face prefab's static `Head_GEO` references the same body ma
 The runtime now binds the two gameplay-prefab base maps; the cloak's explicitly named debug
 material does not establish the appearance of an equipped cloak in the original game. The
 head attachment, runtime material replacement and shader behavior remain unknown.
+
+## Face collection and attachment evidence
+
+The candidate gameplay prefab's root has a `ProjectM.HybridEquipmentUser` MonoBehaviour.
+Its stripped 404-byte script payload contains a pointer at byte 80 to the
+`ProjectM.FeaturesCollection` named `VampireMale_FaceCollection`. A bounded scan of its
+244-byte script payload finds a count of 15 followed by 15 records of 16 bytes; each starts
+with a resolvable Unity object pointer and has a final four-byte word of zero. All 15 point
+to distinct GameObjects; entry 0 is `VampireMale_Face_Standard_Prefab`, entry 14 is
+`VampireMale_Face15_Incubus_Prefab`. The last word's meaning is unknown. Metadata identifies
+`FeaturesCollection.Entries` and `HybridEquipmentUser.FaceCollection`; it does not establish
+that byte 80 is a field solely by offset. The matching named collection and referenced prefab
+identities are independent static anchors for this build-specific interpretation.
+
+`rrising-content::player_customization::candidate_male_faces` follows and validates this
+chain and indexes the entries; it does not select a face or connect it to the renderer.
+On the pinned client, the ignored `player_face_collection_resolves_all_entries` test resolves
+15/15 entries. Rest-pose body `Head_JNT` is at approximately (0, 1.680903, -0.042089);
+the standard face mesh occupies local bounds (-0.110838, -0.058530, -0.083258) to
+(0.110838, 0.164734, 0.122686). The head joint's rotation is not identity. These observations
+do not establish the face-to-bone transform. Metadata also contains `HybridEquipmentUser`
+attachment methods and a `HybridEquipmentAttachment` type with target-bone and local-offset
+fields; neither their execution nor the standard face's binding has been observed. Next:
+recover the serialized or runtime attachment and customization-index selection, then compare
+against the original before claiming visual or behavioral parity.

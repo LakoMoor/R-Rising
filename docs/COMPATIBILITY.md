@@ -863,6 +863,11 @@ The pinned-data test verifies and decodes both serialized base-map references. T
 textures versus 313 in the earlier grey-player frame, with no upload fallback. The renderer's
 lighting and shaders are simplified; this is not a comparison to the original.
 
+The build-specific candidate male face collection reader resolves 15/15 original prefab
+entries through the player's serialized equipment component. It is a content index only:
+face choice, head-to-bone attachment and renderer wiring remain unimplemented. Details and
+static-evidence limits are in [player visual links](../evidence/player_visual_link.md).
+
 For repeatable diagnostics, `--scene ... --spawn-player --offscreen out.png --animation-frame N`
 renders one of the same 24 precomputed walk samples used by the live experimental loop (N=0..23).
 Frames 0 and 6 were rendered from the pinned client with identical camera and produced different
