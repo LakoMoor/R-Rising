@@ -68,3 +68,75 @@ fn auto_path_matches_original_replay() {
         );
     }
 }
+
+#[test]
+fn automatic_progress_matches_original_replay() {
+    use rrising_core::auto_chain::{progress, AutoProgressElement};
+    let data: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../evidence/oracles/auto_chain_progress.json"
+    ))
+    .unwrap();
+    let cases = data["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 1040);
+    for (index, case) in cases.iter().enumerate() {
+        let elements: Vec<_> = case["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, e)| AutoProgressElement {
+                enabled: e["enabled"].as_bool().unwrap(),
+                duration: e["duration"].as_f64().unwrap() as f32,
+                target: e["target"].as_i64().unwrap() as i32,
+                end: e["end"].as_bool().unwrap(),
+                event: [(i + 1) as u8; 32],
+            })
+            .collect();
+        let result = progress(
+            &elements,
+            case["main"].as_i64().unwrap() as i32,
+            case["current"].as_i64().unwrap() as i32,
+            case["loop"].as_bool().unwrap(),
+            case["stop"].as_bool().unwrap(),
+            case["skip"].as_bool().unwrap(),
+            case["surplus"].as_f64().unwrap(),
+            128,
+        )
+        .unwrap();
+        assert_eq!(
+            result.success,
+            case["success"].as_bool().unwrap(),
+            "success {index}"
+        );
+        assert_eq!(
+            i64::from(result.origin),
+            case["origin"].as_i64().unwrap(),
+            "origin {index}"
+        );
+        assert_eq!(
+            i64::from(result.target),
+            case["target"].as_i64().unwrap(),
+            "target {index}"
+        );
+        let event: String = result.event.iter().map(|v| format!("{v:02x}")).collect();
+        assert_eq!(event, case["event"].as_str().unwrap(), "event {index}");
+        assert_eq!(
+            result.forwarded.to_bits(),
+            u64::from_str_radix(case["duration_bits"].as_str().unwrap(), 16).unwrap(),
+            "forwarded {index}"
+        );
+    }
+}
+
+#[test]
+fn zero_duration_cycle_reports_host_budget_exhaustion() {
+    use rrising_core::auto_chain::{progress, AutoProgressElement};
+    let elements = [AutoProgressElement {
+        enabled: true,
+        duration: 0.,
+        target: 0,
+        end: false,
+        event: [0; 32],
+    }];
+    assert!(progress(&elements, 1, 0, true, false, false, 0., 16).is_err());
+}

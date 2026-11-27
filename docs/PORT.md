@@ -795,3 +795,8 @@ paths, including the 20-iteration cutoff. The adapter over installed definitions
 4,251 reachable starting elements and 46 failures; those install-wide counts are Rust-only
 and are not a separate original-data oracle. No live spawning or transitions are executed.
 See `evidence/auto_chain_path.md`.
+
+Automatic progression continuation: iterative Rust progression matches 1,040 isolated original
+recursive outcomes (indices, event and forwarded time). A separate host step budget rejects
+zero-duration cycles; this guard is not original behavior. Event queueing, priority selection,
+entity replacement and tile registration are still missing. See `evidence/auto_chain_progress.md`.

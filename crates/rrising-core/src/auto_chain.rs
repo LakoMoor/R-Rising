@@ -77,3 +77,84 @@ pub fn definition_duration_until_main(
         .collect();
     duration_until_main(&elements, chain.main_index, start)
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct AutoProgressElement {
+    pub enabled: bool,
+    pub duration: f32,
+    pub target: i32,
+    pub end: bool,
+    pub event: [u8; 32],
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AutoProgress {
+    pub success: bool,
+    pub origin: i32,
+    pub target: i32,
+    pub event: [u8; 32],
+    pub forwarded: f64,
+}
+/// Iterative equivalent of the verified valid-array automatic progression path.
+/// max_steps is a host safety budget; exhaustion is an error, not an original result.
+#[allow(clippy::too_many_arguments)]
+pub fn progress(
+    elements: &[AutoProgressElement],
+    main: i32,
+    current: i32,
+    loop_on_end: bool,
+    stop_at_main: bool,
+    skip_next_lifetime: bool,
+    surplus: f64,
+    max_steps: usize,
+) -> anyhow::Result<AutoProgress> {
+    let mut current = current;
+    let mut stop = stop_at_main;
+    let mut skip = skip_next_lifetime;
+    let mut surplus = surplus;
+    let mut last = None;
+    for _ in 0..max_steps {
+        let Some(element) = usize::try_from(current).ok().and_then(|i| elements.get(i)) else {
+            return Ok(last.unwrap_or(AutoProgress {
+                success: false,
+                origin: 0,
+                target: current,
+                event: [0; 32],
+                forwarded: 0.,
+            }));
+        };
+        if (current == main && stop)
+            || !element.enabled
+            || (!skip && f64::from(element.duration) > surplus)
+        {
+            return Ok(last.unwrap_or(AutoProgress {
+                success: false,
+                origin: current,
+                target: current,
+                event: [0; 32],
+                forwarded: surplus,
+            }));
+        }
+        if !skip {
+            surplus -= f64::from(element.duration);
+        }
+        let target = if element.end && !loop_on_end {
+            -1
+        } else {
+            element.target
+        };
+        last = Some(AutoProgress {
+            success: true,
+            origin: current,
+            target,
+            event: element.event,
+            forwarded: surplus,
+        });
+        if element.end && !loop_on_end {
+            return Ok(last.expect("just assigned"));
+        }
+        stop |= current == main;
+        current = element.target;
+        skip = false;
+    }
+    anyhow::bail!("automatic progression exceeded host step budget")
+}
