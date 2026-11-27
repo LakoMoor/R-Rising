@@ -19,3 +19,6 @@ indexmap.workspace = true
 log.workspace = true
 rustc-hash.workspace = true
 unity-formats = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -766,3 +766,8 @@ with their static placement keys. All 227,511 pinned rows have nonnegative trans
 1,514 of 1,528 direct GUIDs match client tile definitions. The 225,983 chain requests still
 require original selection behavior before collision assembly. Client MegaStatic prefab
 buffers are empty in the baked scenes. See `evidence/subscene_tile_spawns.md`.
+
+Weighted spawn continuation: shared core group/chain selection and RNG advancement match
+1,024 isolated original selection outputs. Capture supplies metadata initialization and two
+valid-input blob accessor substitutions; exception paths are excluded. Original settings blob
+loading, RNG initialization and spawning remain to be connected. See `evidence/weighted_spawn_chain.md`.
