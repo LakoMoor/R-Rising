@@ -652,3 +652,16 @@ build, Apple Silicon host) takes 0.11 s wall time over five runs: decompress, de
 world data and systems. There is **no matching original-side figure**: the original server loads under
 CrossOver/Rosetta with startup dominated by Wine and scene streaming, and its log does not isolate
 save-load time. This number must not be read as a speed-up over the original.
+
+## Windows diagnostic continuation (2026-11-27)
+
+The local Windows client GameAssembly and metadata hashes match `reference.lock.json`.
+`cargo check --locked -p rrising-app` and `cargo build --locked -p rrising-app` passed.
+The layout probe matched 1,772 of 1,772 scene hashes. The new PowerShell launcher
+checks the pinned hashes and keeps its generated layout under ignored `target/`.
+An offscreen frame with the partial player and sample 6 of the walk clip rendered
+at 1280x720: 9,474 scene mesh instances, 316 draw groups and 313 bound textures;
+see [Windows diagnostic frame](screenshots/windows-player-diagnostic.png). This is
+not a gameplay comparison. A pinned-data synthetic W press/release test passed
+(1/1); it does not test operating-system key events. Original gameplay scenarios
+remain 0, and no original-side performance comparison was performed.

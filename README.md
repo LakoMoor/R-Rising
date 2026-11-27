@@ -105,6 +105,20 @@ tools/run_player_prototype.sh --check
 tools/run_player_prototype.sh
 ```
 
+On Windows, from the repository root (Python 3 and Cargo must be on PATH):
+
+```powershell
+./tools/run_player_prototype.ps1 -Check
+./tools/run_player_prototype.ps1
+```
+
+The PowerShell launcher defaults to the adjacent `VRising_Data` directory. Use
+`-Data`, `-Python`, `-Layout`, `-Scene` or `-Position` to override its inputs.
+The generated local layout report is kept in the ignored `target` directory.
+On the pinned Windows installation, an offscreen diagnostic frame and a synthetic
+W press/release test succeeded; actual keyboard delivery to the window is unverified.
+[Windows diagnostic frame](docs/screenshots/windows-player-diagnostic.png).
+
 The script verifies the client build, derives a temporary layout report if needed, and starts
 the scene with experimental WASD motion, a following camera and a looping walk clip. Set
 `VRISING_DATA` and optionally `RRISING_LAYOUT_REPORT` if the files are elsewhere; see
