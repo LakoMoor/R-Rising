@@ -18,7 +18,7 @@ pub struct RandomizedSettings {
     pub groups: Vec<GroupWeight>,
     pub total_group_weight: f32,
 }
-fn array(blob: &[u8], at: usize, stride: usize) -> Result<(usize, usize)> {
+pub(crate) fn array(blob: &[u8], at: usize, stride: usize) -> Result<(usize, usize)> {
     let descriptor = blob
         .get(at..at.checked_add(8).context("descriptor overflow")?)
         .context("truncated array descriptor")?;

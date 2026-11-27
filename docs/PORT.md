@@ -777,3 +777,9 @@ function. All 55 pinned server definitions (110 records) match isolated original
 RNG-state results for four seeds each, 220 cases total. Original settings arrays remain local
 in ignored probe input; only identifiers and results are committed. Spawning and chain
 transitions are not yet connected. See the weighted spawn evidence.
+
+Chain definition continuation: checked readers resolve 1,495 unique server chains with 4,297
+elements and 15,727 transitions. All prior 220 weighted selections link through main elements
+to known TileData definitions. Main-index and transition-target bounds are checked against
+the installed data. Runtime selection of active elements, transition execution and placement
+remain unverified. See `evidence/spawn_chain_linkage.md`.
