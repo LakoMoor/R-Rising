@@ -771,3 +771,9 @@ Weighted spawn continuation: shared core group/chain selection and RNG advanceme
 1,024 isolated original selection outputs. Capture supplies metadata initialization and two
 valid-input blob accessor substitutions; exception paths are excluded. Original settings blob
 loading, RNG initialization and spawning remain to be connected. See `evidence/weighted_spawn_chain.md`.
+
+Original weighted settings continuation: checked blob arrays now feed the shared selection
+function. All 55 pinned server definitions (110 records) match isolated original GUID and
+RNG-state results for four seeds each, 220 cases total. Original settings arrays remain local
+in ignored probe input; only identifiers and results are committed. Spawning and chain
+transitions are not yet connected. See the weighted spawn evidence.

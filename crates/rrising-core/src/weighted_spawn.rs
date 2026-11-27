@@ -50,3 +50,28 @@ pub fn select(groups: &[WeightedGroup], total_group_weight: f32, state: &mut u32
         .context("chain selection outside array")?;
     Ok(group.chains[index].guid)
 }
+
+/// Feed locally read original settings to the same verified selection operation.
+#[cfg(feature = "content")]
+pub fn select_settings(
+    settings: &rrising_content::randomized_settings::RandomizedSettings,
+    state: &mut u32,
+) -> Result<i32> {
+    let groups: Vec<_> = settings
+        .groups
+        .iter()
+        .map(|group| WeightedGroup {
+            weight: group.weight,
+            total_chain_weight: group.total_chain_weight,
+            chains: group
+                .chains
+                .iter()
+                .map(|c| WeightedChain {
+                    guid: c.guid,
+                    weight: c.weight,
+                })
+                .collect(),
+        })
+        .collect();
+    select(&groups, settings.total_group_weight, state)
+}

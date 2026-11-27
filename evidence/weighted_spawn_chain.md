@@ -22,3 +22,22 @@ and reports an error for out-of-array selection. Those errors are not original e
 The helper is not yet wired to original settings blobs, runtime replacement lookups, seed
 initialization, spawning or chain transitions. No game scenario or comparative performance
 is measured. It is a verified bounded selection operation for the pending spawn pipeline.
+
+Original-settings continuation (2026-11-27): `randomized_settings` reads checked relative arrays
+with group stride 16 and chain stride 8 from local settings blobs. The pinned server scenes
+contain 110 records, representing 55 identical-per-GUID definitions. The core adapter feeds
+those values to the same bounded selection function.
+
+The pinned-data test compares four seeds per definition (0, 1, 99712 and u32::MAX) against
+220 isolated original-function observations. Every GUID and final RNG state matches. This
+uses the same metadata-ready and valid-array accessor substitutions as the synthetic oracle;
+there is still no full runtime spawn capture. The settings reader preserves stored total
+weights rather than recomputing them. Bounds and malformed nested arrays have a synthetic test.
+
+To regenerate locally, set VRISING_SERVER_DATA and RRISING_SERVER_LAYOUT_REPORT, set
+RRISING_SETTINGS_PROBE to an absolute path under ignored target/, and run the ignored
+`original_weighted_settings` test. It writes local-only settings probe inputs. Point
+RRISING_WEIGHTED_INPUT at that file and run `capture_weighted_spawn_windows.py`; only
+settings GUID, seed, selected GUID and final state enter the committed output fixture.
+Do not publish the local probe input containing original settings arrays. Runtime RNG seeding,
+replacement lookups, instantiated entities and chain transitions remain pending.

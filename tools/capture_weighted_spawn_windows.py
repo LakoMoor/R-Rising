@@ -1,7 +1,7 @@
 """Isolated weighted selection replay; metadata ready, bounded blob accessors substituted.
 Original instruction bytes remain process-local and are not distributed.
 """
-import ctypes,hashlib,json,random,re,struct,subprocess
+import ctypes,hashlib,json,random,re,struct,subprocess,os
 from pathlib import Path
 from capture_type_flags import code_at_rva
 root=Path(__file__).resolve().parent.parent;b=(root.parent/'GameAssembly.dll').read_bytes()
@@ -38,18 +38,23 @@ def total(xs):
 try:
  ctypes.memmove(p,bytes(code),len(code));run=ctypes.CFUNCTYPE(ctypes.c_int32,ctypes.c_void_p,ctypes.c_void_p)(p)
  rng=random.Random(99712);rows=[]
- for i in range(1024):
+ inputs=json.loads(Path(os.environ["RRISING_WEIGHTED_INPUT"]).read_text()) if "RRISING_WEIGHTED_INPUT" in os.environ else None
+ for i in range(len(inputs) if inputs is not None else 1024):
   groups=[]
   for g in range(i%5):
    chains=[{'guid':100+g*10+c,'weight':rng.choice([0.,.25,1.,2.,5.])} for c in range((i+g)%5)]
    groups.append({'weight':rng.choice([0.,.5,1.,3.]),'chains':chains,'total_chain_weight':total([c['weight'] for c in chains])})
-  blob=bytearray(16+16*len(groups));struct.pack_into('<iif',blob,0,16,len(groups),total([g['weight'] for g in groups]))
+  if inputs is not None: groups=inputs[i]["groups"]
+  blob=bytearray(16+16*len(groups));struct.pack_into('<iif',blob,0,16,len(groups),inputs[i]['total_group_weight'] if inputs is not None else total([g['weight'] for g in groups]))
   for g,group in enumerate(groups):
    at=16+16*g;start=len(blob)
    struct.pack_into('<iiff',blob,at,start-at,len(group['chains']),group['weight'],group['total_chain_weight'])
    for c in group['chains']:blob+=struct.pack('<if',c['guid'],c['weight'])
-  seed=[0,1,0xffffffff,rng.randrange(1<<32)][i%4];state=ctypes.c_uint32(seed);data=ctypes.create_string_buffer(bytes(blob));guid=run(data,ctypes.byref(state))
+  seed=[0,1,0xffffffff,rng.randrange(1<<32)][i%4];seed=inputs[i]["seed"] if inputs is not None else seed;state=ctypes.c_uint32(seed);data=ctypes.create_string_buffer(bytes(blob));guid=run(data,ctypes.byref(state))
   rows.append({'groups':groups,'total_group_weight':total([g['weight'] for g in groups]),'seed':seed,'guid':guid,'state':state.value})
- (root/'evidence/oracles/weighted_spawn_chain.json').write_text(json.dumps({'binary_sha256':expected,'scope':'isolated selection; metadata-ready flag and bounded array accessors supplied; no exception paths','cases':rows},separators=(',',':'))+'\n')
+ if inputs is not None:
+  rows=[{'setting_guid':case['setting_guid'],'seed':row['seed'],'guid':row['guid'],'state':row['state']} for case,row in zip(inputs,rows)]
+ output='weighted_spawn_original_settings.json' if inputs is not None else 'weighted_spawn_chain.json'
+ (root/'evidence/oracles'/output).write_text(json.dumps({'binary_sha256':expected,'scope':'isolated selection; metadata-ready flag and bounded array accessors supplied; no exception paths','cases':rows},separators=(',',':'))+'\n')
  print('captured',len(rows),'cases')
 finally:k.VirtualFree(p,0,0x8000)

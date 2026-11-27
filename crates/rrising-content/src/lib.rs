@@ -37,3 +37,5 @@ pub mod tile_blob;
 pub mod tile_catalog;
 
 pub mod subscene_spawns;
+
+pub mod randomized_settings;
