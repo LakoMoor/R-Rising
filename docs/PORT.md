@@ -835,3 +835,13 @@ selection and a missing-install failure were also checked. This is a source
 checkout launcher, requiring Cargo/PowerShell and Python for initial layouts;
 it adds no gameplay parity or original-game performance comparison. See
 `verification/launcher-gpui-fast.json` and `screenshots/launcher-gpui-fast.png`.
+
+Spawn-chain candidate selection (2026-11-28): isolated pinned client selection
+matches Rust in 400 synthetic scenarios, including every byte of the 136-byte
+result. Auto events can now pass through the ECS queue into candidate selection;
+this does not yet replace the active child or execute placement. Selection also
+executes 11,893 per-element ID requests from installed server definitions with a
+supplied prefab resolver. Shared core compiles for WASM without content readers;
+the full reader graph fails on an external Oodle/libloading dependency. Native
+and browser visual loops do not yet schedule this pipeline. See
+`../evidence/transition_selection.md` for timing, reproduction and scope.

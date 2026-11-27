@@ -1,7 +1,7 @@
 //! Transition-event key and bounded queue bridge; event lifecycle/processing remain caller-owned.
 use anyhow::{ensure, Result};
 use rrising_ecs::{Entity, TypeIndex, World};
-fn id_equal(a: &[u8], b: &[u8]) -> Result<bool> {
+pub(crate) fn id_equal(a: &[u8], b: &[u8]) -> Result<bool> {
     let n = usize::from(u16::from_le_bytes(a[..2].try_into()?));
     let m = usize::from(u16::from_le_bytes(b[..2].try_into()?));
     ensure!(n <= 29 && m <= 29, "invalid FixedString32 length");

@@ -104,4 +104,43 @@ fn installed_chain_graphs_and_weighted_choices_resolve() {
     println!(
         "automatic_elements={automatic} auto_paths_reachable={reachable} failed={unreachable}"
     );
+    let started = std::time::Instant::now();
+    let mut selected = 0;
+    let mut unsupported_terminal_ids = 0;
+    for chain in chains.values() {
+        for (index, element) in chain.elements.iter().enumerate() {
+            let ids: std::collections::BTreeSet<_> =
+                element.transitions.iter().map(|t| t.id).collect();
+            for id in ids {
+                if element.transitions.iter().any(|t| {
+                    t.id == id
+                        && usize::try_from(t.target).map_or(true, |i| i >= chain.elements.len())
+                }) {
+                    unsupported_terminal_ids += 1;
+                    continue;
+                }
+                let result = rrising_core::transition_selection::select(
+                    chain,
+                    &rrising_core::transition_selection::SelectionRequest {
+                        transition_id: id,
+                        start_element: index as i32,
+                        loop_on_end: false,
+                        forwarded_seconds: 0.,
+                        local_to_world: [0.; 16],
+                        last_failed_importance: None,
+                    },
+                    // Supplied lookup: this measures definition execution, not prefab availability.
+                    |_| Some(rrising_ecs::Entity::new(1, 1)),
+                )
+                .unwrap();
+                if let Some(candidate) = result.candidate {
+                    assert!(usize::try_from(candidate.element_index)
+                        .is_ok_and(|i| i < chain.elements.len()));
+                    selected += 1;
+                }
+            }
+        }
+    }
+    println!("selection_real_definition_requests={selected} unsupported_terminal_ids={unsupported_terminal_ids} rust_only_us={}",started.elapsed().as_micros());
+    assert_eq!((selected, unsupported_terminal_ids), (11893, 0));
 }

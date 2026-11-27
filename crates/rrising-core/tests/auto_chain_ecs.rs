@@ -24,6 +24,9 @@ fn terminal_event_is_queued_with_original_field_layout() {
         .register(TypeSpec::component_data("SpawnChainTransitionEvent", 96, 8))
         .unwrap();
     let queued_type = types.register(TypeSpec::buffer("queued", 96, 0)).unwrap();
+    let local_to_world = types
+        .register(TypeSpec::component_data("LocalToWorld", 64, 16))
+        .unwrap();
     let t = AutoEventTypes {
         clock,
         active,
@@ -39,9 +42,17 @@ fn terminal_event_is_queued_with_original_field_layout() {
     .unwrap();
     let arch = world
         .store
-        .get_or_create_archetype(&world.types, &[clock, active, instance, queued_type])
+        .get_or_create_archetype(
+            &world.types,
+            &[clock, active, instance, queued_type, local_to_world],
+        )
         .unwrap();
     let entity = world.store.create_entity(arch).unwrap();
+    let matrix: Vec<u8> = (0..16).flat_map(|i| (i as f32).to_le_bytes()).collect();
+    world
+        .store
+        .set_component_bytes(entity, local_to_world, &matrix)
+        .unwrap();
     world
         .store
         .set_component_bytes(entity, clock, &10f64.to_le_bytes())
@@ -118,6 +129,7 @@ fn terminal_event_is_queued_with_original_field_layout() {
     );
     chain.elements.push(chain.elements[0].clone());
     chain.elements[0].transitions[0].target = 1;
+    chain.elements[0].transitions[0].id = id;
     chain.elements[0].transitions[0].end_of_chain = false;
     chain.main_index = 1;
     let normalized = match apply_entity(&mut world, entity, &chain, &t, 14.).unwrap() {
@@ -131,6 +143,41 @@ fn terminal_event_is_queued_with_original_field_layout() {
     assert_eq!(
         world.store.component_bytes(entity, clock).unwrap(),
         16f64.to_le_bytes()
+    );
+    rrising_core::transition_queue::enqueue(&mut world, normalized, &queue_types).unwrap();
+    let selection = rrising_core::transition_selection::select_queued_primary(
+        &world,
+        entity,
+        0,
+        &rrising_core::transition_selection::SelectionTypes {
+            queued: queued_type,
+            instance,
+            local_to_world,
+        },
+        &chain,
+        None,
+        |guid| Some(rrising_ecs::Entity::new(guid + 1000, 3)),
+    )
+    .unwrap();
+    let candidate = selection.candidate.unwrap();
+    assert_eq!(candidate.element_index, 1);
+    assert_eq!(candidate.prefab, rrising_ecs::Entity::new(1001, 3));
+    assert_eq!(candidate.local_to_world, std::array::from_fn(|i| i as f32));
+    assert_eq!(candidate.forwarded_seconds.to_bits(), 1f64.to_bits());
+    assert_eq!(
+        candidate.auto_transition,
+        Some((&chain.elements[1].auto_transition).into())
+    );
+    assert!(!candidate.destroy_chain_on_end);
+    // Candidate selection alone must not replace the live child or consume the request.
+    assert_eq!(world.store.component_bytes(entity, active).unwrap(), &a);
+    assert_eq!(
+        world
+            .store
+            .buffer_payload(&world.types, entity, queued_type)
+            .unwrap()
+            .len(),
+        96
     );
     chain.main_index = 0;
     chain.elements[0].transitions[0].target = 0;

@@ -22,3 +22,7 @@ into the chain's buffer and compares the payload. No active child is replaced by
 Clippy and native tests pass; WASM compilation was checked in the preceding work session.
 Browser execution, full original queue parity, transition priority selection, prefab replacement
 and tile-map updates remain pending.
+
+Follow-up: bounded priority/candidate selection now has 400 original-side oracle
+cases and an ECS queue-to-selection integration test. See transition_selection.md.
+Full queue parity, actual replacement, placement and scheduling are still pending.

@@ -19,6 +19,14 @@ original assets, executables or decompiled sources should be distributed.
 
 ## Metrics
 
+Spawn-chain candidate selection now matches 400 isolated original-client cases
+(232 candidates, 168 no-selection results), comparing signed priority and the
+complete 136-byte output. Its ECS bridge reads queued requests, and installed
+server definitions yield 11,893 selections with a supplied prefab lookup. These
+checks do not execute placement, replace active children or run the chain system
+in either visual loop. See [selection evidence](../evidence/transition_selection.md),
+including the single-pass Rust-only timing and the full-reader WASM limitation.
+
 `progress.json` is reproducible with `python3 tools/port_coverage.py --json`.
 It measures heuristic **member name matches** only. It can credit unrelated
 identifiers and does not prove overload coverage, correctness, or runtime wiring.

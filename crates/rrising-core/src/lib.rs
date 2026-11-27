@@ -33,3 +33,4 @@ pub mod auto_chain;
 pub mod auto_chain_ecs;
 
 pub mod transition_queue;
+pub mod transition_selection;
