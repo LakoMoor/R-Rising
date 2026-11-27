@@ -725,3 +725,10 @@ Rust positions matched bit-for-bit for five tested steps. Chrome input and relea
 tested separately; neither test compares behavior with the running original game. Collision,
 original scheduling and Animator behavior, gameplay and performance parity remain unmeasured.
 See `docs/verification/browser-player-motion.json`.
+
+
+Collision data continuation: local scene collider references and their common headers can now be
+read without treating serialized offsets as pointers. The pinned diagnostic scene has 147 root
+colliders, all compound. Metadata also exposes a separate tile-based moving-circle collision
+path; its runtime callers, tile data and behavior are not yet recovered. The prototype still
+passes through obstacles. See `evidence/physics_collider_survey.md` for counts and limits.

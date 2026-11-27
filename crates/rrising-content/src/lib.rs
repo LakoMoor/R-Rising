@@ -29,3 +29,5 @@ pub mod type_layouts;
 pub mod world_adapter;
 
 pub mod shared_values;
+
+pub mod physics_collider;
