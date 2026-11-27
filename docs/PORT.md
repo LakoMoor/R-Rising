@@ -742,3 +742,9 @@ Local tile lookup continuation: sparse and dense collision representations agree
 46,139 sparse records in the installed unique TileBlobs. Dense bounds are exclusive and X
 is the fast array axis. A bounded coordinate lookup now distinguishes absent tiles from zero
 flags; world collision assembly and response remain pending. See the tile collision evidence.
+
+Tile height continuation: complete isolated client getter replays cover all 65,536 compressed
+height inputs. Shared Rust height and height-level functions match float bits and levels for
+every input. Capture uses temporary executable memory only in its Windows x64 oracle process;
+the Rust runtime uses safe arithmetic. Runtime tile registration and collision integration
+remain pending. See `evidence/tile_position_height.md`.

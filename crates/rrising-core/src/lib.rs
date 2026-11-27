@@ -23,3 +23,5 @@ pub mod scene;
 
 #[cfg(feature = "content")]
 pub use scene::{base_map_name, showcase, SceneItem, SceneSpec};
+
+pub mod tile_position;
