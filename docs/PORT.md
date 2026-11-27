@@ -845,3 +845,13 @@ supplied prefab resolver. Shared core compiles for WASM without content readers;
 the full reader graph fails on an external Oodle/libloading dependency. Native
 and browser visual loops do not yet schedule this pipeline. See
 `../evidence/transition_selection.md` for timing, reproduction and scope.
+
+Essential chain attachment (2026-11-28): 432 isolated original-client command
+traces match the non-static Rust attachment plan. Pinned generic metadata resolves
+the requested Disabled + SpawnChainChild component set. The prepared-child ECS
+bridge writes chain/child links, optional network linkage and parent auto clock,
+then creates the change event. The auto-event/queue/selection test now reaches
+these actual ECS writes. Fixtures remain synthetic; prefab cloning, TRS, placement,
+static/mega-static branches, Disabled removal, old-child destruction and original
+deferred scheduling remain absent. No visual-loop or performance parity is claimed.
+See `../evidence/chain_attachment.md`.

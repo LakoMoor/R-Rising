@@ -32,5 +32,6 @@ pub mod auto_chain;
 #[cfg(feature = "content")]
 pub mod auto_chain_ecs;
 
+pub mod chain_attachment;
 pub mod transition_queue;
 pub mod transition_selection;

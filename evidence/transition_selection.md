@@ -63,3 +63,8 @@ These checks passed. A full default-feature core WASM check was also attempted;
 it fails inside `primase-foundations` 0.3.6 because its Oodle loader unconditionally
 references `libloading::Library`. The supported browser core path excludes those
 archive readers and passes. WASM compilation is not browser execution evidence.
+
+Follow-up: a non-static essential attachment bridge can now apply selected
+candidate fields to a prepared child and parent in the ECS test. This still does
+not implement prefab creation, placement, old-child destruction or visual-loop
+scheduling. See chain_attachment.md for its 432 original-side command traces.

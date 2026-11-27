@@ -19,6 +19,13 @@ original assets, executables or decompiled sources should be distributed.
 
 ## Metrics
 
+Essential non-static chain attachment matches 432 isolated original command
+traces. Its prepared-child ECS bridge updates links, optional network linkage/clock
+and the change event. The child retains Disabled until the still-unimplemented
+spawn lifecycle handles it. Prefab cloning, placement, static branches, old-child
+destruction and visual-loop scheduling remain absent.
+See [attachment evidence](../evidence/chain_attachment.md).
+
 Spawn-chain candidate selection now matches 400 isolated original-client cases
 (232 candidates, 168 no-selection results), comparing signed priority and the
 complete 136-byte output. Its ECS bridge reads queued requests, and installed

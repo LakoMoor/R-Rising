@@ -27,6 +27,19 @@ fn terminal_event_is_queued_with_original_field_layout() {
     let local_to_world = types
         .register(TypeSpec::component_data("LocalToWorld", 64, 16))
         .unwrap();
+    let child_type = types
+        .register(TypeSpec::component_data("SpawnChainChild", 12, 4))
+        .unwrap();
+    let disabled = types.register(TypeSpec::tag("Disabled")).unwrap();
+    let networked_child = types
+        .register(TypeSpec::component_data("NetworkedSpawnChainChild", 12, 4))
+        .unwrap();
+    let static_compatible = types
+        .register(TypeSpec::component_data("StaticTransformCompatible", 24, 4))
+        .unwrap();
+    let changed_event = types
+        .register(TypeSpec::component_data("ActiveElementsChangedEvent", 8, 4))
+        .unwrap();
     let t = AutoEventTypes {
         clock,
         active,
@@ -48,6 +61,11 @@ fn terminal_event_is_queued_with_original_field_layout() {
         )
         .unwrap();
     let entity = world.store.create_entity(arch).unwrap();
+    let prefab_arch = world
+        .store
+        .get_or_create_archetype(&world.types, &[])
+        .unwrap();
+    let prefab = world.store.create_entity(prefab_arch).unwrap();
     let matrix: Vec<u8> = (0..16).flat_map(|i| (i as f32).to_le_bytes()).collect();
     world
         .store
@@ -156,12 +174,12 @@ fn terminal_event_is_queued_with_original_field_layout() {
         },
         &chain,
         None,
-        |guid| Some(rrising_ecs::Entity::new(guid + 1000, 3)),
+        |_| Some(prefab),
     )
     .unwrap();
     let candidate = selection.candidate.unwrap();
     assert_eq!(candidate.element_index, 1);
-    assert_eq!(candidate.prefab, rrising_ecs::Entity::new(1001, 3));
+    assert_eq!(candidate.prefab, prefab);
     assert_eq!(candidate.local_to_world, std::array::from_fn(|i| i as f32));
     assert_eq!(candidate.forwarded_seconds.to_bits(), 1f64.to_bits());
     assert_eq!(
@@ -198,4 +216,44 @@ fn terminal_event_is_queued_with_original_field_layout() {
         world.store.component_bytes(entity, clock).unwrap(),
         223f64.to_le_bytes()
     );
+    let child_arch = world
+        .store
+        .get_or_create_archetype(&world.types, &[child_type, disabled])
+        .unwrap();
+    let new_child = world.store.create_entity(child_arch).unwrap();
+    let changed = rrising_core::chain_attachment::apply_existing(
+        &mut world,
+        entity,
+        new_child,
+        &candidate,
+        &rrising_core::chain_attachment::AttachmentTypes {
+            child: child_type,
+            disabled,
+            active,
+            clock,
+            networked_child,
+            static_compatible,
+            changed_event,
+        },
+        224.,
+    )
+    .unwrap();
+    let attached = rrising_core::chain_attachment::plan(entity, new_child, &candidate, false, 224.);
+    assert_eq!(
+        world.store.component_bytes(entity, active).unwrap(),
+        attached.active
+    );
+    assert_eq!(
+        world.store.component_bytes(new_child, child_type).unwrap(),
+        attached.child
+    );
+    assert_eq!(
+        world.store.component_bytes(entity, clock).unwrap(),
+        323f64.to_le_bytes()
+    );
+    assert_eq!(
+        world.store.component_bytes(changed, changed_event).unwrap(),
+        attached.changed
+    );
+    assert!(world.store.exists(prefab).unwrap());
 }
