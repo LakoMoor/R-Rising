@@ -27,3 +27,5 @@ pub use scene::{base_map_name, showcase, SceneItem, SceneSpec};
 pub mod tile_position;
 
 pub mod weighted_spawn;
+
+pub mod auto_chain;

@@ -22,3 +22,7 @@ Reproduce: set VRISING_SERVER_DATA and RRISING_SERVER_LAYOUT_REPORT, then run
 Synthetic malformed nested-array checks are in the content crate's spawn_chain test.
 No original blobs, definitions or decompilation are published. Counts and code are public;
 original assets remain local. No gameplay collision or performance parity claim is made.
+
+Follow-up: auto-transition identifier, index, cooldown and duration are now decoded. The
+pinned-data test checks all 2,996 enabled elements; see auto_chain_clock.md for arithmetic
+oracles and the remaining execution boundaries.

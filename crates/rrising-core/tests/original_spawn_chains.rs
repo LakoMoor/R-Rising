@@ -71,10 +71,18 @@ fn installed_chain_graphs_and_weighted_choices_resolve() {
         ),
         (2990, 1495, 4297, 15727, 220, 0, 0)
     );
+    let mut automatic = 0;
     for chain in chains.values() {
         assert!(chain.main_element().is_some());
         for (index, element) in chain.elements.iter().enumerate() {
             assert_eq!(element.index, index as i32);
+            if element.use_auto_transition {
+                automatic += 1;
+                let config = &element.auto_transition;
+                assert!(config.duration.is_finite() && config.attempt_cooldown.is_finite());
+                assert!(usize::try_from(config.transition_index)
+                    .is_ok_and(|i| i < element.transitions.len()));
+            }
             for transition in &element.transitions {
                 if !transition.end_of_chain {
                     assert!(
@@ -84,4 +92,5 @@ fn installed_chain_graphs_and_weighted_choices_resolve() {
             }
         }
     }
+    println!("automatic_elements={automatic}");
 }

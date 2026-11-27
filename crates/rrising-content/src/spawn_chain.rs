@@ -2,21 +2,29 @@
 use crate::{entity_scenes::SceneFile, randomized_settings::array, type_layouts::TypeLayouts};
 use anyhow::{ensure, Context, Result};
 const CONSTANTS: u64 = 0x7168_4f1d_5183_e7ff;
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChainTransition {
     pub id: [u8; 32],
     pub target: i32,
     pub importance: i32,
     pub end_of_chain: bool,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AutoTransitionConfig {
+    pub transition_id: [u8; 32],
+    pub transition_index: i32,
+    pub attempt_cooldown: f32,
+    pub duration: f32,
+}
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChainElement {
     pub index: i32,
     pub prefab_guid: i32,
     pub use_auto_transition: bool,
+    pub auto_transition: AutoTransitionConfig,
     pub transitions: Vec<ChainTransition>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChainDefinition {
     pub main_index: i32,
     pub elements: Vec<ChainElement>,
@@ -48,6 +56,12 @@ impl ChainDefinition {
                 index: i32::from_le_bytes(blob[at + 40..at + 44].try_into()?),
                 prefab_guid: i32::from_le_bytes(blob[at + 44..at + 48].try_into()?),
                 use_auto_transition: blob[at + 48] != 0,
+                auto_transition: AutoTransitionConfig {
+                    transition_id: blob[at + 52..at + 84].try_into()?,
+                    transition_index: i32::from_le_bytes(blob[at + 84..at + 88].try_into()?),
+                    attempt_cooldown: f32::from_le_bytes(blob[at + 88..at + 92].try_into()?),
+                    duration: f32::from_le_bytes(blob[at + 92..at + 96].try_into()?),
+                },
                 transitions,
             });
         }

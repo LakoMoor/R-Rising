@@ -783,3 +783,9 @@ elements and 15,727 transitions. All prior 220 weighted selections link through 
 to known TileData definitions. Main-index and transition-target bounds are checked against
 the installed data. Runtime selection of active elements, transition execution and placement
 remain unverified. See `evidence/spawn_chain_linkage.md`.
+
+Automatic chain clock continuation: three complete isolated client clock functions match
+Rust double bits in 240 cases. Chain definitions now expose automatic transition timing and
+event configuration; all 2,996 enabled elements in the pinned data have valid transition
+indices and finite timing fields. Scheduling, event selection and live child replacement
+remain absent. See `evidence/auto_chain_clock.md`.
