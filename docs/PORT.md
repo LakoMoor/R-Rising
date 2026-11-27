@@ -800,3 +800,9 @@ Automatic progression continuation: iterative Rust progression matches 1,040 iso
 recursive outcomes (indices, event and forwarded time). A separate host step budget rejects
 zero-duration cycles; this guard is not original behavior. Event queueing, priority selection,
 entity replacement and tile registration are still missing. See `evidence/auto_chain_progress.md`.
+
+Automatic ECS bridge continuation: explicitly bound chain components can now create a typed
+transition event entity for the bounded path not requiring target-time adjustment. Synthetic
+ECS validation checks all 96 payload bytes and clock gates; this is not an original job oracle.
+The unsupported adjustment returns explicitly without advancing the clock. Original scheduling,
+event consumption and child replacement remain pending. See `evidence/auto_chain_ecs.md`.
